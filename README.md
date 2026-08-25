@@ -63,7 +63,8 @@ for r in model.predict("clip.mp4", conf=0.4, stream=True):   # generator, O(1) m
 
 model.predict("bus.jpg", save=True)     # writes runs/detect/predict/bus.jpg
 model.track("clip.mp4")                 # IoU tracker -> r.boxes.id
-model.predict(0, stream=True, show=True)  # webcam in a window, q or Esc to quit
+for r in model.predict(0, stream=True, show=True):  # webcam window, q or Esc quits
+    pass                                           # (a generator only runs when iterated)
 ```
 
 A webcam loop you can copy, with an FPS counter and optional tracking, lives in

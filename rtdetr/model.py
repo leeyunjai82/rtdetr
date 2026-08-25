@@ -140,7 +140,7 @@ class RTDETR:
             line_width=line_width,
             tracker=None,
         )
-        return gen if stream else list(gen)
+        return _Stream(gen, "predict") if stream else list(gen)
 
     def track(
         self,
@@ -159,7 +159,7 @@ class RTDETR:
             self.tracker = IoUTracker(iou=iou, max_age=max_age)
         kwargs.setdefault("name", "track")
         gen = self._run(source, conf=conf, tracker=self.tracker, **self._track_kwargs(kwargs))
-        return gen if stream else list(gen)
+        return _Stream(gen, "track") if stream else list(gen)
 
     def _track_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         allowed = {
@@ -442,6 +442,48 @@ class RTDETR:
 
     def __repr__(self) -> str:
         return f"RTDETR({self.model_name!r}, device={self.device!r})"
+
+
+class _Stream:
+    """The generator ``stream=True`` hands back, plus a nudge when it is dropped.
+
+    ``model.predict(0, stream=True, show=True)`` on its own looks like it should
+    open a camera, but a generator nobody iterates never runs a single frame —
+    the call just returns and the program exits in silence. Saying so is much
+    kinder than letting people debug an empty window that never appeared.
+    """
+
+    def __init__(self, generator, verb: str) -> None:
+        self._generator = generator
+        self._verb = verb
+        self._started = False
+
+    def __iter__(self):
+        self._started = True
+        return self._generator
+
+    def __next__(self):
+        self._started = True
+        return next(self._generator)
+
+    def close(self) -> None:
+        self._started = True
+        self._generator.close()
+
+    def __del__(self) -> None:
+        if self._started:
+            return
+        try:
+            print(
+                f"rtdetr: {self._verb}(stream=True) returned a generator that was never "
+                f"iterated, so nothing ran. Use it in a loop:\n"
+                f"    for r in model.{self._verb}(source, stream=True, ...):\n"
+                f"        ...\n"
+                f"or drop stream=True to get a list back.",
+                file=sys.stderr,
+            )
+        except Exception:  # interpreter shutdown - nothing useful to say
+            pass
 
 
 def _display(result: Results, frame, line_width: int | None = None) -> bool:

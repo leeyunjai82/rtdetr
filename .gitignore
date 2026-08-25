@@ -8,7 +8,10 @@ venv/
 .pytest_cache/
 .ruff_cache/
 runs/
+mirror/
+weights/
 *.onnx
+*.pth
 *.xml
 *.bin
 *.pt

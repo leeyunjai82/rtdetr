@@ -70,6 +70,51 @@ def test_export_rejects_formats_it_cannot_write():
         RTDETR("rtdetr-r18").export(format="tflite")
 
 
+class TestStreamGuard:
+    """A generator nobody iterates runs nothing — say so instead of exiting quietly."""
+
+    def _stream(self, monkeypatch):
+        from rtdetr.model import _Stream
+
+        ran = []
+
+        def generator():
+            ran.append(True)
+            yield "frame"
+
+        return _Stream(generator(), "predict"), ran
+
+    def test_dropping_the_stream_unused_explains_why_nothing_happened(self, monkeypatch, capsys):
+        import gc
+
+        stream, ran = self._stream(monkeypatch)
+        del stream
+        gc.collect()
+        assert not ran
+        err = capsys.readouterr().err
+        assert "never iterated" in err and "for r in model.predict(" in err
+
+    def test_iterating_it_stays_silent_and_yields_results(self, monkeypatch, capsys):
+        import gc
+
+        stream, ran = self._stream(monkeypatch)
+        assert list(stream) == ["frame"] and ran
+        del stream
+        gc.collect()
+        assert capsys.readouterr().err == ""
+
+    def test_it_still_behaves_like_an_iterator(self):
+        from rtdetr.model import _Stream
+
+        def generator():
+            yield 1
+            yield 2
+
+        stream = _Stream(generator(), "track")
+        assert next(stream) == 1
+        assert list(stream) == [2]
+
+
 class TestShowingFrames:
     """show=True has to keep a stream moving; a single image still waits."""
 
