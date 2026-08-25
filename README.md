@@ -152,9 +152,17 @@ module for module, so they load with `strict=True` — no remapping and no
 re-training. Building the whole mirror takes a few CPU-minutes:
 
 ```bash
-python tools/build_mirror.py --out mirror          # r18 + r34 + r50, .pt + IR + labels
-huggingface-cli upload leeyunjai/rtdetr mirror . --repo-type=model
+python tools/build_mirror.py --out mirror   # r18 + r34 + r50, .pt + IR + labels
+
+pip install -U "huggingface_hub[cli]"       # ships the `hf` command
+hf auth login                               # a token with write access
+hf upload leeyunjai/rtdetr mirror . --repo-type=model
 ```
+
+(`huggingface-cli` is the old name for `hf` and still works if you have it.
+No CLI on PATH? `python -m huggingface_hub.cli.hf upload …` does the same,
+and `HfApi().upload_folder(folder_path="mirror", repo_id=…)` does it from
+Python.)
 
 > Until that upload happens, `RTDETR("rtdetr-r18")` raises a `ModelNotFoundError`
 > naming the ways forward — it never silently falls back to an untrained network.

@@ -16,7 +16,10 @@ RT-DETR release, loads it (strict — this package's layout matches), and writes
 Upload that tree to the mirror named by ``$RTDETR_ASSETS_URL`` (by default the
 Hugging Face repo in rtdetr/downloads.py), keeping the directory names:
 
-    huggingface-cli upload leeyunjai/rtdetr mirror . --repo-type=model
+    hf upload leeyunjai/rtdetr mirror . --repo-type=model
+
+(the `hf` command comes from ``pip install -U "huggingface_hub[cli]"``; it used
+to be called ``huggingface-cli``)
 
 Everything runs on CPU in a few minutes; there is no training involved.
 """
@@ -67,7 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     out_root = Path(args.out)
     for variant in args.variants:
         build(variant, out_root, args.imgsz, args.half, args.keep_onnx)
-    print(f"\nmirror ready at {out_root}/ — upload it keeping these directory names")
+    print(f"\nmirror ready at {out_root}/ — upload it keeping these directory names:")
+    print('  pip install -U "huggingface_hub[cli]" && hf auth login')
+    print(f"  hf upload leeyunjai/rtdetr {out_root} . --repo-type=model")
     return 0
 
 
