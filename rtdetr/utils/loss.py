@@ -101,11 +101,9 @@ class SetCriterion(nn.Module):
         indices = self.matcher(outputs, targets)
         total, logs = self._loss_single(outputs, targets, indices, num_boxes)
 
-        for aux in outputs.get("aux", []):
+        # aux_outputs holds the intermediate decoder layers plus the encoder's
+        # own top-k proposals, each supervised against the same targets
+        for aux in outputs.get("aux_outputs", []):
             aux_loss, _ = self._loss_single(aux, targets, self.matcher(aux, targets), num_boxes)
             total = total + aux_loss
-        if "enc_aux" in outputs:
-            enc = outputs["enc_aux"]
-            enc_loss, _ = self._loss_single(enc, targets, self.matcher(enc, targets), num_boxes)
-            total = total + enc_loss
         return total, logs

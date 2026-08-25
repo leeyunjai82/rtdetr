@@ -82,7 +82,7 @@ def test_a_dataset_with_different_classes_re_heads_the_network(trained):
     fresh = _blank_net(7)
     moved = transfer_weights(fresh, model.net.state_dict())
     assert moved > 100  # backbone/encoder came across
-    assert fresh.decoder.dec_score[0].out_features == 7
+    assert fresh.decoder.dec_score_head[0].out_features == 7
 
 
 def test_early_stopping_gives_up_after_patience_epochs(dataset, tmp_path, capsys):
@@ -115,9 +115,7 @@ def test_training_falls_back_to_an_imagenet_start_when_the_mirror_is_unreachable
         "download_checkpoint",
         lambda name: (_ for _ in ()).throw(NotFound("offline")),
     )
-    monkeypatch.setattr(
-        "rtdetr.nn.backbone.ResNet._load_imagenet", lambda self, variant: None
-    )
+    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
     model = RTDETR("rtdetr-r18", verbose=False)
     best = model.train(data=str(dataset), project=str(tmp_path), **TRAIN_KWARGS)
     assert best.exists() and model.net.num_classes == 1

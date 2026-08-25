@@ -20,7 +20,7 @@ from pathlib import Path
 from .errors import DownloadError, ModelNotFoundError
 
 #: Where the released weights live. Layout: ``<base>/<name>/<file>``.
-DEFAULT_ASSETS_URL = "https://huggingface.co/leeyunjai/ovkit-models/resolve/main"
+DEFAULT_ASSETS_URL = "https://huggingface.co/leeyunjai/rtdetr/resolve/main"
 
 #: Names the mirror knows, with the spellings users type mapped onto them.
 MODEL_NAMES = ("rtdetr-r18", "rtdetr-r34", "rtdetr-r50")

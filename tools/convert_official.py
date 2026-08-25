@@ -1,37 +1,36 @@
 #!/usr/bin/env python3
 # Apache-2.0
-"""Convert lyuwenyu/RT-DETR (Apache-2.0) COCO weights into an rtdetr checkpoint.
+"""Turn an official RT-DETR release checkpoint into an rtdetr one.
 
-    python tools/convert_official.py --weights rtdetr_r18vd_dec3_6x_coco_from_paddle.pth \
-        --variant r18 --out rtdetr-r18.pt
+    python tools/convert_official.py --variant r18 --out weights/rtdetr-r18.pt
 
-The original release and this package share the RT-DETR design but not every
-module: our decoder uses plain multi-head cross-attention instead of deformable
-attention (it keeps ONNX/OpenVINO export dependency-free), and our CCFF fusion
-block is narrower. So the mapping below is honest about what it can move:
+With no --weights it downloads the matching Apache-2.0 COCO checkpoint from
+the original release (https://github.com/lyuwenyu/RT-DETR) and caches it under
+~/.rtdetr/official/.
 
-  * backbone residual stages          -> transferred
-  * encoder input projections + AIFI  -> transferred
-  * FPN/PAN lateral + downsample convs-> transferred
-  * CCFF fusion blocks                -> shapes differ, skipped
-  * decoder self-attention, FFN, heads-> transferred
-  * decoder cross-attention           -> deformable, no counterpart, skipped
-
-The script prints exactly how many tensors landed. A converted checkpoint is a
-*warm start*: fine-tune it on COCO (or your own data) before publishing it as
-"pretrained". Use --min-coverage in CI if you want the conversion to fail loudly
-when a future upstream rename silently drops half the weights.
+Since this package's network matches the reference layout module for module,
+the weights load with ``strict=True`` — no remapping, no re-training, and the
+outputs agree with the reference implementation to float noise. All this script
+adds is our metadata (variant, class names, imgsz) so ``RTDETR("x.pt")``,
+``val()`` and ``export()`` work straight away.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+#: Official COCO checkpoints, by our variant name.
+OFFICIAL = {
+    "r18": "rtdetr_r18vd_dec3_6x_coco_from_paddle.pth",
+    "r34": "rtdetr_r34vd_dec4_6x_coco_from_paddle.pth",
+    "r50": "rtdetr_r50vd_6x_coco_from_paddle.pth",
+}
+RELEASE_URL = "https://github.com/lyuwenyu/storage/releases/download/v0.1"
 
 COCO_NAMES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -47,84 +46,15 @@ COCO_NAMES = [
 ]
 
 
-def rename(key: str) -> str | None:
-    """Official key -> our key, or ``None`` when nothing corresponds."""
-    k = key
-
-    # ---- backbone: PResNet res_layers -> torchvision-style layer1..layer4 ----
-    m = re.match(r"backbone\.res_layers\.(\d)\.blocks\.(\d+)\.(.+)", k)
-    if m:
-        stage, block, rest = int(m.group(1)) + 1, m.group(2), m.group(3)
-        rest = (
-            rest.replace("branch2a.conv", "conv1")
-            .replace("branch2a.norm", "bn1")
-            .replace("branch2b.conv", "conv2")
-            .replace("branch2b.norm", "bn2")
-            .replace("branch2c.conv", "conv3")
-            .replace("branch2c.norm", "bn3")
-            .replace("short.conv", "downsample.0")
-            .replace("short.norm", "downsample.1")
-        )
-        if rest.startswith("branch") or rest.startswith("short"):
-            return None
-        return f"backbone.layer{stage}.{block}.{rest}"
-
-    # the vd stem (three 3x3 convs) has no counterpart in a torchvision stem
-    if k.startswith("backbone.conv1"):
-        return None
-
-    # ---- encoder ----
-    if k.startswith("encoder.input_proj."):
-        return k  # Conv+BN Sequential, identical layout
-    m = re.match(r"encoder\.encoder\.0\.layers\.(\d+)\.(.+)", k)
-    if m:
-        return f"encoder.aifi.encoder.layers.{m.group(1)}.{m.group(2)}"
-    m = re.match(r"encoder\.lateral_convs\.(\d)\.(conv|norm)\.(.+)", k)
-    if m:
-        which = "conv" if m.group(2) == "conv" else "bn"
-        return f"encoder.lateral{int(m.group(1)) + 1}.{which}.{m.group(3)}"
-    m = re.match(r"encoder\.downsample_convs\.(\d)\.(conv|norm)\.(.+)", k)
-    if m:
-        which = "conv" if m.group(2) == "conv" else "bn"
-        return f"encoder.down{int(m.group(1)) + 1}.{which}.{m.group(3)}"
-    if k.startswith(("encoder.fpn_blocks.", "encoder.pan_blocks.")):
-        return None  # CSPRepLayer vs our narrower RepBlock — shapes disagree
-
-    # ---- decoder ----
-    m = re.match(r"decoder\.decoder\.layers\.(\d+)\.(.+)", k)
-    if m:
-        i, rest = m.group(1), m.group(2)
-        if rest.startswith("cross_attn"):
-            return None  # deformable attention, nothing to map onto
-        rest = rest.replace("linear1.", "ffn.0.").replace("linear2.", "ffn.2.")
-        return f"decoder.layers.{i}.{rest}"
-    m = re.match(r"decoder\.dec_score_head\.(\d+)\.(.+)", k)
-    if m:
-        return f"decoder.dec_score.{m.group(1)}.{m.group(2)}"
-    m = re.match(r"decoder\.dec_bbox_head\.(\d+)\.(.+)", k)
-    if m:
-        return f"decoder.dec_bbox.{m.group(1)}.{m.group(2)}"
-    if k.startswith("decoder.enc_score_head."):
-        return k.replace("decoder.enc_score_head.", "decoder.enc_score.")
-    if k.startswith("decoder.enc_bbox_head."):
-        return k.replace("decoder.enc_bbox_head.", "decoder.enc_bbox.")
-    if k.startswith("decoder.query_pos_head."):
-        return k
-    if k.startswith("decoder.enc_output.0."):
-        return k.replace("decoder.enc_output.0.", "decoder.tgt_proj.")
-    if k.startswith("decoder.enc_output.1."):
-        return k.replace("decoder.enc_output.1.", "decoder.enc_norm.")
-    return None
-
-
-def load_official_state(path: Path) -> dict:
+def official_state_dict(path: Path) -> dict:
+    """Unwrap whichever container the release used (ema / model / bare)."""
     import torch
 
     blob = torch.load(str(path), map_location="cpu", weights_only=False)
     for key in ("ema", "model", "state_dict"):
         if isinstance(blob, dict) and key in blob:
             blob = blob[key]
-            if isinstance(blob, dict) and "module" in blob:  # ema wrapper
+            if isinstance(blob, dict) and "module" in blob:
                 blob = blob["module"]
             break
     if not isinstance(blob, dict):
@@ -132,52 +62,35 @@ def load_official_state(path: Path) -> dict:
     return {k: v for k, v in blob.items() if hasattr(v, "shape")}
 
 
+def resolve_weights(args) -> Path:
+    from rtdetr.downloads import cache_dir, download
+
+    if args.weights:
+        if str(args.weights).startswith(("http://", "https://")):
+            name = str(args.weights).rsplit("/", 1)[-1]
+            return download(str(args.weights), cache_dir() / "official" / name)
+        return Path(args.weights)
+    name = OFFICIAL[args.variant]
+    return download(f"{RELEASE_URL}/{name}", cache_dir() / "official" / name)
+
+
 def convert(args: argparse.Namespace) -> int:
     import torch
 
-    from rtdetr.nn.rtdetr_net import RTDETRNet
+    from rtdetr.nn import RTDETRNet
 
-    weights = Path(args.weights)
-    if str(args.weights).startswith(("http://", "https://")):
-        from rtdetr.downloads import cache_dir, download
-
-        weights = download(str(args.weights), cache_dir() / "official" / Path(args.weights).name)
-
-    official = load_official_state(weights)
+    weights = resolve_weights(args)
+    state = official_state_dict(weights)
     names = _read_names(args.names)
+
     net = RTDETRNet(args.variant, num_classes=len(names), pretrained_backbone=False)
-    target = net.state_dict()
-
-    moved, shape_mismatch, unmapped = {}, [], []
-    for key, tensor in official.items():
-        mapped = rename(key)
-        if mapped is None or mapped not in target:
-            unmapped.append(key)
-            continue
-        if tuple(target[mapped].shape) != tuple(tensor.shape):
-            shape_mismatch.append((key, tuple(tensor.shape), tuple(target[mapped].shape)))
-            continue
-        moved[mapped] = tensor
-
-    target.update(moved)
-    net.load_state_dict(target)
-
-    coverage = 100.0 * len(moved) / max(len(target), 1)
-    print(f"transferred {len(moved)}/{len(target)} tensors ({coverage:.1f}% of our model)")
-    print(f"  official tensors with no counterpart: {len(unmapped)}")
-    print(f"  mapped but shape-incompatible:        {len(shape_mismatch)}")
-    if args.report:
-        for key in unmapped[: args.report]:
-            print(f"    unmapped  {key}")
-        for key, got, want in shape_mismatch[: args.report]:
-            print(f"    mismatch  {key}: {got} != {want}")
-    if coverage < args.min_coverage:
-        print(
-            f"coverage {coverage:.1f}% is below --min-coverage {args.min_coverage}% — "
-            f"upstream layer names probably changed",
-            file=sys.stderr,
-        )
-        return 1
+    missing, unexpected = net.load_state_dict(state, strict=not args.allow_partial)
+    if missing or unexpected:
+        print(f"warning: {len(missing)} missing, {len(unexpected)} unexpected tensors")
+        for key in list(missing)[: args.report] + list(unexpected)[: args.report]:
+            print(f"    {key}")
+    else:
+        print(f"loaded all {len(state)} tensors from {weights.name}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -186,18 +99,14 @@ def convert(args: argparse.Namespace) -> int:
             "model": net.state_dict(),
             "variant": args.variant,
             "num_classes": len(names),
-            "names": {i: n for i, n in enumerate(names)},
+            "names": dict(enumerate(names)),
             "epoch": -1,
             "imgsz": args.imgsz,
-            "source": f"converted from {weights.name}",
+            "source": f"lyuwenyu/RT-DETR {weights.name} (Apache-2.0)",
         },
         out,
     )
     print(f"wrote {out}")
-    print(
-        "this is a warm start, not a finished model: the decoder's cross-attention "
-        "and the CCFF blocks are freshly initialised, so fine-tune before release."
-    )
     return 0
 
 
@@ -215,13 +124,15 @@ def _read_names(spec: str | None) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--weights", required=True, help="official .pth path or URL")
-    parser.add_argument("--variant", default="r18", choices=("r18", "r34", "r50"))
+    parser.add_argument("--variant", default="r18", choices=tuple(OFFICIAL))
+    parser.add_argument("--weights", help="official .pth path or URL (default: download it)")
     parser.add_argument("--out", default="rtdetr-converted.pt")
     parser.add_argument("--names", help="labels.txt or names.json (default: COCO 80)")
     parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--min-coverage", type=float, default=0.0, help="fail below this %%")
-    parser.add_argument("--report", type=int, default=0, help="print N example keys per bucket")
+    parser.add_argument(
+        "--allow-partial", action="store_true", help="load what matches instead of failing"
+    )
+    parser.add_argument("--report", type=int, default=10, help="print N example keys on mismatch")
     return convert(parser.parse_args(argv))
 
 

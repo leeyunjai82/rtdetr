@@ -1,0 +1,14 @@
+rtdetr
+Copyright 2026 rtdetr contributors
+
+This product includes software developed as part of RT-DETR
+(https://github.com/lyuwenyu/RT-DETR), Copyright 2023 lyuwenyu, licensed under
+the Apache License, Version 2.0.
+
+The network definition under rtdetr/nn/ (PResNet backbone, HybridEncoder,
+RTDETRTransformer and their building blocks) is adapted from that project so
+that the RT-DETR COCO checkpoints released under Apache-2.0 load unchanged.
+Module names and numerics follow the reference implementation; the packaging,
+API, trainer, validator, exporter, predictor and CLI are this project's own.
+
+No code or weights from AGPL-licensed projects are included.

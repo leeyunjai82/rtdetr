@@ -140,51 +140,54 @@ rtdetr track   model=best.pt source=clip.mp4
 
 ## Pretrained weights
 
-> **Status: the mirror is not populated yet.** Until COCO weights are published
-> there, `RTDETR("rtdetr-r18")` raises a `ModelNotFoundError` that names the ways
-> forward — it never silently falls back to an untrained network. Everything else
-> (your own `.pt`/`.xml`, training, val, export) works today.
-
 `RTDETR("rtdetr-r18")` downloads the IR for that name on first use and caches it
 in `~/.rtdetr/` (`$RTDETR_HOME` to move it, `$RTDETR_ASSETS_URL` to point at an
 internal mirror — handy for air-gapped sites). Known names: `rtdetr-r18`,
-`rtdetr-r34`, `rtdetr-r50`. Each mirror entry is `<name>/<name>.xml`, `.bin`,
+`rtdetr-r34`, `rtdetr-r50`; each mirror entry is `<name>/<name>.xml`, `.bin`,
 `.pt` and `labels.txt`.
 
-Publishing an entry takes three steps, and only the first is instant:
-
-1. `tools/convert_official.py` — move what maps from the original release.
-2. Fine-tune the result on COCO. The converted decoder cross-attention and CCFF
-   blocks start fresh (see below), so this step is what actually earns the
-   "COCO pretrained" label.
-3. Upload `.pt`, `.xml`, `.bin` and `labels.txt` to the mirror path.
-
-`tools/convert_official.py` converts the original
-[lyuwenyu/RT-DETR](https://github.com/lyuwenyu/RT-DETR) Apache-2.0 COCO weights
-into this package's layout:
+The weights are the original RT-DETR COCO checkpoints, which their authors
+release under Apache-2.0. This package's network matches that reference layout
+module for module, so they load with `strict=True` — no remapping and no
+re-training. Building the whole mirror takes a few CPU-minutes:
 
 ```bash
-python tools/convert_official.py --weights rtdetr_r18vd_6x_coco.pth \
-    --variant r18 --out rtdetr-r18.pt --report 10
+python tools/build_mirror.py --out mirror          # r18 + r34 + r50, .pt + IR + labels
+huggingface-cli upload leeyunjai/rtdetr mirror . --repo-type=model
 ```
 
-It prints exactly what transferred. Note the honest part: this decoder uses plain
-multi-head cross-attention rather than deformable attention (that is what keeps
-ONNX/OpenVINO export dependency-free), and the CCFF fusion blocks are narrower,
-so those tensors have no counterpart upstream. **A converted checkpoint is a warm
-start, not a finished COCO model — fine-tune it before publishing.**
+> Until that upload happens, `RTDETR("rtdetr-r18")` raises a `ModelNotFoundError`
+> naming the ways forward — it never silently falls back to an untrained network.
+> Point `$RTDETR_ASSETS_URL` at any host serving the same layout to use it now.
+
+For a single checkpoint without the IR:
+
+```bash
+python tools/convert_official.py --variant r18 --out rtdetr-r18.pt
+```
 
 ## Design notes
 
-* **Backbone** ResNet-18/34/50, torchvision-compatible module names, so ImageNet
-  weights load when torchvision is around.
-* **Encoder** AIFI transformer on C5 + FPN/PAN cross-scale fusion.
-* **Decoder** two-stage: dense heads pick the top-K encoder tokens as queries, six
-  layers refine them. No deformable attention, on purpose — see above.
-* **Loss** Hungarian matching, varifocal + L1 + GIoU, auxiliary and encoder heads.
+* **Backbone** PResNet-vd 18/34/50 — three-conv stem, average-pooled shortcuts.
+* **Encoder** AIFI transformer on the top level + CCFF (CSPRepLayer) FPN/PAN fusion.
+* **Decoder** two-stage: dense heads pick the top-300 encoder tokens as queries,
+  3/4/6 layers refine them with multi-scale deformable cross-attention.
+* **Loss** Hungarian matching, varifocal + L1 + GIoU, over every decoder layer
+  and the encoder's own proposals.
 * **Validation** COCO-style mAP50 / mAP50-95, 101-point interpolation, no
   pycocotools dependency.
 * **Inference** OpenVINO, plain resize (no letterbox) to match training.
+
+The network definition under `rtdetr/nn/` is adapted from the RT-DETR reference
+implementation ([lyuwenyu/RT-DETR](https://github.com/lyuwenyu/RT-DETR),
+Apache-2.0) precisely so its released weights load here unchanged; see
+[NOTICE](NOTICE). Everything around it — packaging, API, trainer, validator,
+exporter, predictor, CLI — is this project's own. Nothing here derives from an
+AGPL-licensed project.
+
+Deformable attention is the `grid_sample` formulation, so the export path stays
+plain ONNX (opset 16+) → OpenVINO; a test pins it to within 1e-4 of eager
+PyTorch, and the assembled model matches the reference implementation to ~1e-5.
 
 ## Development
 
