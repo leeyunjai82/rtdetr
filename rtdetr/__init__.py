@@ -5,7 +5,7 @@
 
     from rtdetr import RTDETR
 
-    model = RTDETR("rtdetr-r18")                     # COCO weights, fetched on demand
+    model = RTDETR("rtdetr-r18")                     # weights fetched from the mirror
     results = model("bus.jpg")                       # list[Results]
     results[0].boxes.xyxy, results[0].boxes.conf     # plain numpy
     results[0].save()

@@ -3,7 +3,7 @@
 
     from rtdetr import RTDETR
 
-    model = RTDETR("rtdetr-r18")            # pretrained, downloaded on demand
+    model = RTDETR("rtdetr-r18")            # mirrored weights, downloaded on demand
     model = RTDETR("best.pt")               # or your own checkpoint
     results = model("bus.jpg", conf=0.5)    # list[Results]
     model.train(data="data.yaml", epochs=100)

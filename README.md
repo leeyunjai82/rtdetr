@@ -16,7 +16,7 @@ pip install "rtdetr[train]"     # + training (torch, torchvision, scipy, onnx)
 ```python
 from rtdetr import RTDETR
 
-model = RTDETR("rtdetr-r18")          # COCO weights, fetched on first use
+model = RTDETR("rtdetr-r18")          # weights from the mirror (see "Pretrained weights")
 results = model("bus.jpg", conf=0.5)  # list[Results]
 
 r = results[0]
@@ -140,13 +140,24 @@ rtdetr track   model=best.pt source=clip.mp4
 
 ## Pretrained weights
 
+> **Status: the mirror is not populated yet.** Until COCO weights are published
+> there, `RTDETR("rtdetr-r18")` raises a `ModelNotFoundError` that names the ways
+> forward — it never silently falls back to an untrained network. Everything else
+> (your own `.pt`/`.xml`, training, val, export) works today.
+
 `RTDETR("rtdetr-r18")` downloads the IR for that name on first use and caches it
 in `~/.rtdetr/` (`$RTDETR_HOME` to move it, `$RTDETR_ASSETS_URL` to point at an
 internal mirror — handy for air-gapped sites). Known names: `rtdetr-r18`,
-`rtdetr-r34`, `rtdetr-r50`.
+`rtdetr-r34`, `rtdetr-r50`. Each mirror entry is `<name>/<name>.xml`, `.bin`,
+`.pt` and `labels.txt`.
 
-If a name is not on the mirror yet, the error says so and tells you the two ways
-forward: point at your own `.pt`/`.xml`, or train it.
+Publishing an entry takes three steps, and only the first is instant:
+
+1. `tools/convert_official.py` — move what maps from the original release.
+2. Fine-tune the result on COCO. The converted decoder cross-attention and CCFF
+   blocks start fresh (see below), so this step is what actually earns the
+   "COCO pretrained" label.
+3. Upload `.pt`, `.xml`, `.bin` and `labels.txt` to the mirror path.
 
 `tools/convert_official.py` converts the original
 [lyuwenyu/RT-DETR](https://github.com/lyuwenyu/RT-DETR) Apache-2.0 COCO weights
@@ -214,7 +225,7 @@ Ultralytics YOLO와 사용법이 같지만 라이선스는 Apache-2.0입니다. 
 ```python
 from rtdetr import RTDETR
 
-model = RTDETR("rtdetr-r18")               # COCO 사전학습 가중치 자동 다운로드
+model = RTDETR("rtdetr-r18")               # 미러에서 가중치 다운로드 (아래 "Pretrained weights" 참고)
 results = model("bus.jpg", conf=0.5)       # list[Results]
 results[0].boxes.xyxy                      # numpy 배열
 results[0].save()                          # 결과 이미지 저장
