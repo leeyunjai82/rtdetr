@@ -218,12 +218,14 @@ class RTDETR:
                     )
                 if writer is not None:
                     writer.write(result, frame, line_width=line_width)
-                if show:
-                    result.show()
+                if show and not _display(result, frame, line_width):
+                    break  # the viewer asked to stop (q / Esc / window closed)
                 yield result
         finally:
             if writer is not None:
                 writer.close()
+            if show:
+                _close_windows()
 
     def _ensure_predictor(self, device: str | None = None, imgsz: int | None = None):
         """Compile (downloading or exporting first, if needed) the OpenVINO model."""
@@ -440,6 +442,25 @@ class RTDETR:
 
     def __repr__(self) -> str:
         return f"RTDETR({self.model_name!r}, device={self.device!r})"
+
+
+def _display(result: Results, frame, line_width: int | None = None) -> bool:
+    """Show one frame without blocking the stream. False means "stop"."""
+    import cv2
+
+    window = Path(frame.path).name or "rtdetr"
+    cv2.imshow(window, result.plot(line_width=line_width))
+    key = cv2.waitKey(1 if frame.kind != "image" else 0) & 0xFF
+    if key in (ord("q"), 27):  # q or Esc
+        return False
+    return cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) >= 1
+
+
+def _close_windows() -> None:
+    import cv2
+
+    cv2.destroyAllWindows()
+    cv2.waitKey(1)  # let the window manager actually take the close down
 
 
 class _OutputWriter:

@@ -63,6 +63,15 @@ for r in model.predict("clip.mp4", conf=0.4, stream=True):   # generator, O(1) m
 
 model.predict("bus.jpg", save=True)     # writes runs/detect/predict/bus.jpg
 model.track("clip.mp4")                 # IoU tracker -> r.boxes.id
+model.predict(0, stream=True, show=True)  # webcam in a window, q or Esc to quit
+```
+
+A webcam loop you can copy, with an FPS counter and optional tracking, lives in
+[`examples/webcam.py`](examples/webcam.py):
+
+```bash
+python examples/webcam.py --track          # camera 0
+python examples/webcam.py --source rtsp://camera/live --conf 0.4 --save
 ```
 
 The log line reads the way you expect:

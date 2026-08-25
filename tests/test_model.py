@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -67,6 +68,66 @@ def test_val_without_weights_explains_how_to_get_them():
 def test_export_rejects_formats_it_cannot_write():
     with pytest.raises(ValueError, match="openvino"):
         RTDETR("rtdetr-r18").export(format="tflite")
+
+
+class TestShowingFrames:
+    """show=True has to keep a stream moving; a single image still waits."""
+
+    @staticmethod
+    def _fake_cv2(key):
+        import types
+
+        seen = {"windows": [], "delays": [], "closed": 0}
+
+        def wait(delay):
+            seen["delays"].append(delay)
+            return key
+
+        fake = types.SimpleNamespace(
+            imshow=lambda window, img: seen["windows"].append(window),
+            waitKey=wait,
+            getWindowProperty=lambda window, prop: 1.0,
+            destroyAllWindows=lambda: seen.__setitem__("closed", seen["closed"] + 1),
+            WND_PROP_VISIBLE=0,
+        )
+        return fake, seen
+
+    def _frame(self, kind):
+        from rtdetr.sources import Frame
+
+        return Frame(np.zeros((4, 4, 3), np.uint8), "clip.mp4", 1, 1, kind, frame=1, frames=10)
+
+    def _result(self, monkeypatch):
+        from rtdetr.results import Results
+
+        monkeypatch.setattr(
+            Results, "plot", lambda self, **kwargs: np.zeros((4, 4, 3), np.uint8)
+        )
+        return Results(np.zeros((4, 4, 3), np.uint8))
+
+    def test_video_frames_do_not_wait_for_a_key(self, monkeypatch):
+        from rtdetr import model as model_module
+
+        fake, seen = self._fake_cv2(key=ord("x"))
+        monkeypatch.setitem(sys.modules, "cv2", fake)
+        assert model_module._display(self._result(monkeypatch), self._frame("video")) is True
+        assert seen["delays"] == [1] and seen["windows"] == ["clip.mp4"]
+
+    def test_a_single_image_still_waits_for_a_key(self, monkeypatch):
+        from rtdetr import model as model_module
+
+        fake, seen = self._fake_cv2(key=ord("x"))
+        monkeypatch.setitem(sys.modules, "cv2", fake)
+        model_module._display(self._result(monkeypatch), self._frame("image"))
+        assert seen["delays"] == [0]
+
+    @pytest.mark.parametrize("key", [ord("q"), 27])
+    def test_q_and_esc_stop_the_stream(self, monkeypatch, key):
+        from rtdetr import model as model_module
+
+        fake, _ = self._fake_cv2(key=key)
+        monkeypatch.setitem(sys.modules, "cv2", fake)
+        assert model_module._display(self._result(monkeypatch), self._frame("video")) is False
 
 
 @needs_torch
