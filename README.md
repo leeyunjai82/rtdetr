@@ -96,6 +96,38 @@ image 1/1 bus.jpg: 640x640 4 persons, 1 bus, 12.3ms
 | `r.summary()` | detections as JSON-ready dicts |
 | `r.speed` | `{"preprocess": ms, "inference": ms, "postprocess": ms}` |
 
+## Which variant, and how fast
+
+| variant | backbone | CCFF width | decoder layers | params | COCO AP | T4 FPS (upstream) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `rtdetr-r18` | PResNet-18 (basic blocks) | 0.5× | 3 | 20M | 46.4 | 217 |
+| `rtdetr-r34` | PResNet-34 (basic blocks) | 0.5× | 4 | 31M | 48.9 | 161 |
+| `rtdetr-r50` | PResNet-50 (bottlenecks) | 1.0× | 6 | 43M | 53.1 | 108 |
+
+Those FPS numbers are the upstream figures for a **T4 GPU with TensorRT FP16**.
+On a CPU this is a transformer doing 640×640 attention, and it is far slower —
+measured here on 4 CPU cores, median over 12 frames:
+
+| setup | ms/frame | FPS |
+| --- | --- | --- |
+| r18 @640 FP32 | 273 | 3.7 |
+| r34 @640 FP32 | 390 | 2.6 |
+| r50 @640 FP32 | 540 | 1.9 |
+| r18 @640 FP16 | 197 | 5.1 |
+| r18 @480 FP32 | 135 | 7.4 |
+| r18 @320 FP32 | 98 | 10.2 |
+| r18 @320 FP16 | 82 | 12.2 |
+
+So if a live camera feels slow, in order of payoff:
+
+1. **Use a GPU device.** OpenVINO talks to Intel integrated graphics too:
+   `RTDETR("rtdetr-r18", device="GPU")` (`AUTO` picks one when it can).
+2. **Export smaller.** Input size dominates: `model.export(format="openvino",
+   imgsz=320, half=True)` then point `RTDETR(...)` at that IR. 320 still detects
+   people and cars at conversational distance; 640 is for small or far objects.
+3. **Use FP16.** `half=True` on export (or `tools/build_mirror.py --half`).
+4. **Skip frames.** `predict(0, vid_stride=2, ...)` runs every other frame.
+
 ## Training
 
 YOLO-format labels — the same `data.yaml` and `images/` + `labels/*.txt` layout:
