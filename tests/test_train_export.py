@@ -141,6 +141,44 @@ def test_export_writes_an_ir_that_predicts(trained, tmp_path, image):
 
 
 @needs_ov
+def test_int8_without_calibration_data_says_what_is_missing(trained):
+    model, _ = trained
+    with pytest.raises(ValueError, match="calibration images"):
+        model.export(format="openvino", int8=True, imgsz=64)
+
+
+@needs_ov
+def test_int8_is_an_openvino_thing_only(trained):
+    model, _ = trained
+    with pytest.raises(ValueError, match="openvino"):
+        model.export(format="onnx", int8=True, data="whatever", imgsz=64)
+
+
+@needs_ov
+def test_int8_quantises_and_still_detects(trained, dataset, tmp_path, capsys):
+    """The real thing, at 64px: quantise, then check the IR still runs."""
+    pytest.importorskip("nncf")
+    model, _ = trained
+    xml = model.export(
+        format="openvino",
+        int8=True,
+        data=str(dataset),
+        calib_samples=4,
+        imgsz=64,
+        out_dir=tmp_path / "int8",
+    )
+    assert xml.exists()
+    assert "only 2 calibration images" in capsys.readouterr().err  # the val split
+
+    from rtdetr import RTDETR
+
+    results = RTDETR(str(xml), device="CPU", verbose=False)(
+        str(dataset.parent / "images" / "val" / "0.jpg"), conf=0.0, max_det=2
+    )
+    assert results[0].boxes.xyxy.shape == (2, 4)
+
+
+@needs_ov
 def test_predicting_from_a_pt_exports_an_ir_behind_the_scenes(
     trained, image, tmp_path, monkeypatch
 ):

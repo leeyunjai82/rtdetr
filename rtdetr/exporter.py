@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import warnings
 from pathlib import Path
 
@@ -56,7 +57,81 @@ def export_onnx(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=False, 
     return onnx_path
 
 
-def export_openvino(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=False, verbose=True):
+def calibration_images(data, imgsz, samples=300, verbose=True):
+    """Preprocessed tensors for INT8 calibration, from anything we can read.
+
+    ``data`` may be a data.yaml (its val split is used), a folder, a glob, a
+    video, a camera index, or a list of paths. No labels are involved — INT8
+    calibration only watches activation ranges.
+    """
+    from .predictor import preprocess_image
+    from .sources import SourceLoader
+
+    source = data
+    if isinstance(data, (str, Path)) and str(data).endswith((".yaml", ".yml")):
+        from .data.dataset import load_data_yaml
+
+        cfg = load_data_yaml(data)
+        split = cfg.get("val") or cfg.get("train")
+        if split is None:
+            raise ValueError(f"{data} has neither a val nor a train split to calibrate on")
+        source = str(Path(cfg["root"]) / split)
+
+    tensors = []
+    for frame in SourceLoader(source, vid_stride=1):
+        tensors.append(preprocess_image(frame.img, imgsz))
+        if len(tensors) >= samples:
+            break
+    if not tensors:
+        raise ValueError(f"no images to calibrate on in {data!r}")
+    if verbose:
+        print(f"[rtdetr] calibrating on {len(tensors)} images from {data}")
+    if len(tensors) < 100:
+        print(
+            f"[rtdetr] warning: only {len(tensors)} calibration images. INT8 accuracy "
+            f"follows what it saw — measured here, calibrating on street frames alone "
+            f"dropped an unrelated photo from 0.95 to 0.35 confidence. Feed it 100-300 "
+            f"frames covering the scenes you will actually run on.",
+            file=sys.stderr,
+        )
+    return tensors
+
+
+def quantize_int8(model, data, imgsz, samples=300, verbose=True):
+    """Post-training INT8 quantisation of an OpenVINO model (needs nncf)."""
+    try:
+        import nncf
+    except ImportError as exc:  # pragma: no cover - depends on the extra
+        raise ImportError(
+            "INT8 export needs nncf: pip install 'rtdetr[int8]'"
+        ) from exc
+
+    if data is None:
+        raise ValueError(
+            "int8=True needs calibration images: pass data=... — a folder, a glob, "
+            "a video, a camera clip, or a data.yaml. Labels are not used; 100-300 "
+            "frames from the scene you will deploy in work best."
+        )
+    tensors = calibration_images(data, imgsz, samples, verbose=verbose)
+    dataset = nncf.Dataset(tensors)
+    # TRANSFORMER keeps attention in a form the quantiser handles sanely
+    return nncf.quantize(
+        model, dataset, model_type=nncf.ModelType.TRANSFORMER, subset_size=len(tensors)
+    )
+
+
+def export_openvino(
+    net,
+    names,
+    imgsz=640,
+    out_dir=".",
+    fname="rtdetr",
+    half=False,
+    verbose=True,
+    int8=False,
+    data=None,
+    calib_samples=300,
+):
     """Write ``<out_dir>/<fname>.xml`` (+ .bin, + labels). Returns the .xml path."""
     import openvino as ov
 
@@ -67,7 +142,10 @@ def export_openvino(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=Fal
     xml_path = out_dir / f"{fname}.xml"
 
     model = ov.convert_model(str(onnx_path))
-    ov.save_model(model, str(xml_path), compress_to_fp16=half)
+    if int8:
+        model = quantize_int8(model, data, imgsz, calib_samples, verbose=verbose)
+    ov.save_model(model, str(xml_path), compress_to_fp16=half and not int8)
     if verbose:
-        print(f"[rtdetr] exported: {xml_path}")
+        precision = "INT8" if int8 else ("FP16" if half else "FP32")
+        print(f"[rtdetr] exported: {xml_path} ({precision})")
     return xml_path

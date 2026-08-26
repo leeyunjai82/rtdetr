@@ -22,7 +22,7 @@ inside a product. Inference needs numpy/opencv/openvino/pyyaml; training adds
 
 from __future__ import annotations
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 from .errors import DownloadError, ModelNotFoundError, RTDETRError
 from .metrics import BoxMetrics, DetMetrics

@@ -17,6 +17,19 @@ import numpy as np
 from .utils.ops import cxcywh2xyxy_np
 
 
+def preprocess_image(img: np.ndarray, imgsz: int) -> np.ndarray:
+    """BGR HWC uint8 -> NCHW float32 RGB 0..1, plain-resized to imgsz.
+
+    Calibration and inference must agree here, or an INT8 model is quantised
+    against a distribution it never sees.
+    """
+    import cv2
+
+    resized = cv2.resize(img, (imgsz, imgsz))
+    rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    return rgb.transpose(2, 0, 1)[None]
+
+
 def _looks_like_logits(scores: np.ndarray) -> bool:
     """True when the head still emits raw logits (anything outside 0..1)."""
     return bool(scores.size) and (scores.min() < 0.0 or scores.max() > 1.0)
@@ -71,11 +84,7 @@ class OVPredictor:
 
     def preprocess(self, img: np.ndarray) -> np.ndarray:
         """BGR HWC uint8 -> NCHW float32 RGB 0..1, plain-resized to imgsz."""
-        import cv2
-
-        resized = cv2.resize(img, (self.imgsz, self.imgsz))
-        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        return rgb.transpose(2, 0, 1)[None]
+        return preprocess_image(img, self.imgsz)
 
     def infer(self, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Returns ``(boxes (Q,4) cxcywh 0..1, scores (Q,K))`` for one image."""
