@@ -17,7 +17,8 @@
 Network, loss, trainer, validator and exporter are original implementations —
 no Ultralytics code and no AGPL weights anywhere, so this package can ship
 inside a product. Inference needs numpy/opencv/openvino/pyyaml; training adds
-``pip install "rtdetr[train]"`` (torch, torchvision, scipy, onnx).
+``pip install "rtdetr[train]"`` (torch, torchvision, scipy, onnx); INT8 export
+adds ``pip install "rtdetr[int8]"`` (nncf).
 """
 
 from __future__ import annotations
