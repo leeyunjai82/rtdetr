@@ -19,13 +19,12 @@ Apache-2.0) so its released COCO weights load unchanged; the API, trainer,
 validator, exporter, predictor and CLI are this project's own. No AGPL code or
 weights anywhere, so this package can ship inside a product. Inference needs
 numpy/opencv/openvino/pyyaml; training adds
-``pip install "rtdetr[train]"`` (torch, torchvision, scipy, onnx); INT8 export
-adds ``pip install "rtdetr[int8]"`` (nncf).
+``pip install "rtdetr[train]"`` (torch, torchvision, scipy, onnx).
 """
 
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from .errors import DownloadError, ModelNotFoundError, RTDETRError
 from .metrics import BoxMetrics, DetMetrics

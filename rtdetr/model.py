@@ -411,23 +411,13 @@ class RTDETR:
         format: str = "openvino",
         imgsz: int | None = None,
         half: bool = False,
-        int8: bool = False,
-        data: str | Path | None = None,
-        calib_samples: int = 300,
         out_dir: str | Path | None = None,
         verbose: bool | None = None,
     ) -> Path:
-        """Export to OpenVINO IR (default) or ONNX. Returns the file written.
-
-        ``int8=True`` quantises the IR — typically 2-4x faster on CPU — and
-        needs ``data``: unlabelled calibration images (folder, glob, video,
-        or a data.yaml) from the scene you will actually run in.
-        """
+        """Export to OpenVINO IR (default) or ONNX. Returns the file written."""
         format = format.lower()
         if format not in ("openvino", "onnx"):
             raise ValueError("supported formats: 'openvino', 'onnx'")
-        if int8 and format != "openvino":
-            raise ValueError("int8 quantisation applies to the openvino format")
         self._ensure_net()
         from .exporter import export_onnx, export_openvino
 
@@ -436,15 +426,10 @@ class RTDETR:
         imgsz = imgsz or (self.ckpt or {}).get("imgsz", 640)
         stem = self.ckpt_path.stem if self.ckpt_path else f"rtdetr-{self.variant}"
         verbose = self.verbose if verbose is None else verbose
-        if format == "onnx":
-            return export_onnx(
-                self.net, self.names, imgsz=imgsz, out_dir=out_dir, fname=stem,
-                half=half, verbose=verbose,
-            )
-        return export_openvino(
+        exporter = export_openvino if format == "openvino" else export_onnx
+        return exporter(
             self.net, self.names, imgsz=imgsz, out_dir=out_dir, fname=stem,
-            half=half, verbose=verbose, int8=int8, data=data,
-            calib_samples=calib_samples,
+            half=half, verbose=verbose,
         )
 
     # -------------------------------------------------------------------- misc

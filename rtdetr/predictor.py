@@ -18,11 +18,7 @@ from .utils.ops import cxcywh2xyxy_np
 
 
 def preprocess_image(img: np.ndarray, imgsz: int) -> np.ndarray:
-    """BGR HWC uint8 -> NCHW float32 RGB 0..1, plain-resized to imgsz.
-
-    Calibration and inference must agree here, or an INT8 model is quantised
-    against a distribution it never sees.
-    """
+    """BGR HWC uint8 -> NCHW float32 RGB 0..1, plain-resized to imgsz."""
     import cv2
 
     resized = cv2.resize(img, (imgsz, imgsz))

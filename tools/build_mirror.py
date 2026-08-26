@@ -35,8 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import convert_official  # noqa: E402  (same directory)
 
 
-def build(variant: str, out_root: Path, imgsz: int, half: bool, keep_onnx: bool,
-          int8: bool = False, data: str | None = None, calib_samples: int = 300) -> Path:
+def build(variant: str, out_root: Path, imgsz: int, half: bool, keep_onnx: bool) -> Path:
     from rtdetr import RTDETR
 
     name = f"rtdetr-{variant}"
@@ -47,10 +46,7 @@ def build(variant: str, out_root: Path, imgsz: int, half: bool, keep_onnx: bool,
     convert_official.main(["--variant", variant, "--out", str(checkpoint), "--imgsz", str(imgsz)])
 
     model = RTDETR(str(checkpoint), verbose=False)
-    xml = model.export(
-        format="openvino", imgsz=imgsz, half=half, out_dir=out,
-        int8=int8, data=data, calib_samples=calib_samples,
-    )
+    xml = model.export(format="openvino", imgsz=imgsz, half=half, out_dir=out)
     if not keep_onnx:
         (out / f"{name}.onnx").unlink(missing_ok=True)
     print(f"{name}: {', '.join(sorted(p.name for p in out.iterdir()))}")
@@ -68,22 +64,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--half", action="store_true", help="FP16 IR (smaller, same accuracy)")
-    parser.add_argument(
-        "--int8", action="store_true", help="INT8 IR — needs --data (2-4x faster on CPU)"
-    )
-    parser.add_argument(
-        "--data", help="calibration images for --int8: folder, glob, video, or data.yaml"
-    )
-    parser.add_argument("--calib-samples", type=int, default=300)
     parser.add_argument("--keep-onnx", action="store_true", help="leave the intermediate .onnx")
     args = parser.parse_args(argv)
 
     out_root = Path(args.out)
     for variant in args.variants:
-        build(
-            variant, out_root, args.imgsz, args.half, args.keep_onnx,
-            int8=args.int8, data=args.data, calib_samples=args.calib_samples,
-        )
+        build(variant, out_root, args.imgsz, args.half, args.keep_onnx)
     print(f"\nmirror ready at {out_root}/ — upload it keeping these directory names:")
     print('  pip install -U "huggingface_hub[cli]" && hf auth login')
     print(f"  hf upload leeyunjai/rtdetr {out_root} . --repo-type=model")

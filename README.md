@@ -11,7 +11,6 @@ implementation. No Ultralytics code, no AGPL weights, no license surprises.
 ```bash
 pip install rtdetr              # inference (numpy, opencv, openvino, pyyaml)
 pip install "rtdetr[train]"     # + training (torch, torchvision, scipy, onnx)
-pip install "rtdetr[int8]"      # + INT8 quantisation (nncf)
 ```
 
 ```python
@@ -121,33 +120,13 @@ measured here on 4 CPU cores, median over 12 frames:
 
 So if a live camera feels slow, in order of payoff:
 
-1. **Quantise to INT8.** The biggest CPU win — measured 2.3× here (154 → 67 ms
-   at 640) with the same detections, and the weights shrink 78 MB → 21 MB:
-
-   ```python
-   model = RTDETR("rtdetr-r18.pt")
-   model.export(format="openvino", int8=True, data="clips/from_that_camera.mp4")
-   ```
-
-   ```bash
-   rtdetr export model=rtdetr-r18.pt format=openvino int8=true data=frames/
-   python tools/build_mirror.py --int8 --data frames/ --variants r18
-   ```
-
-   `data` is unlabelled calibration imagery — a folder, glob, video, or a
-   data.yaml (its val split). **It has to look like what you will run on.**
-   Calibrating only on street frames and then testing an unrelated photo took
-   that photo's dog from 0.95 confidence to 0.35, with a bogus "frisbee" on top;
-   adding one such image to the calibration set restored it to 0.95. 100–300
-   frames spanning your scenes is the rule of thumb, and the exporter warns
-   below 100.
-2. **Use a GPU device.** OpenVINO talks to Intel integrated graphics too:
+1. **Use a GPU device.** OpenVINO talks to Intel integrated graphics too:
    `RTDETR("rtdetr-r18", device="GPU")` (`AUTO` picks one when it can).
-3. **Export smaller.** Input size dominates: `model.export(format="openvino",
+2. **Export smaller.** Input size dominates: `model.export(format="openvino",
    imgsz=320, half=True)` then point `RTDETR(...)` at that IR. 320 still detects
    people and cars at conversational distance; 640 is for small or far objects.
-4. **Use FP16.** `half=True` on export (or `tools/build_mirror.py --half`).
-5. **Skip frames.** `predict(0, vid_stride=2, ...)` runs every other frame.
+3. **Use FP16.** `half=True` on export (or `tools/build_mirror.py --half`).
+4. **Skip frames.** `predict(0, vid_stride=2, ...)` runs every other frame.
 
 ## Training
 
@@ -180,7 +159,6 @@ on CUDA, mAP50-95 after every epoch, early stop on `patience`.
 ```python
 model = RTDETR("runs/train/weights/best.pt")
 xml = model.export(format="openvino", half=True, imgsz=640)
-xml = model.export(format="openvino", int8=True, data="data.yaml")  # 2-4x on CPU
 ```
 
 Writes `best.xml` + `best.bin`, plus **`labels.txt`** (one class name per line)
