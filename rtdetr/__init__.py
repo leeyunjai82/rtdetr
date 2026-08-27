@@ -1,5 +1,5 @@
 # Apache-2.0
-"""RT-DETR — an Ultralytics-style detector that is 100% Apache-2.0.
+"""RT-DETR — real-time object detection, 100% Apache-2.0.
 
     pip install rtdetr
 
@@ -10,7 +10,7 @@
     results[0].boxes.xyxy, results[0].boxes.conf     # plain numpy
     results[0].save()
 
-    model.train(data="data.yaml", epochs=100)        # YOLO-format labels
+    model.train(data="data.yaml", epochs=100)        # your own dataset
     model.val(data="data.yaml").box.map50            # COCO-style mAP
     model.export(format="openvino", half=True)       # IR + labels.txt
 

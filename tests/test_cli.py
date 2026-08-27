@@ -1,5 +1,5 @@
 # Apache-2.0
-"""The key=value CLI — same shape as the ultralytics command line."""
+"""The key=value command line."""
 
 from __future__ import annotations
 

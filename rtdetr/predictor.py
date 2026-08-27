@@ -54,14 +54,23 @@ class OVPredictor:
         device: str = "AUTO",
         imgsz: int | None = None,
         names: dict[int, str] | None = None,
+        precision: str | None = None,
     ) -> None:
+        """``precision`` overrides what OpenVINO runs the graph in.
+
+        Left alone, OpenVINO picks: on a CPU that supports it that means
+        bfloat16, which is much faster but shifts scores slightly. Pass
+        ``"f32"`` when you want output that matches PyTorch exactly.
+        """
         import openvino as ov
 
         self.model_path = Path(model_path)
         self.device = device
+        self.precision = precision
         core = ov.Core()
         model = core.read_model(str(self.model_path))
-        self.compiled = core.compile_model(model, device)
+        config = {"INFERENCE_PRECISION_HINT": precision} if precision else {}
+        self.compiled = core.compile_model(model, device, config)
         self.input = self.compiled.input(0)
         self.names = names if names else read_names(self.model_path)
         self.imgsz = imgsz or self._input_size()

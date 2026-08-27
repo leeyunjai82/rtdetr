@@ -51,7 +51,7 @@ def test_the_model_reloads_its_own_checkpoint(trained):
     assert "1 classes" in reloaded.info()
 
 
-def test_val_reports_map_in_the_shape_yolo_users_read(trained, dataset):
+def test_val_reports_map_through_a_metrics_object(trained, dataset):
     model, _ = trained
     metrics = model.val(data=str(dataset), imgsz=64, batch=2, device="cpu", workers=0)
     assert isinstance(metrics, DetMetrics)

@@ -79,7 +79,7 @@ def test_an_unsupported_file_type_is_rejected(tmp_path):
         _expand(odd)
 
 
-def test_iterating_a_folder_yields_frames_with_ultralytics_style_prefixes(folder):
+def test_iterating_a_folder_yields_frames_with_numbered_prefixes(folder):
     loader = SourceLoader(folder)
     frames = list(loader)
     assert len(loader) == 2 and not loader.is_stream

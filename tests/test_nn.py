@@ -94,6 +94,9 @@ def test_deformable_attention_survives_the_trip_to_openvino(tmp_path):
         Wrapper(attn), (q, ref, value), str(onnx_path), opset_version=16,
         input_names=["q", "ref", "value"], output_names=["out"], dynamo=False,
     )
-    compiled = ov.Core().compile_model(ov.convert_model(str(onnx_path)), "CPU")
+    # OpenVINO's CPU default may be bfloat16; compare against the same maths
+    compiled = ov.Core().compile_model(
+        ov.convert_model(str(onnx_path)), "CPU", {"INFERENCE_PRECISION_HINT": "f32"}
+    )
     got = compiled([q.numpy(), ref.numpy(), value.numpy()])[compiled.output(0)]
     assert np.abs(got - expected.numpy()).max() < 1e-4
