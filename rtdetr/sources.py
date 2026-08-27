@@ -1,5 +1,5 @@
 # Apache-2.0
-"""Source resolution: the same set of things a YOLO user can point a model at.
+"""Source resolution: everything a model can be pointed at.
 
 Accepted::
 

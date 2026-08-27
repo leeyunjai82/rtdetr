@@ -1,5 +1,5 @@
 # Apache-2.0
-"""Validation metrics, shaped like ``metrics.box.map50`` so YOLO habits carry over."""
+"""Validation metrics: ``metrics.box.map50`` / ``metrics.box.map``."""
 
 from __future__ import annotations
 

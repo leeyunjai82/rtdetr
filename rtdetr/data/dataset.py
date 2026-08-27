@@ -1,5 +1,5 @@
 # Apache-2.0
-"""YOLO-format detection dataset (same data.yaml layout Ultralytics users know).
+"""Detection dataset: a data.yaml plus images/ and labels/*.txt.
 
 data.yaml:
     path: dataset root (optional)

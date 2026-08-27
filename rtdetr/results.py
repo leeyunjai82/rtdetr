@@ -1,7 +1,7 @@
 # Apache-2.0
 """``Results`` / ``Boxes`` — the objects every prediction call answers with.
 
-The shape of this API mirrors what YOLO users already have in their fingers::
+One object holds the pixels, the boxes, and the ways to look at them::
 
     r = model("bus.jpg")[0]
     r.boxes.xyxy      # (N, 4) pixel coordinates
@@ -91,7 +91,7 @@ class Boxes:
         for i in range(len(self)):
             yield self[i]
 
-    def cpu(self) -> Boxes:  # torch-shaped no-ops, so YOLO snippets keep working
+    def cpu(self) -> Boxes:  # torch-shaped no-ops, so ported snippets keep working
         return self
 
     def numpy(self) -> Boxes:
@@ -170,7 +170,7 @@ class Results:
     # -- text ---------------------------------------------------------------
 
     def verbose(self) -> str:
-        """``"2 persons, 1 car, "`` — the middle of an Ultralytics-style log line."""
+        """``"2 persons, 1 car, "`` — the middle of the per-image log line."""
         if not len(self.boxes):
             return "(no detections), "
         out = ""

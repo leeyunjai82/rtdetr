@@ -57,10 +57,15 @@ class RTDETR:
     """Train, validate, export, track and predict with one object."""
 
     def __init__(
-        self, model: str | Path = "rtdetr-r18", device: str = "AUTO", verbose: bool = True
+        self,
+        model: str | Path = "rtdetr-r18",
+        device: str = "AUTO",
+        verbose: bool = True,
+        precision: str | None = None,
     ) -> None:
         self.model_name = str(model)
         self.device = device
+        self.precision = precision
         self.verbose = verbose
         self.task = "detect"
         self.names: dict[int, str] = {}
@@ -235,6 +240,7 @@ class RTDETR:
         if (
             self.predictor is not None
             and self.predictor.device == device
+            and self.predictor.precision == self.precision
             and (imgsz is None or self.predictor.imgsz == imgsz)
         ):
             return self.predictor
@@ -245,7 +251,11 @@ class RTDETR:
             else:
                 self.ir_path = downloads.download_ir(self.model_name)
         self.predictor = OVPredictor(
-            self.ir_path, device=device, imgsz=imgsz, names=self.names or None
+            self.ir_path,
+            device=device,
+            imgsz=imgsz,
+            names=self.names or None,
+            precision=self.precision,
         )
         if not self.names:
             self.names = self.predictor.names
@@ -307,7 +317,7 @@ class RTDETR:
         amp: bool = True,
         **kwargs: Any,
     ) -> Path:
-        """Train on YOLO-format labels. Returns the path of ``best.pt``."""
+        """Train on a data.yaml dataset. Returns the path of ``best.pt``."""
         _import_torch()
         from .data.dataset import load_data_yaml
         from .nn.rtdetr_net import RTDETRNet

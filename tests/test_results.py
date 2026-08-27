@@ -19,7 +19,7 @@ def result() -> Results:
     return Results(img, "bus.jpg", {0: "person", 1: "car"}, DET)
 
 
-def test_boxes_expose_every_coordinate_flavour_yolo_users_expect(result):
+def test_boxes_expose_every_coordinate_flavour(result):
     boxes = result.boxes
     assert boxes.xyxy.shape == (3, 4)
     assert boxes.xywh[0].tolist() == [30.0, 35.0, 40.0, 50.0]
@@ -50,7 +50,7 @@ def test_empty_predictions_are_a_normal_empty_result():
     assert "no detections" in result.verbose()
 
 
-def test_the_log_line_counts_and_pluralises_like_ultralytics(result):
+def test_the_log_line_counts_and_pluralises(result):
     assert result.verbose() == "2 persons, 1 car, "
     assert str(result) == "100x200 2 persons, 1 car"
 
@@ -82,3 +82,53 @@ def test_summary_is_json_ready(result):
 def test_malformed_box_data_is_rejected_early():
     with pytest.raises(ValueError, match=r"\(N, 6\)"):
         Boxes(np.zeros((3, 5), np.float32), (10, 10))
+
+
+class TestLabelPlacement:
+    """Labels have to stay inside the frame and off each other."""
+
+    def test_a_label_at_the_right_edge_slides_back_inside(self):
+        from rtdetr.plotting import _label_position
+
+        left, top = _label_position(x1=195, y1=50, y2=80, tw=60, th=12, shape=(100, 200), placed=[])
+        assert left + 60 <= 200 and left >= 0
+        assert 0 <= top <= 100 - 12
+
+    def test_a_label_at_the_top_drops_below_the_line(self):
+        from rtdetr.plotting import _label_position
+
+        _, top = _label_position(x1=10, y1=2, y2=40, tw=30, th=12, shape=(100, 200), placed=[])
+        assert top >= 0
+
+    def test_a_second_label_moves_instead_of_covering_the_first(self):
+        from rtdetr.plotting import _label_position
+
+        first = _label_position(x1=10, y1=50, y2=90, tw=40, th=12, shape=(200, 200), placed=[])
+        taken = [(first[0], first[1], first[0] + 40, first[1] + 12)]
+        second = _label_position(x1=10, y1=50, y2=90, tw=40, th=12, shape=(200, 200), placed=taken)
+        assert second != first
+
+    def test_stacked_boxes_take_the_free_slots_before_colliding(self):
+        """Three overlapping detections: each label finds its own row."""
+        from rtdetr.plotting import _label_position, _overlaps
+
+        placed = []
+        for i in range(3):
+            left, top = _label_position(
+                x1=10 + i, y1=40 + i, y2=90 + i, tw=50, th=12, shape=(300, 300), placed=placed
+            )
+            box = (left, top, left + 50, top + 12)
+            assert all(not _overlaps(box, other) for other in placed)
+            placed.append(box)
+
+    def test_labels_never_leave_the_frame_however_crowded(self):
+        from rtdetr.plotting import _label_position
+
+        placed = []
+        for i in range(12):
+            left, top = _label_position(
+                x1=280, y1=2 + i, y2=40 + i, tw=50, th=12, shape=(100, 300), placed=placed
+            )
+            assert 0 <= left and left + 50 <= 300
+            assert 0 <= top and top + 12 <= 100
+            placed.append((left, top, left + 50, top + 12))

@@ -1,5 +1,5 @@
 # Apache-2.0
-"""``rtdetr <mode> key=value ...`` — the same command shape YOLO users type.
+"""``rtdetr <mode> key=value ...`` — the command line for this package.
 
     rtdetr predict model=rtdetr-r18 source=bus.jpg conf=0.5
     rtdetr train   model=rtdetr-r18 data=data.yaml epochs=100 imgsz=640
@@ -15,14 +15,14 @@ from typing import Any
 
 MODES = ("predict", "track", "train", "val", "export")
 
-HELP = """rtdetr — RT-DETR with an Ultralytics-style CLI (Apache-2.0)
+HELP = """rtdetr — real-time detection transformer, Apache-2.0
 
 Usage:  rtdetr <mode> key=value ...
 
 Modes:
   predict   run detection on an image / folder / video / url / camera
   track     predict and keep an id on each box across frames
-  train     train on YOLO-format labels (data.yaml)
+  train     train on a data.yaml dataset (images/ + labels/*.txt)
   val       COCO-style mAP50 / mAP50-95 on the val split
   export    write an OpenVINO IR (or ONNX) next to the checkpoint
 

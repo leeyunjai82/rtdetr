@@ -218,7 +218,7 @@ class TestAgainstARealModel:
         model.predict(image, conf=0.0, max_det=2, save=True, project=str(tmp_path / "runs"))
         assert (tmp_path / "runs" / "detect" / "predict2" / "bus.jpg").exists()
 
-    def test_the_verbose_line_reads_like_ultralytics(self, tiny_ir, image, capsys):
+    def test_the_verbose_line_names_the_image_size_and_timing(self, tiny_ir, image, capsys):
         RTDETR(str(tiny_ir), device="CPU")(image, conf=0.0, max_det=2)
         line = capsys.readouterr().out.strip()
         assert line.startswith("image 1/1 ")

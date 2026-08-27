@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "rtdetr"
 version = "0.3.1"
-description = "RT-DETR object detection with an Ultralytics-style API — 100% Apache-2.0"
+description = "RT-DETR real-time object detection — training and OpenVINO inference, Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"

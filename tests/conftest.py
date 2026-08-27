@@ -44,7 +44,7 @@ def image(tmp_path: Path) -> Path:
 
 @pytest.fixture(scope="session")
 def dataset(tmp_path_factory) -> Path:
-    """A two-image YOLO-format dataset — enough to exercise train and val."""
+    """A two-image dataset — enough to exercise train and val."""
     import cv2
 
     root = tmp_path_factory.mktemp("ds")

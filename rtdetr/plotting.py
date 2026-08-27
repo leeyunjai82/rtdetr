@@ -36,6 +36,7 @@ def draw_boxes(
     font_scale = lw / 3.0
 
     ids = boxes.id if boxes.is_track else None
+    placed: list[tuple[int, int, int, int]] = []
     for i in range(len(boxes)):
         x1, y1, x2, y2 = (int(round(v)) for v in boxes.xyxy[i])
         cls = int(boxes.cls[i])
@@ -49,13 +50,13 @@ def draw_boxes(
         if conf:
             text += f" {float(boxes.conf[i]):.2f}"
         (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, max(lw - 1, 1))
-        outside = y1 - th - 3 >= 0
-        top = y1 - th - 3 if outside else y1
-        cv2.rectangle(out, (x1, top), (x1 + tw, top + th + 3), color, -1, cv2.LINE_AA)
+        left, top = _label_position(x1, y1, y2, tw, th + 3, (h, w), placed)
+        placed.append((left, top, left + tw, top + th + 3))
+        cv2.rectangle(out, (left, top), (left + tw, top + th + 3), color, -1, cv2.LINE_AA)
         cv2.putText(
             out,
             text,
-            (x1, top + th),
+            (left, top + th),
             cv2.FONT_HERSHEY_SIMPLEX,
             font_scale,
             (255, 255, 255),
@@ -63,3 +64,24 @@ def draw_boxes(
             cv2.LINE_AA,
         )
     return out
+
+
+def _label_position(x1, y1, y2, tw, th, shape, placed):
+    """Where to put one label: inside the frame, and clear of its neighbours.
+
+    Crowded scenes are the normal case for a detector, and labels that land on
+    top of each other are unreadable ("personperson 0.87n 0.87"). Try above the
+    box, then below it, then just inside it, and take the first free slot.
+    """
+    h, w = shape
+    left = max(0, min(int(x1), w - tw))
+    for top in (y1 - th, y2, y1, y1 + th):
+        top = max(0, min(int(top), h - th))
+        box = (left, top, left + tw, top + th)
+        if not any(_overlaps(box, other) for other in placed):
+            return left, top
+    return left, max(0, min(int(y1 - th), h - th))
+
+
+def _overlaps(a, b) -> bool:
+    return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
