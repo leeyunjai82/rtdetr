@@ -163,3 +163,62 @@ def test_a_trained_model_still_decodes_its_own_probabilities_once(trained, tmp_p
     assert scores.min() >= 0.0 and scores.max() <= 1.0
     det, _ = predictor(np.zeros((64, 64, 3), np.uint8), conf=float(scores.max()) + 1e-6)
     assert len(det) == 0
+
+
+@needs_torch
+def test_freezing_the_backbone_leaves_it_out_of_the_optimiser():
+    from rtdetr.nn import RTDETRNet
+    from rtdetr.trainer import freeze_modules
+
+    net = RTDETRNet("r18", num_classes=2, pretrained_backbone=False)
+    frozen = freeze_modules(net, "backbone")
+    assert frozen == [net.backbone]
+    assert not any(p.requires_grad for p in net.backbone.parameters())
+    assert all(p.requires_grad for p in net.decoder.parameters())
+
+
+@needs_torch
+def test_freezing_something_that_does_not_exist_is_an_error():
+    from rtdetr.nn import RTDETRNet
+    from rtdetr.trainer import freeze_modules
+
+    net = RTDETRNet("r18", num_classes=2, pretrained_backbone=False)
+    with pytest.raises(ValueError, match="nothing called"):
+        freeze_modules(net, "neck")
+
+
+@needs_torch
+def test_training_reports_every_epoch_to_a_callback_and_a_csv(dataset, tmp_path, monkeypatch):
+    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    rows = []
+    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    best = model.train(
+        data=str(dataset), project=str(tmp_path), epochs=2, imgsz=64, batch=2, workers=0,
+        device="cpu", val=False, amp=False, freeze="backbone", on_epoch_end=rows.append,
+    )
+    assert [r["epoch"] for r in rows] == [1, 2]
+    assert rows[0]["epochs"] == 2 and "loss" in rows[0]
+
+    run = best.parent.parent
+    lines = (run / "results.csv").read_text().splitlines()
+    assert lines[0].startswith("epoch,loss") and len(lines) == 3
+
+    import json
+
+    summary = json.loads((run / "summary.json").read_text())
+    assert summary["epochs_run"] == 2 and summary["names"] == {"0": "box"}
+
+
+@needs_torch
+def test_pretrained_false_never_reaches_for_the_mirror(dataset, tmp_path, monkeypatch):
+    from rtdetr import downloads
+
+    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    monkeypatch.setattr(
+        downloads, "download_checkpoint", lambda name: pytest.fail("mirror should not be touched")
+    )
+    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    assert model.train(
+        data=str(dataset), project=str(tmp_path), epochs=1, imgsz=64, batch=2, workers=0,
+        device="cpu", val=False, amp=False,
+    ).exists()

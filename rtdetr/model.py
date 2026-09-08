@@ -62,10 +62,15 @@ class RTDETR:
         device: str = "AUTO",
         verbose: bool = True,
         precision: str | None = None,
+        pretrained: bool = True,
     ) -> None:
+        """``pretrained=False`` starts training from an ImageNet backbone
+        instead of the mirror's COCO weights — for domains COCO says nothing
+        about, or for a clean baseline."""
         self.model_name = str(model)
         self.device = device
         self.precision = precision
+        self.pretrained = pretrained
         self.verbose = verbose
         self.task = "detect"
         self.names: dict[int, str] = {}
@@ -315,9 +320,16 @@ class RTDETR:
         seed: int = 0,
         val: bool = True,
         amp: bool = True,
+        freeze: Any = None,
+        on_epoch_end: Any = None,
         **kwargs: Any,
     ) -> Path:
-        """Train on a data.yaml dataset. Returns the path of ``best.pt``."""
+        """Train on a data.yaml dataset. Returns the path of ``best.pt``.
+
+        ``freeze="backbone"`` trains about twice as fast on CPU and helps when
+        the dataset is small. ``on_epoch_end`` is called with a dict of the
+        epoch's numbers — the same row that lands in ``results.csv``.
+        """
         _import_torch()
         from .data.dataset import load_data_yaml
         from .nn.rtdetr_net import RTDETRNet
@@ -326,7 +338,7 @@ class RTDETR:
 
         cfg = load_data_yaml(data)
         self.names = cfg["names"]
-        if self.net is None and downloads.is_model_name(self.model_name):
+        if self.net is None and self.pretrained and downloads.is_model_name(self.model_name):
             self._try_pretrained_start(cfg["nc"])
         if self.net is None:
             self.net = RTDETRNet(self.variant or "r18", cfg["nc"])
@@ -349,6 +361,8 @@ class RTDETR:
             patience=patience,
             seed=seed,
             amp=amp,
+            freeze=freeze,
+            on_epoch_end=on_epoch_end,
             **kwargs,
         )
         val_fn = None

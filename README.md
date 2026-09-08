@@ -35,6 +35,14 @@ for r in model.predict(0, stream=True, show=True):   # webcam, q or Esc quits
 model.track("clip.mp4")        # adds r.boxes.id
 ```
 
+## Label
+
+```bash
+rtdetr label source=images/ names=can,bottle   # browser tool, auto-label + fix
+```
+
+![labelling](docs/assets/labeler.jpg)
+
 ## Train
 
 ```python
@@ -59,6 +67,7 @@ rtdetr predict model=rtdetr-r18 source=bus.jpg conf=0.5
 rtdetr train   model=rtdetr-r18 data=data.yaml epochs=100
 rtdetr val     model=best.pt data=data.yaml
 rtdetr export  model=best.pt format=openvino half=true
+rtdetr label   source=images/ names=can,bottle
 ```
 
 ## Models
@@ -72,6 +81,7 @@ rtdetr export  model=best.pt format=openvino half=true
 ## Docs
 
 * [Using the model](docs/usage.md) — sources, results, tracking, saving
+* [Labelling](docs/labeling.md) — the browser tool, auto-labelling
 * [Training](docs/training.md) — datasets, validation, export, CLI
 * [Weights](docs/weights.md) — the mirror, building it, offline use
 * [Performance](docs/performance.md) — measured speeds and how to improve them

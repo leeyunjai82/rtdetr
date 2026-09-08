@@ -8,6 +8,8 @@ and ``resume=True`` to pick a killed run back up where it stopped.
 
 from __future__ import annotations
 
+import csv
+import json
 import math
 import random
 import time
@@ -26,6 +28,40 @@ def seed_everything(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+#: Shorthands accepted by ``freeze``.
+FREEZE_GROUPS = {
+    "backbone": ("backbone",),
+    "encoder": ("encoder",),
+    "backbone+encoder": ("backbone", "encoder"),
+}
+
+
+def freeze_modules(net, freeze):
+    """Stop training the named parts. Returns the modules to keep in eval mode.
+
+    ``freeze="backbone"`` is the useful one: on a small dataset it trains
+    roughly twice as fast and overfits less, because the features it starts
+    with are already good.
+    """
+    if not freeze:
+        return []
+    if freeze is True:
+        freeze = "backbone"
+    prefixes = FREEZE_GROUPS.get(freeze, (freeze,) if isinstance(freeze, str) else tuple(freeze))
+    unknown = [p for p in prefixes if not hasattr(net, p.split(".")[0])]
+    if unknown:
+        raise ValueError(f"nothing called {unknown} to freeze; try {sorted(FREEZE_GROUPS)}")
+
+    frozen_params = 0
+    for name, param in net.named_parameters():
+        if name.startswith(prefixes):
+            param.requires_grad = False
+            frozen_params += param.numel()
+    modules = [getattr(net, p.split(".")[0]) for p in prefixes]
+    print(f"[rtdetr] frozen: {', '.join(prefixes)} ({frozen_params / 1e6:.1f}M parameters)")
+    return modules
 
 
 class Trainer:
@@ -48,9 +84,13 @@ class Trainer:
         resume=False,
         patience=50,
         seed=0,
+        freeze=None,
+        on_epoch_end=None,
     ):
         seed_everything(seed)
         self.net = net
+        self.frozen = freeze_modules(net, freeze)
+        self.on_epoch_end = on_epoch_end
         self.data_yaml = data
         self.cfg = load_data_yaml(data)
         self.epochs, self.imgsz, self.batch = epochs, imgsz, batch
@@ -68,15 +108,13 @@ class Trainer:
 
         backbone_params, other_params = [], []
         for n, p in net.named_parameters():
+            if not p.requires_grad:
+                continue
             (backbone_params if n.startswith("backbone") else other_params).append(p)
-        self.opt = torch.optim.AdamW(
-            [
-                {"params": other_params, "lr": lr},
-                {"params": backbone_params, "lr": lr * lr_backbone_mult},
-            ],
-            lr=lr,
-            weight_decay=weight_decay,
-        )
+        groups = [{"params": other_params, "lr": lr}]
+        if backbone_params:
+            groups.append({"params": backbone_params, "lr": lr * lr_backbone_mult})
+        self.opt = torch.optim.AdamW(groups, lr=lr, weight_decay=weight_decay)
         self.criterion = SetCriterion(net.num_classes)
         self.warmup_epochs = warmup_epochs
         self.base_lrs = [g["lr"] for g in self.opt.param_groups]
@@ -150,6 +188,8 @@ class Trainer:
         logs = {"vfl": 0.0, "l1": 0.0, "giou": 0.0}
         for epoch in range(self.start_epoch, self.epochs):
             net.train()
+            for module in self.frozen:  # frozen batch norms must not keep adapting
+                module.eval()
             t0, running = time.time(), 0.0
             for step, (imgs, targets) in enumerate(dl):
                 self._set_lr(epoch, step, len(dl))
@@ -181,6 +221,20 @@ class Trainer:
                 msg += f"  mAP50-95 {metric:.4f}"
             print("[rtdetr] " + msg)
 
+            row = {
+                "epoch": epoch + 1,
+                "loss": round(avg, 5),
+                "vfl": round(float(logs["vfl"]), 5),
+                "l1": round(float(logs["l1"]), 5),
+                "giou": round(float(logs["giou"]), 5),
+                "map50_95": round(metric, 5) if metric is not None else "",
+                "lr": self.opt.param_groups[0]["lr"],
+                "seconds": round(time.time() - t0, 2),
+            }
+            self._append_results(row)
+            if self.on_epoch_end is not None:
+                self.on_epoch_end(dict(row, epochs=self.epochs, save_dir=str(self.save_dir)))
+
             improved = metric is None or metric > self.best
             if improved:
                 self.best = metric if metric is not None else self.best
@@ -198,8 +252,32 @@ class Trainer:
                 break
 
         best_path = self.save_dir / "weights" / "best.pt"
+        (self.save_dir / "summary.json").write_text(
+            json.dumps(
+                {
+                    "best_map50_95": self.best if self.best >= 0 else None,
+                    "epochs_run": epoch + 1,
+                    "weights": str(best_path),
+                    "imgsz": self.imgsz,
+                    "names": self.cfg["names"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
         print(f"[rtdetr] done. weights: {best_path}")
         return best_path
+
+    def _append_results(self, row):
+        """One CSV line per epoch, so a dashboard can just tail the file."""
+        path = self.save_dir / "results.csv"
+        write_header = not path.exists()
+        with open(path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(row))
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
 
     def _save(self, net, epoch, fname):
         torch.save(
