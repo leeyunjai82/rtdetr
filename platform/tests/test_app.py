@@ -400,3 +400,88 @@ def test_something_that_is_not_a_video_is_refused(studio):
     )
     assert response.status_code == 400
     assert list(module.DATASETS.iterdir()) == []
+
+
+def test_stats_say_what_is_in_a_dataset_and_what_looks_wrong(studio):
+    client, _ = studio
+    upload(
+        client,
+        {
+            "images/a.jpg": image_bytes(),
+            "images/b.jpg": image_bytes(60),
+            "images/c.jpg": image_bytes(90),
+            "labels/a.txt": b"0 0.5 0.5 0.3 0.3\n1 0.2 0.2 0.1 0.1\n",
+            "labels/b.txt": b"",                       # labelled as "nothing here"
+            "labels/c.txt": b"0 0.5 0.5 0.01 0.01\n",  # a speck
+            "data.yaml": b"train: images\nval: images\nnames:\n  0: can\n  1: bottle\n",
+        },
+    )
+    stats = client.get("/api/datasets/1/stats").json()
+    assert stats["images"] == 3 and stats["boxes"] == 3
+    assert stats["per_class"] == [{"name": "can", "boxes": 2}, {"name": "bottle", "boxes": 1}]
+    assert stats["empty_labels"] == ["b.jpg"] and stats["unlabelled"] == []
+    assert stats["tiny_boxes"] == 1
+
+
+def test_an_image_can_be_dropped_with_its_label(studio):
+    client, _ = studio
+    upload(
+        client,
+        {
+            "images/a.jpg": image_bytes(),
+            "images/b.jpg": image_bytes(60),
+            "labels/a.txt": b"0 0.5 0.5 0.2 0.2\n",
+        },
+    )
+    assert client.request("DELETE", "/api/datasets/1/images/0").json()["images"] == 1
+    listing = client.get("/api/datasets/1").json()
+    assert [f["name"] for f in listing["files"]] == ["b.jpg"]
+    assert client.get("/api/datasets").json()[0]["labelled"] == 0  # the label went too
+    assert client.request("DELETE", "/api/datasets/1/images/9").status_code == 404
+
+
+def test_a_dataset_can_be_duplicated_before_a_risky_relabel(studio):
+    client, _ = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 0.5 0.5 0.2 0.2\n"})
+    copy = client.post("/api/datasets/1/duplicate", json={"name": "safe"}).json()
+    assert copy["id"] == 2 and copy["images"] == 1 and copy["labelled"] == 1
+
+    # the copy is independent: dropping from it leaves the original alone
+    client.request("DELETE", "/api/datasets/2/images/0")
+    assert client.get("/api/datasets/1").json()["images"] == 1
+
+
+def test_merging_remaps_class_indices_onto_the_union(studio):
+    """The subtle one: index 0 means different things in different datasets."""
+    client, module = studio
+    upload(
+        client,
+        {
+            "images/a.jpg": image_bytes(),
+            "labels/a.txt": b"0 0.5 0.5 0.2 0.2\n",
+            "data.yaml": b"train: images\nval: images\nnames:\n  0: can\n",
+        },
+        name="cans",
+    )
+    upload(
+        client,
+        {
+            "images/b.jpg": image_bytes(60),
+            "labels/b.txt": b"0 0.4 0.4 0.2 0.2\n1 0.6 0.6 0.2 0.2\n",
+            "data.yaml": b"train: images\nval: images\nnames:\n  0: bottle\n  1: can\n",
+        },
+        name="bottles",
+    )
+    # picked in either order, the union comes out the same
+    merged = client.post("/api/datasets/merge", json={"ids": [2, 1], "name": "both"}).json()
+    assert merged["classes"] == ["can", "bottle"] and merged["images"] == 2
+
+    root = module.Path(client.get("/api/datasets").json()[0]["path"])
+    labels = sorted((root / "labels").glob("*.txt"))
+    written = {p.name: p.read_text().split() for p in labels}
+    from labeling import read_labels
+
+    # "can" was 0 in the first set and 1 in the second; both must end up 0
+    classes = sorted(row["cls"] for p in labels for row in read_labels(p))
+    assert classes == [0, 0, 1] and len(written) == 2
+    assert client.post("/api/datasets/merge", json={"ids": [1]}).status_code == 400

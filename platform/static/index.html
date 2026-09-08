@@ -44,6 +44,11 @@
   .msg.err { color:var(--bad); }
   .bar { height:5px; border-radius:99px; background:#232833; margin-top:9px; overflow:hidden; }
   .bar i { display:block; height:100%; background:var(--accent); transition:width .3s; }
+  .stats { margin-top:10px; border-top:1px solid var(--line); padding-top:9px; font-size:13px; }
+  .stats table { width:100%; }
+  .stats td { padding:2px 0; border:0; }
+  .stats td:last-child { text-align:right; color:var(--dim); }
+  .warn { color:#ffb648; }
   img#preview { max-width:100%; border-radius:9px; border:1px solid var(--line); margin-top:10px; }
 </style>
 
@@ -99,7 +104,7 @@
       </div>
     </div>
 
-    <h2>데이터셋</h2>
+    <h2>데이터셋 <button id="merge" style="float:right;font-size:12px;padding:3px 8px" disabled>선택 병합</button></h2>
     <div id="datasets"></div>
 
     <h2>학습 시작</h2>
@@ -177,14 +182,27 @@ async function refresh() {
       <div class="row" style="margin-top:9px">
         <button onclick="location.assign('/label/${d.id}')">라벨링</button>
         <button data-autolabel="${d.id}">전체 자동 라벨</button>
-        <button onclick="location.assign('/api/datasets/${d.id}/export')">내보내기</button>
-        <button data-delete="${d.id}">삭제</button>
+        <button data-stats="${d.id}">통계</button>
       </div>
+      <div class="row">
+        <button onclick="location.assign('/api/datasets/${d.id}/export')">내보내기</button>
+        <button data-duplicate="${d.id}">복제</button>
+        <button data-delete="${d.id}">삭제</button>
+        <label class="dim" style="margin-left:auto"><input type="checkbox" data-pick="${d.id}"> 병합 선택</label>
+      </div>
+      <div class="stats" id="stats-${d.id}" hidden></div>
     </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
   document.querySelectorAll("[data-autolabel]").forEach((el) =>
     el.onclick = () => autolabelAll(Number(el.dataset.autolabel)));
   document.querySelectorAll("[data-delete]").forEach((el) =>
     el.onclick = () => removeDataset(Number(el.dataset.delete)));
+  document.querySelectorAll("[data-stats]").forEach((el) =>
+    el.onclick = () => showStats(Number(el.dataset.stats)));
+  document.querySelectorAll("[data-duplicate]").forEach((el) =>
+    el.onclick = () => duplicate(Number(el.dataset.duplicate)));
+  document.querySelectorAll("[data-pick]").forEach((el) =>
+    el.onchange = updateMergeButton);
+  updateMergeButton();
 
   const options = datasets.map((d) =>
     `<option value="${d.id}">${d.name} (이미지 ${d.images})</option>`).join("");
@@ -327,6 +345,41 @@ $("ds-upload").onclick = async () => {
     say(`${added}이미지 ${res.images} · 라벨 ${res.labelled}`);
     await refresh();
   } catch (e) { say(e.message, true); }
+};
+
+const picked = () => [...document.querySelectorAll("[data-pick]:checked")].map((el) => Number(el.dataset.pick));
+function updateMergeButton() { $("merge").disabled = picked().length < 2; }
+
+async function showStats(datasetId) {
+  const panel = $(`stats-${datasetId}`);
+  if (!panel.hidden) { panel.hidden = true; return; }
+  const s = await api(`/api/datasets/${datasetId}/stats`);
+  const rows = s.per_class.map((c) => `<tr><td>${c.name}</td><td>${c.boxes}</td></tr>`).join("");
+  const warn = [];
+  if (s.unlabelled.length) warn.push(`라벨 없음 ${s.unlabelled.length}장`);
+  if (s.empty_labels.length) warn.push(`빈 라벨 ${s.empty_labels.length}장`);
+  if (s.tiny_boxes) warn.push(`아주 작은 상자 ${s.tiny_boxes}개`);
+  if (s.unknown_class_boxes) warn.push(`클래스 범위 밖 ${s.unknown_class_boxes}개`);
+  panel.innerHTML = `<table>${rows}<tr><td><b>상자 합계</b></td><td><b>${s.boxes}</b></td></tr></table>`
+    + (warn.length ? `<div class="warn" style="margin-top:6px">${warn.join(" · ")}</div>` : "");
+  panel.hidden = false;
+}
+
+async function duplicate(datasetId) {
+  try { await api(`/api/datasets/${datasetId}/duplicate`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: "{}" }); await refresh(); }
+  catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
+}
+
+$("merge").onclick = async () => {
+  const ids = picked();
+  const name = prompt("병합된 데이터셋 이름", "merged");
+  if (!name) return;
+  try { const res = await api("/api/datasets/merge", { method: "POST",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, name }) });
+    $("ds-msg").textContent = `${res.added}장 병합 · 클래스 ${res.classes.join(", ")}`;
+    $("ds-msg").className = "msg"; await refresh(); }
+  catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
 };
 
 async function removeDataset(datasetId) {

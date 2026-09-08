@@ -61,6 +61,7 @@
     <button id="copy" title="이전 이미지의 상자를 그대로 가져옵니다 (C)">이전 상자 복사</button>
     <button id="undo">되돌리기</button>
     <button id="clear">모두 지우기</button>
+    <button id="drop" title="이 이미지와 라벨을 데이터셋에서 지웁니다">이미지 삭제</button>
     <button id="reset-zoom" hidden>100%</button>
     <span class="grow"></span>
     <span class="status" id="status"></span>
@@ -373,6 +374,15 @@ function onKey(e) {
 document.addEventListener("keyup", (e) => {
   if (e.code === "Space") { spaceDown = false; canvas.style.cursor = "crosshair"; }
 });
+
+$("drop").onclick = async () => {
+  if (!confirm(`${dataset.files[index].name} 을(를) 데이터셋에서 지웁니다.`)) return;
+  dirty = false;                                   // it is going away; do not save it back
+  await api(`/api/datasets/${DATASET}/images/${index}`, { method: "DELETE" });
+  dataset = await api(`/api/datasets/${DATASET}`);
+  if (!dataset.files.length) { location.assign("/"); return; }
+  await load(Math.min(index, dataset.files.length - 1));
+};
 
 $("copy").onclick = copyPrevious;
 $("add-class").onclick = addClass;

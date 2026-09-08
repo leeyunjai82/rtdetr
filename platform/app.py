@@ -242,6 +242,78 @@ def autolabel_all(dataset_id: int, payload: dict):
     return {"id": job_id}
 
 
+@app.get("/api/datasets/{dataset_id}/stats")
+def dataset_stats(dataset_id: int):
+    """What is actually in there — the numbers you check before training."""
+    dataset = _dataset(dataset_id)
+    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    names = json.loads(dataset["classes"])
+
+    per_class = dict.fromkeys(range(len(names)), 0)
+    unknown_class = 0
+    boxes = tiny = 0
+    unlabelled: list[str] = []
+    empty: list[str] = []
+    for image in list_images(images_root):
+        label = label_path(image, images_root, labels_root)
+        if not label.exists():
+            unlabelled.append(str(image.relative_to(images_root)))
+            continue
+        rows = read_labels(label)
+        if not rows:
+            empty.append(str(image.relative_to(images_root)))
+        for row in rows:
+            boxes += 1
+            if row["cls"] in per_class:
+                per_class[row["cls"]] += 1
+            else:
+                unknown_class += 1
+            if row["w"] * row["h"] < 0.001:  # under 0.1% of the frame
+                tiny += 1
+    return {
+        "images": len(list_images(images_root)),
+        "boxes": boxes,
+        "per_class": [{"name": n, "boxes": per_class.get(i, 0)} for i, n in enumerate(names)],
+        "unknown_class_boxes": unknown_class,
+        "unlabelled": unlabelled,
+        "empty_labels": empty,
+        "tiny_boxes": tiny,
+    }
+
+
+@app.delete("/api/datasets/{dataset_id}/images/{index}")
+def delete_image(dataset_id: int, index: int):
+    """Drop one image and its label — blurred frames are not worth labelling."""
+    dataset = _dataset(dataset_id)
+    images_root = Path(dataset["images_dir"])
+    images = list_images(images_root)
+    if not 0 <= index < len(images):
+        raise HTTPException(404, "no such image")
+    label = label_path(images[index], images_root, Path(dataset["labels_dir"]))
+    images[index].unlink(missing_ok=True)
+    label.unlink(missing_ok=True)
+    worker.refresh_counts(dataset_id)
+    return {"deleted": True, "images": len(list_images(images_root))}
+
+
+@app.post("/api/datasets/{dataset_id}/duplicate")
+def duplicate_dataset(dataset_id: int, payload: dict = None):
+    """A copy to experiment on — relabelling in place is a one-way door."""
+    dataset = _dataset(dataset_id)
+    name = (payload or {}).get("name") or f"{dataset['name']}-copy"
+    return _combine([dataset], name)
+
+
+@app.post("/api/datasets/merge")
+def merge_datasets(payload: dict):
+    """One dataset out of several, with class indices remapped onto a union."""
+    # sorted, so the class union comes out the same whatever order they were picked in
+    ids = sorted({int(i) for i in payload.get("ids") or []})
+    if len(ids) < 2:
+        raise HTTPException(400, "give at least two datasets to merge")
+    return _combine([_dataset(i) for i in ids], payload.get("name") or "merged")
+
+
 @app.get("/api/datasets/{dataset_id}/export")
 def export_dataset(dataset_id: int):
     """The whole dataset as a zip: images, labels, data.yaml — ready to re-import."""
@@ -620,6 +692,42 @@ def _ensure_split(dataset: dict, val_ratio: float) -> str | None:
         yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     return f"{len(train)} train / {len(val)} val images"
+
+
+def _combine(sources: list[dict], name: str) -> dict:
+    """Copy several datasets into a new one, unioning their class lists.
+
+    Class indices are per-dataset, so a straight file copy would silently turn
+    every "car" in the second set into whatever index 1 means in the first.
+    Names are matched instead, and labels rewritten onto the union.
+    """
+    names: list[str] = []
+    for source in sources:
+        for class_name in json.loads(source["classes"]):
+            if class_name not in names:
+                names.append(class_name)
+
+    target = DATASETS / f"{int(time.time())}_{_slug(name)}"
+    (target / "images").mkdir(parents=True)
+    (target / "labels").mkdir(parents=True)
+    copied = 0
+    for source in sources:
+        images_root, labels_root = Path(source["images_dir"]), Path(source["labels_dir"])
+        remap = {i: names.index(n) for i, n in enumerate(json.loads(source["classes"]))}
+        prefix = _slug(source["name"])
+        for image in list_images(images_root):
+            stem = f"{prefix}_{image.relative_to(images_root).as_posix().replace('/', '_')}"
+            destination = _unique(target / "images" / stem)
+            shutil.copy2(image, destination)
+            copied += 1
+            label = label_path(image, images_root, labels_root)
+            if not label.exists():
+                continue
+            rows = [dict(row, cls=remap.get(row["cls"], row["cls"])) for row in read_labels(label)]
+            write_labels((target / "labels" / destination.name).with_suffix(".txt"), rows)
+
+    registered = _register(name, target, names=names)
+    return {**registered, "added": copied, "sources": [s["id"] for s in sources]}
 
 
 def _write_data_yaml(root: Path, images_root: Path, names: list[str]) -> Path:
