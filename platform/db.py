@@ -1,7 +1,7 @@
 # Apache-2.0
-"""SQLite for the studio: datasets, jobs, and one row per training epoch.
+"""SQLite for the platform: datasets, jobs, and one row per training epoch.
 
-One file, no server to run. A single-box studio does not need Postgres, and
+One file, no server to run. A single-box tool does not need Postgres, and
 anything that outgrows this file wants a real queue anyway.
 """
 
@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS datasets (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
+    images_dir TEXT NOT NULL,
+    labels_dir TEXT NOT NULL,
     images INTEGER NOT NULL,
     labelled INTEGER NOT NULL,
     classes TEXT NOT NULL,
@@ -25,15 +27,18 @@ CREATE TABLE IF NOT EXISTS datasets (
 );
 CREATE TABLE IF NOT EXISTS jobs (
     id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL DEFAULT 'train',
     dataset_id INTEGER NOT NULL REFERENCES datasets(id),
     model TEXT NOT NULL,
-    epochs INTEGER NOT NULL,
-    imgsz INTEGER NOT NULL,
-    batch INTEGER NOT NULL,
+    epochs INTEGER,
+    imgsz INTEGER,
+    batch INTEGER,
     freeze TEXT,
     device TEXT,
+    conf REAL,
     status TEXT NOT NULL,
     detail TEXT,
+    progress REAL DEFAULT 0,
     run_dir TEXT,
     best_map REAL,
     created REAL NOT NULL,
@@ -78,20 +83,21 @@ class Database:
         rows = self.query(sql, params)
         return rows[0] if rows else None
 
-    # -- the handful of writes the app makes -------------------------------
+    # -- the writes the app makes ------------------------------------------
 
-    def add_dataset(self, name, path, images, labelled, classes) -> int:
+    def add_dataset(self, **fields) -> int:
+        fields["classes"] = json.dumps(fields.get("classes", []), ensure_ascii=False)
+        fields["created"] = time.time()
+        columns = ", ".join(fields)
+        marks = ", ".join("?" for _ in fields)
         return self.execute(
-            "INSERT INTO datasets (name, path, images, labelled, classes, created)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                name,
-                str(path),
-                images,
-                labelled,
-                json.dumps(classes, ensure_ascii=False),
-                time.time(),
-            ),
+            f"INSERT INTO datasets ({columns}) VALUES ({marks})", tuple(fields.values())
+        )
+
+    def update_dataset(self, dataset_id: int, **fields) -> None:
+        assignments = ", ".join(f"{k} = ?" for k in fields)
+        self.execute(
+            f"UPDATE datasets SET {assignments} WHERE id = ?", (*fields.values(), dataset_id)
         )
 
     def add_job(self, **fields) -> int:

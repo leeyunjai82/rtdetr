@@ -1,5 +1,5 @@
 # Apache-2.0
-"""The studio's API: uploading a dataset, queueing a job, guarding both."""
+"""The platform API: datasets, labels, jobs — and the guards around them."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 @pytest.fixture
 def studio(tmp_path, monkeypatch):
-    """A studio rooted in a temp folder, with the worker left asleep."""
-    monkeypatch.setenv("RTDETR_STUDIO_HOME", str(tmp_path / "home"))
-    from rtdetr.studio import app as module
+    """A platform rooted in a temp folder, with the worker left asleep."""
+    monkeypatch.setenv("RTDETR_PLATFORM_HOME", str(tmp_path / "home"))
+    import app as module
 
     module = importlib.reload(module)
     for folder in (module.DATASETS, module.RUNS):
@@ -52,10 +52,13 @@ def upload(client, files, name="set"):
     )
 
 
-def test_the_page_is_served(studio):
+def test_the_pages_are_served(studio):
     client, _ = studio
-    body = client.get("/").text
-    assert "rtdetr studio" in body and "<canvas" in body
+    assert "rtdetr platform" in client.get("/").text
+
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    assert "<canvas" in client.get("/label/1").text
+    assert client.get("/label/999").status_code == 404
 
 
 def test_uploading_images_and_labels_counts_them(studio):
@@ -152,3 +155,78 @@ def test_downloads_and_predictions_wait_for_a_finished_run(studio):
     assert client.get(f"/api/jobs/{job_id}/download/weights").status_code == 404
     assert client.post(f"/api/jobs/{job_id}/predict").status_code == 404
     assert client.get("/api/jobs/999").status_code == 404
+
+
+def test_a_folder_already_on_this_machine_can_be_registered(studio, tmp_path):
+    """The label-a-folder path: no copying, no zip."""
+    import cv2
+
+    client, _ = studio
+    folder = tmp_path / "shots"
+    folder.mkdir()
+    cv2.imwrite(str(folder / "a.jpg"), np.full((20, 20, 3), 30, np.uint8))
+
+    response = client.post(
+        "/api/datasets/local", json={"path": str(folder), "names": ["can", "bottle"]}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["images"] == 1 and body["classes"] == ["can", "bottle"]
+    assert (folder / "data.yaml").exists()
+
+    missing = client.post("/api/datasets/local", json={"path": str(tmp_path / "nope")})
+    assert missing.status_code == 400
+
+
+def test_labels_can_be_read_and_written_through_the_api(studio):
+    client, _ = studio
+    upload(client, {"images/a.jpg": image_bytes(), "images/b.jpg": image_bytes(70)})
+    assert client.get("/api/datasets/1/labels/0").json() == {"boxes": []}
+
+    boxes = [{"cls": 0, "cx": 0.5, "cy": 0.5, "w": 0.2, "h": 0.2}]
+    assert client.post("/api/datasets/1/labels/0", json={"boxes": boxes}).json()["saved"] is True
+    assert client.get("/api/datasets/1/labels/0").json()["boxes"] == boxes
+
+    listing = client.get("/api/datasets/1").json()
+    assert [f["labelled"] for f in listing["files"]] == [True, False]
+    assert client.get("/api/datasets").json()[0]["labelled"] == 1
+
+    assert client.get("/api/datasets/1/labels/99").status_code == 404
+
+
+def test_classes_can_be_renamed_and_the_data_yaml_follows(studio):
+    import yaml
+
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    renamed = client.post("/api/datasets/1/classes", json={"names": ["can"]})
+    assert renamed.json()["names"] == ["can"]
+
+    path = module.Path(client.get("/api/datasets").json()[0]["path"]) / "data.yaml"
+    assert yaml.safe_load(path.read_text())["names"] == {0: "can"}
+    assert client.post("/api/datasets/1/classes", json={"names": []}).status_code == 400
+
+
+def test_a_batch_autolabel_is_queued_like_any_other_job(studio):
+    client, _ = studio
+    upload(client, {"images/a.jpg": image_bytes()})
+    job_id = client.post("/api/datasets/1/autolabel", json={"model": "rtdetr-r18"}).json()["id"]
+
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert job["kind"] == "autolabel" and job["status"] == "queued"
+    assert client.get("/api/jobs").json()[0]["kind"] == "autolabel"
+
+    client.post(f"/api/jobs/{job_id}/cancel")
+    assert client.get(f"/api/jobs/{job_id}").json()["status"] == "cancelled"
+
+
+def test_jobs_left_running_by_a_dead_process_are_marked_failed(studio):
+    """Nothing survives a restart; a spinner that never finishes is worse than a message."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job_id = client.post("/api/jobs", json={"dataset_id": 1}).json()["id"]
+    module.db.update_job(job_id, status="running")
+
+    assert module.worker.reap_stale() == 1
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert job["status"] == "failed" and "restart" in job["detail"]

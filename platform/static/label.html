@@ -1,0 +1,303 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>라벨링 — rtdetr</title>
+<style>
+  :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; height:100vh; }
+  aside { width:250px; flex:none; background:var(--panel); border-right:1px solid var(--line); display:flex; flex-direction:column; }
+  aside h1 { font-size:15px; margin:0; padding:14px 16px; border-bottom:1px solid var(--line); }
+  aside h1 a { color:var(--dim); text-decoration:none; font-size:13px; }
+  .classes { padding:10px 12px; border-bottom:1px solid var(--line); }
+  .cls { display:flex; align-items:center; gap:8px; width:100%; padding:6px 8px; margin:2px 0; border:1px solid transparent; border-radius:6px; background:none; color:var(--ink); font:inherit; text-align:left; cursor:pointer; }
+  .cls:hover { background:#232833; }
+  .cls[aria-pressed="true"] { border-color:var(--accent); background:#1d2836; }
+  .swatch { width:12px; height:12px; border-radius:3px; flex:none; }
+  .key { margin-left:auto; color:var(--dim); font-size:12px; }
+  .files { flex:1; overflow:auto; padding:8px 0; }
+  .file { display:flex; gap:8px; padding:5px 16px; cursor:pointer; color:var(--dim); }
+  .file:hover { background:#232833; }
+  .file[aria-current="true"] { background:#1d2836; color:var(--ink); }
+  .file .dot { width:7px; height:7px; border-radius:50%; background:#39404d; margin-top:7px; flex:none; }
+  .file.done .dot { background:#3ecf8e; }
+  .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); }
+  button { background:#252b35; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:6px 11px; font:inherit; cursor:pointer; }
+  button:hover:not(:disabled) { background:#2e3542; }
+  button:disabled { opacity:.45; cursor:default; }
+  .grow { flex:1; }
+  .status { color:var(--dim); font-size:13px; }
+  .stage { flex:1; overflow:auto; display:grid; place-items:center; padding:16px; }
+  canvas { touch-action:none; }
+  footer { padding:8px 14px; border-top:1px solid var(--line); color:var(--dim); font-size:12.5px; }
+  kbd { background:#252b35; border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12px; }
+</style>
+
+<aside>
+  <h1>라벨링 <a href="/">← 플랫폼</a></h1>
+  <div class="classes" id="classes"></div>
+  <div class="files" id="files"></div>
+</aside>
+
+<main>
+  <header>
+    <button id="prev">← 이전</button>
+    <button id="next">다음 →</button>
+    <button id="auto">자동 라벨</button>
+    <button id="undo">되돌리기</button>
+    <button id="clear">모두 지우기</button>
+    <span class="grow"></span>
+    <span class="status" id="status"></span>
+  </header>
+  <div class="stage"><canvas id="canvas"></canvas></div>
+  <footer>
+    드래그로 그리기 · 상자 안을 끌면 이동 · 모서리를 끌면 크기 조절 ·
+    <kbd>1</kbd>–<kbd>9</kbd> 클래스 · <kbd>Del</kbd> 삭제 · <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기 ·
+    <kbd>←</kbd> <kbd>→</kbd> 이동 · 저장 자동
+  </footer>
+</main>
+
+<script>
+const COLORS = ["#ff5a5a","#4da3ff","#3ecf8e","#ffb648","#c07cff","#39d5d5","#ff7ac0","#9dd23a","#ff9060"];
+const $ = (id) => document.getElementById(id);
+const canvas = $("canvas"), ctx = canvas.getContext("2d");
+const DATASET = Number(location.pathname.split("/").pop());
+const HANDLE = 9;               // grab radius for a corner, in screen pixels
+
+let dataset = null, index = 0, boxes = [], img = new Image(), cls = 0, selected = -1;
+let action = null, history = [], dirty = false;
+
+const api = async (path, options) => {
+  const res = await fetch(path, options);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error || res.status);
+  return body;
+};
+
+async function boot() {
+  dataset = await api(`/api/datasets/${DATASET}`);
+  document.title = `${dataset.name} — 라벨링`;
+  renderClasses(); renderFiles();
+  await load(0);
+  document.addEventListener("keydown", onKey);
+}
+
+function renderClasses() {
+  $("classes").innerHTML = "";
+  dataset.classes.forEach((name, i) => {
+    const b = document.createElement("button");
+    b.className = "cls";
+    b.setAttribute("aria-pressed", i === cls);
+    b.innerHTML = `<span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>
+                   <span>${name}</span><span class="key">${i < 9 ? i + 1 : ""}</span>`;
+    b.onclick = () => setClass(i);
+    $("classes").append(b);
+  });
+}
+
+function setClass(i) {
+  cls = i; renderClasses();
+  if (selected >= 0 && boxes[selected].cls !== i) { push(); boxes[selected].cls = i; touch(); }
+}
+
+function renderFiles() {
+  $("files").innerHTML = "";
+  dataset.files.forEach((f, i) => {
+    const row = document.createElement("div");
+    row.className = "file" + (f.labelled ? " done" : "");
+    row.setAttribute("aria-current", i === index);
+    row.innerHTML = `<span class="dot"></span><span>${f.name}</span>`;
+    row.onclick = () => load(i);
+    $("files").append(row);
+  });
+  const done = dataset.files.filter((f) => f.labelled).length;
+  $("status").textContent = `${index + 1} / ${dataset.files.length} · 라벨 완료 ${done}`;
+}
+
+async function load(i) {
+  if (dirty) await save();
+  index = i; selected = -1; history = [];
+  boxes = (await api(`/api/datasets/${DATASET}/labels/${i}`)).boxes;
+  await new Promise((done) => {
+    img.onload = done;
+    img.src = `/api/datasets/${DATASET}/image/${i}?t=${Date.now()}`;
+  });
+  canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+  fit(); renderFiles(); draw();
+}
+
+function fit() {
+  // scale the canvas to fill the stage in CSS pixels; the drawing buffer keeps
+  // the image's own resolution, so labels stay exact whatever the zoom
+  const stage = canvas.parentElement.getBoundingClientRect();
+  const room = Math.min((stage.width - 32) / canvas.width, (stage.height - 32) / canvas.height);
+  canvas.style.width = `${Math.max(canvas.width * room, 100)}px`;
+}
+window.addEventListener("resize", () => { fit(); draw(); });
+
+const pixels = (b) => [ (b.cx - b.w / 2) * canvas.width, (b.cy - b.h / 2) * canvas.height,
+                        b.w * canvas.width, b.h * canvas.height ];
+const scale = () => canvas.width / canvas.getBoundingClientRect().width;
+
+function draw() {
+  ctx.drawImage(img, 0, 0);
+  const lw = Math.max(2, Math.round((canvas.width + canvas.height) / 700));
+  ctx.lineWidth = lw; ctx.font = `${lw * 7}px system-ui, sans-serif`; ctx.textBaseline = "top";
+  boxes.forEach((b, i) => {
+    const [x, y, w, h] = pixels(b);
+    const color = COLORS[b.cls % COLORS.length];
+    ctx.strokeStyle = color; ctx.setLineDash(i === selected ? [lw * 3, lw * 2] : []);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    if (i === selected) {                       // grab handles on the selected box
+      ctx.fillStyle = color;
+      corners(b).forEach(([hx, hy]) =>
+        ctx.fillRect(hx - lw * 2, hy - lw * 2, lw * 4, lw * 4));
+    }
+    const text = (dataset.classes[b.cls] ?? b.cls) + (b.conf ? ` ${b.conf}` : "");
+    const tw = ctx.measureText(text).width + lw * 4;
+    const ty = y - lw * 9 >= 0 ? y - lw * 9 : y;
+    ctx.fillStyle = color; ctx.fillRect(x, ty, tw, lw * 9);
+    ctx.fillStyle = "#0b0d11"; ctx.fillText(text, x + lw * 2, ty + lw * 1.2);
+  });
+  if (action?.kind === "new") {
+    ctx.strokeStyle = "#fff"; ctx.setLineDash([lw * 2, lw * 2]);
+    ctx.strokeRect(action.x0, action.y0, action.x1 - action.x0, action.y1 - action.y0);
+    ctx.setLineDash([]);
+  }
+}
+
+function corners(b) {
+  const [x, y, w, h] = pixels(b);
+  return [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+}
+
+function at(event) {
+  const rect = canvas.getBoundingClientRect();
+  return { x: (event.clientX - rect.left) * scale(), y: (event.clientY - rect.top) * scale() };
+}
+
+function hitCorner(b, p) {
+  const grab = HANDLE * scale();
+  const found = corners(b).findIndex(([cx, cy]) => Math.abs(cx - p.x) < grab && Math.abs(cy - p.y) < grab);
+  return found;
+}
+
+function inside(b, p) {
+  const [x, y, w, h] = pixels(b);
+  return p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h;
+}
+
+function push() { history.push(JSON.stringify(boxes)); if (history.length > 50) history.shift(); }
+
+canvas.addEventListener("pointerdown", (e) => {
+  const p = at(e);
+  canvas.setPointerCapture(e.pointerId);
+
+  if (selected >= 0) {                       // corner of the selected box: resize
+    const corner = hitCorner(boxes[selected], p);
+    if (corner >= 0) { push(); action = { kind: "resize", corner, box: selected }; return; }
+  }
+  const hit = boxes.findIndex((b) => inside(b, p));
+  if (hit >= 0 && !e.shiftKey) {             // inside a box: select, and drag to move
+    selected = hit; cls = boxes[hit].cls; renderClasses();
+    push();
+    action = { kind: "move", box: hit, from: p, start: { ...boxes[hit] } };
+    draw();
+    return;
+  }
+  action = { kind: "new", x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (!action) { return; }
+  const p = at(e);
+  if (action.kind === "new") { action.x1 = p.x; action.y1 = p.y; }
+  else if (action.kind === "move") {
+    const b = boxes[action.box], s = action.start;
+    b.cx = s.cx + (p.x - action.from.x) / canvas.width;
+    b.cy = s.cy + (p.y - action.from.y) / canvas.height;
+    dirty = true;
+  } else if (action.kind === "resize") {
+    const b = boxes[action.box];
+    const [x, y, w, h] = pixels(b);
+    let x0 = x, y0 = y, x1 = x + w, y1 = y + h;
+    if (action.corner === 0) { x0 = p.x; y0 = p.y; }
+    if (action.corner === 1) { x1 = p.x; y0 = p.y; }
+    if (action.corner === 2) { x0 = p.x; y1 = p.y; }
+    if (action.corner === 3) { x1 = p.x; y1 = p.y; }
+    b.cx = (x0 + x1) / 2 / canvas.width; b.cy = (y0 + y1) / 2 / canvas.height;
+    b.w = Math.abs(x1 - x0) / canvas.width; b.h = Math.abs(y1 - y0) / canvas.height;
+    dirty = true;
+  }
+  draw();
+});
+
+canvas.addEventListener("pointerup", () => {
+  if (!action) return;
+  if (action.kind === "new") {
+    const w = Math.abs(action.x1 - action.x0), h = Math.abs(action.y1 - action.y0);
+    if (w > 4 && h > 4) {
+      push();
+      boxes.push({ cls, cx: (action.x0 + action.x1) / 2 / canvas.width,
+                   cy: (action.y0 + action.y1) / 2 / canvas.height,
+                   w: w / canvas.width, h: h / canvas.height });
+      selected = boxes.length - 1; dirty = true;
+    }
+  }
+  action = null;
+  if (dirty) touch(); else draw();
+});
+
+function touch() { dirty = true; draw(); save(); }
+
+async function save() {
+  if (!dirty) return;
+  dirty = false;
+  await api(`/api/datasets/${DATASET}/labels/${index}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ boxes }) });
+  dataset.files[index].labelled = true;
+  renderFiles();
+}
+
+function undo() {
+  const previous = history.pop();
+  if (!previous) return;
+  boxes = JSON.parse(previous); selected = -1; touch();
+}
+
+async function autolabel() {
+  $("auto").disabled = true; $("status").textContent = "자동 라벨 중…";
+  try {
+    const res = await api(`/api/datasets/${DATASET}/autolabel/${index}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conf: 0.35 }) });
+    push(); boxes = boxes.concat(res.boxes); selected = -1; touch();
+  } catch (e) { $("status").textContent = "자동 라벨 실패: " + e.message; return; }
+  finally { $("auto").disabled = false; }
+  renderFiles();
+}
+
+function onKey(e) {
+  if (e.ctrlKey && e.key.toLowerCase() === "z") undo();
+  else if (e.key === "ArrowRight") load(Math.min(index + 1, dataset.files.length - 1));
+  else if (e.key === "ArrowLeft") load(Math.max(index - 1, 0));
+  else if ((e.key === "Delete" || e.key === "Backspace") && selected >= 0) {
+    push(); boxes.splice(selected, 1); selected = -1; touch();
+  } else if (e.key >= "1" && e.key <= "9") {
+    const i = Number(e.key) - 1;
+    if (i < dataset.classes.length) setClass(i);
+  } else return;
+  e.preventDefault();
+}
+
+$("prev").onclick = () => load(Math.max(index - 1, 0));
+$("next").onclick = () => load(Math.min(index + 1, dataset.files.length - 1));
+$("auto").onclick = autolabel;
+$("undo").onclick = undo;
+$("clear").onclick = () => { push(); boxes = []; selected = -1; touch(); };
+window.addEventListener("beforeunload", save);
+boot();
+</script>

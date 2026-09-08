@@ -10,6 +10,7 @@ venv/
 runs/
 mirror/
 weights/
+rtdetr-platform/
 *.onnx
 *.pth
 *.xml

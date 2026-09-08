@@ -5,8 +5,6 @@
     rtdetr train   model=rtdetr-r18 data=data.yaml epochs=100 imgsz=640
     rtdetr val     model=best.pt data=data.yaml
     rtdetr export  model=best.pt format=openvino half=true
-  rtdetr label   source=images/ names=can,bottle model=rtdetr-r18
-  rtdetr studio  port=8080
     rtdetr track   model=best.pt source=video.mp4
 """
 
@@ -15,7 +13,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-MODES = ("predict", "track", "train", "val", "export", "label", "studio")
+MODES = ("predict", "track", "train", "val", "export")
 
 HELP = """rtdetr — real-time detection transformer, Apache-2.0
 
@@ -27,8 +25,6 @@ Modes:
   train     train on a data.yaml dataset (images/ + labels/*.txt)
   val       COCO-style mAP50 / mAP50-95 on the val split
   export    write an OpenVINO IR (or ONNX) next to the checkpoint
-  label     draw boxes in the browser, saving labels the trainer can read
-  studio    the web app: upload a dataset, train, watch, download
 
 Common keys:
   model=rtdetr-r18|best.pt|model.xml   source=bus.jpg|dir|video.mp4|0|url
@@ -40,8 +36,6 @@ Examples:
   rtdetr train   model=rtdetr-r18 data=data.yaml epochs=100
   rtdetr val     model=best.pt data=data.yaml
   rtdetr export  model=best.pt format=openvino half=true
-  rtdetr label   source=images/ names=can,bottle model=rtdetr-r18
-  rtdetr studio  port=8080
 """
 
 
@@ -88,56 +82,6 @@ def _take(overrides: dict[str, Any], key: str, default: Any = None) -> Any:
     return overrides.pop(key, default)
 
 
-def _label(overrides: dict[str, Any], model_name: Any, device: Any, verbose: Any) -> int:
-    """``rtdetr label source=images/ names=a,b`` — the browser labelling tool."""
-    from .labeler import LabelSession, run
-
-    source = _take(overrides, "source")
-    if source is None:
-        print("label needs source=path/to/images", file=sys.stderr)
-        return 2
-    names = _take(overrides, "names")
-    if names is None:
-        print("label needs names=class1,class2 (the classes you are drawing)", file=sys.stderr)
-        return 2
-    names = [str(n) for n in (names if isinstance(names, list) else [names])]
-
-    # model= doubles as the auto-labeller; autolabel=false turns that off
-    autolabel_with = model_name if _take(overrides, "autolabel", True) else None
-    session = LabelSession(
-        source,
-        names,
-        labels_dir=_take(overrides, "labels"),
-        model=autolabel_with,
-        device=device or "AUTO",
-    )
-    return run(
-        session,
-        host=str(_take(overrides, "host", "127.0.0.1")),
-        port=int(_take(overrides, "port", 8000)),
-        open_browser=bool(_take(overrides, "open", True)),
-    )
-
-
-def _studio(overrides: dict[str, Any]) -> int:
-    """``rtdetr studio`` — the web app (needs the [studio] extra)."""
-    try:
-        import uvicorn
-    except ImportError:
-        print("the studio needs its extra: pip install 'rtdetr[studio]'", file=sys.stderr)
-        return 2
-
-    import os
-
-    if "data" in overrides:
-        os.environ["RTDETR_STUDIO_HOME"] = str(_take(overrides, "data"))
-    host = str(_take(overrides, "host", "127.0.0.1"))
-    port = int(_take(overrides, "port", 8080))
-    print(f"[rtdetr] studio on http://{host}:{port}")
-    uvicorn.run("rtdetr.studio.app:app", host=host, port=port, log_level="warning")
-    return 0
-
-
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help", "help"):
@@ -176,11 +120,6 @@ def main(argv: list[str] | None = None) -> int:
         results = runner(source, **overrides)
         print(f"{len(results)} result(s)")
         return 0
-
-    if mode == "label":
-        return _label(overrides, model_name, device, verbose)
-    if mode == "studio":
-        return _studio(overrides)
 
     model = RTDETR(model_name, verbose=verbose)
     if mode == "train":

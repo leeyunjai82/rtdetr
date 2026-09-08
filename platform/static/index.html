@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>rtdetr studio</title>
+<title>rtdetr platform</title>
 <style>
   :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; --ok:#3ecf8e; --bad:#ff6b6b; }
   * { box-sizing:border-box; }
@@ -39,14 +39,16 @@
   th { color:var(--dim); font-weight:500; }
   .msg { font-size:13px; margin-top:8px; min-height:19px; }
   .msg.err { color:var(--bad); }
+  .bar { height:5px; border-radius:99px; background:#232833; margin-top:9px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); transition:width .3s; }
   img#preview { max-width:100%; border-radius:9px; border:1px solid var(--line); margin-top:10px; }
 </style>
 
 <header>
-  <b>rtdetr studio</b>
+  <b>rtdetr platform</b>
   <span class="dim" id="status">…</span>
   <span class="grow"></span>
-  <span class="dim">라벨링은 <code>rtdetr label source=images/ names=…</code></span>
+  <span class="dim">데이터셋 카드의 <b>라벨링</b>으로 상자를 그립니다</span>
 </header>
 
 <div class="wrap">
@@ -135,19 +137,28 @@ async function refresh() {
     <div class="card"><div class="row"><b>${d.name}</b><span class="grow"></span>
       <span class="tag">#${d.id}</span></div>
       <div class="row dim">이미지 ${d.images} · 라벨 ${d.labelled} · 클래스 ${d.classes.join(", ")}</div>
+      <div class="row" style="margin-top:9px">
+        <button onclick="location.assign('/label/${d.id}')">라벨링</button>
+        <button data-autolabel="${d.id}">전체 자동 라벨</button>
+      </div>
     </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
+  document.querySelectorAll("[data-autolabel]").forEach((el) =>
+    el.onclick = () => autolabelAll(Number(el.dataset.autolabel)));
 
   $("job-dataset").innerHTML = datasets.map((d) =>
     `<option value="${d.id}">${d.name} (이미지 ${d.images})</option>`).join("");
 
   $("jobs").innerHTML = jobs.map((j) => `
     <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
-      <div class="row"><b>#${j.id} ${j.model}</b>
-        <span class="dim">${j.dataset}</span><span class="grow"></span>
+      <div class="row"><b>#${j.id} ${j.kind === "autolabel" ? "자동 라벨" : "학습"}</b>
+        <span class="dim">${j.model} · ${j.dataset}</span><span class="grow"></span>
         <span class="tag ${j.status}">${j.status}</span></div>
-      <div class="row dim">에폭 ${j.epochs} · ${j.imgsz}px · batch ${j.batch}${j.freeze ? " · 백본 고정" : ""}
+      <div class="row dim">${j.kind === "autolabel"
+          ? `conf ${fmt(j.conf, 2)}`
+          : `에폭 ${j.epochs} · ${j.imgsz}px · batch ${j.batch}${j.freeze ? " · 백본 고정" : ""}`}
         ${j.best_map != null ? ` · mAP50-95 ${fmt(j.best_map)}` : ""}</div>
-      ${j.detail ? `<div class="row msg err">${j.detail}</div>` : ""}
+      ${j.status === "running" ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div>` : ""}
+      ${j.detail ? `<div class="row msg ${j.status === "failed" ? "err" : ""}">${j.detail}</div>` : ""}
     </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
   document.querySelectorAll("[data-job]").forEach((el) =>
     el.onclick = () => select(Number(el.dataset.job)));
@@ -173,6 +184,7 @@ async function select(id) {
 
 function render(job) {
   const rows = job.epochs_done;
+  $("chart").hidden = job.kind === "autolabel";
   $("epochs").innerHTML = rows.slice().reverse().map((r) =>
     `<tr><td>${r.epoch}</td><td>${fmt(r.loss)}</td><td>${fmt(r.map50_95)}</td><td>${fmt(r.seconds, 1)}</td></tr>`).join("");
   $("detail-msg").textContent = job.detail || "";
@@ -226,6 +238,15 @@ $("ds-upload").onclick = async () => {
     await refresh();
   } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
 };
+
+async function autolabelAll(datasetId) {
+  try {
+    const res = await api(`/api/datasets/${datasetId}/autolabel`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: $("job-model").value, conf: 0.35 }) });
+    await select(res.id);
+  } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
+}
 
 $("job-start").onclick = async () => {
   $("job-msg").textContent = ""; $("job-msg").className = "msg";
