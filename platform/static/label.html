@@ -14,6 +14,12 @@
   .cls[aria-pressed="true"] { border-color:var(--accent); background:#1d2836; }
   .swatch { width:12px; height:12px; border-radius:3px; flex:none; }
   .key { margin-left:auto; color:var(--dim); font-size:12px; }
+  .count { color:var(--dim); font-size:12px; min-width:18px; text-align:right; }
+  .row { display:flex; align-items:center; gap:6px; }
+  .filter { padding:8px 14px; border-bottom:1px solid var(--line); color:var(--dim); font-size:13px; }
+  .filter input { width:auto; }
+  input { background:#171b22; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  .stage { position:relative; }
   .files { flex:1; overflow:auto; padding:8px 0; }
   .file { display:flex; gap:8px; padding:5px 16px; cursor:pointer; color:var(--dim); }
   .file:hover { background:#232833; }
@@ -36,7 +42,14 @@
 
 <aside>
   <h1>라벨링 <a href="/">← 플랫폼</a></h1>
-  <div class="classes" id="classes"></div>
+  <div class="classes">
+    <div id="classes"></div>
+    <div class="row" style="margin-top:8px">
+      <input id="new-class" placeholder="클래스 추가" style="flex:1">
+      <button id="add-class">+</button>
+    </div>
+  </div>
+  <div class="row filter"><label><input type="checkbox" id="only-unlabelled"> 라벨 없는 것만</label></div>
   <div class="files" id="files"></div>
 </aside>
 
@@ -45,8 +58,10 @@
     <button id="prev">← 이전</button>
     <button id="next">다음 →</button>
     <button id="auto">자동 라벨</button>
+    <button id="copy" title="이전 이미지의 상자를 그대로 가져옵니다 (C)">이전 상자 복사</button>
     <button id="undo">되돌리기</button>
     <button id="clear">모두 지우기</button>
+    <button id="reset-zoom" hidden>100%</button>
     <span class="grow"></span>
     <span class="status" id="status"></span>
   </header>
@@ -54,7 +69,8 @@
   <footer>
     드래그로 그리기 · 상자 안을 끌면 이동 · 모서리를 끌면 크기 조절 ·
     <kbd>1</kbd>–<kbd>9</kbd> 클래스 · <kbd>Del</kbd> 삭제 · <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기 ·
-    <kbd>←</kbd> <kbd>→</kbd> 이동 · 저장 자동
+    <kbd>←</kbd> <kbd>→</kbd> 이동 · <kbd>C</kbd> 이전 상자 복사 · 휠 확대 · 가운데 버튼(또는
+    <kbd>Space</kbd>)으로 이동 · 저장 자동
   </footer>
 </main>
 
@@ -67,6 +83,7 @@ const HANDLE = 9;               // grab radius for a corner, in screen pixels
 
 let dataset = null, index = 0, boxes = [], img = new Image(), cls = 0, selected = -1;
 let action = null, history = [], dirty = false;
+let zoom = 1, baseWidth = 0, lastBoxes = [], onlyUnlabelled = false, spaceDown = false;
 
 const api = async (path, options) => {
   const res = await fetch(path, options);
@@ -84,16 +101,28 @@ async function boot() {
 }
 
 function renderClasses() {
+  const counts = boxes.reduce((acc, b) => (acc[b.cls] = (acc[b.cls] || 0) + 1, acc), {});
   $("classes").innerHTML = "";
   dataset.classes.forEach((name, i) => {
     const b = document.createElement("button");
     b.className = "cls";
     b.setAttribute("aria-pressed", i === cls);
     b.innerHTML = `<span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>
-                   <span>${name}</span><span class="key">${i < 9 ? i + 1 : ""}</span>`;
+                   <span>${name}</span><span class="count">${counts[i] || ""}</span>
+                   <span class="key">${i < 9 ? i + 1 : ""}</span>`;
     b.onclick = () => setClass(i);
     $("classes").append(b);
   });
+}
+
+async function addClass() {
+  const name = $("new-class").value.trim();
+  if (!name) return;
+  const names = [...dataset.classes, name];
+  await api(`/api/datasets/${DATASET}/classes`, { method: "POST",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ names }) });
+  dataset.classes = names; $("new-class").value = "";
+  cls = names.length - 1; renderClasses();
 }
 
 function setClass(i) {
@@ -104,6 +133,7 @@ function setClass(i) {
 function renderFiles() {
   $("files").innerHTML = "";
   dataset.files.forEach((f, i) => {
+    if (onlyUnlabelled && f.labelled && i !== index) return;
     const row = document.createElement("div");
     row.className = "file" + (f.labelled ? " done" : "");
     row.setAttribute("aria-current", i === index);
@@ -117,6 +147,7 @@ function renderFiles() {
 
 async function load(i) {
   if (dirty) await save();
+  if (boxes.length) lastBoxes = JSON.parse(JSON.stringify(boxes));
   index = i; selected = -1; history = [];
   boxes = (await api(`/api/datasets/${DATASET}/labels/${i}`)).boxes;
   await new Promise((done) => {
@@ -124,17 +155,39 @@ async function load(i) {
     img.src = `/api/datasets/${DATASET}/image/${i}?t=${Date.now()}`;
   });
   canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-  fit(); renderFiles(); draw();
+  fit(); renderFiles(); renderClasses(); draw();
 }
 
-function fit() {
-  // scale the canvas to fill the stage in CSS pixels; the drawing buffer keeps
-  // the image's own resolution, so labels stay exact whatever the zoom
+function fit(keepZoom) {
+  // the drawing buffer keeps the image's own resolution, so labels stay exact
+  // whatever the zoom; only the CSS size changes
   const stage = canvas.parentElement.getBoundingClientRect();
   const room = Math.min((stage.width - 32) / canvas.width, (stage.height - 32) / canvas.height);
-  canvas.style.width = `${Math.max(canvas.width * room, 100)}px`;
+  baseWidth = Math.max(canvas.width * room, 100);
+  if (!keepZoom) zoom = 1;
+  applyZoom();
 }
-window.addEventListener("resize", () => { fit(); draw(); });
+
+function applyZoom() {
+  canvas.style.width = `${baseWidth * zoom}px`;
+  $("reset-zoom").hidden = zoom === 1;
+  $("reset-zoom").textContent = `${Math.round(zoom * 100)}%`;
+}
+
+canvas.parentElement.addEventListener("wheel", (e) => {
+  if (!baseWidth) return;
+  e.preventDefault();
+  const before = canvas.getBoundingClientRect();
+  const ax = (e.clientX - before.left) / before.width, ay = (e.clientY - before.top) / before.height;
+  zoom = Math.min(Math.max(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 1), 12);
+  applyZoom();
+  const after = canvas.getBoundingClientRect();
+  const stage = canvas.parentElement;
+  stage.scrollLeft += after.width * ax - before.width * ax;
+  stage.scrollTop += after.height * ay - before.height * ay;
+}, { passive: false });
+
+window.addEventListener("resize", () => { fit(true); draw(); });
 
 const pixels = (b) => [ (b.cx - b.w / 2) * canvas.width, (b.cy - b.h / 2) * canvas.height,
                         b.w * canvas.width, b.h * canvas.height ];
@@ -192,6 +245,14 @@ function inside(b, p) {
 function push() { history.push(JSON.stringify(boxes)); if (history.length > 50) history.shift(); }
 
 canvas.addEventListener("pointerdown", (e) => {
+  if (e.button === 1 || spaceDown) {            // pan instead of drawing
+    const stage = canvas.parentElement;
+    action = { kind: "pan", x: e.clientX, y: e.clientY,
+               left: stage.scrollLeft, top: stage.scrollTop };
+    canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    return;
+  }
   const p = at(e);
   canvas.setPointerCapture(e.pointerId);
 
@@ -212,6 +273,12 @@ canvas.addEventListener("pointerdown", (e) => {
 
 canvas.addEventListener("pointermove", (e) => {
   if (!action) { return; }
+  if (action.kind === "pan") {
+    const stage = canvas.parentElement;
+    stage.scrollLeft = action.left - (e.clientX - action.x);
+    stage.scrollTop = action.top - (e.clientY - action.y);
+    return;
+  }
   const p = at(e);
   if (action.kind === "new") { action.x1 = p.x; action.y1 = p.y; }
   else if (action.kind === "move") {
@@ -236,6 +303,7 @@ canvas.addEventListener("pointermove", (e) => {
 
 canvas.addEventListener("pointerup", () => {
   if (!action) return;
+  if (action.kind === "pan") { action = null; return; }
   if (action.kind === "new") {
     const w = Math.abs(action.x1 - action.x0), h = Math.abs(action.y1 - action.y0);
     if (w > 4 && h > 4) {
@@ -250,7 +318,14 @@ canvas.addEventListener("pointerup", () => {
   if (dirty) touch(); else draw();
 });
 
-function touch() { dirty = true; draw(); save(); }
+function touch() { dirty = true; renderClasses(); draw(); save(); }
+
+function copyPrevious() {
+  if (!lastBoxes.length) { $("status").textContent = "복사할 이전 상자가 없습니다"; return; }
+  push();
+  boxes = boxes.concat(JSON.parse(JSON.stringify(lastBoxes)).map((b) => ({ ...b, conf: undefined })));
+  selected = -1; touch();
+}
 
 async function save() {
   if (!dirty) return;
@@ -281,7 +356,9 @@ async function autolabel() {
 }
 
 function onKey(e) {
+  if (e.code === "Space" && !spaceDown) { spaceDown = true; canvas.style.cursor = "grab"; e.preventDefault(); return; }
   if (e.ctrlKey && e.key.toLowerCase() === "z") undo();
+  else if (e.key.toLowerCase() === "c" && !e.ctrlKey && !e.metaKey) copyPrevious();
   else if (e.key === "ArrowRight") load(Math.min(index + 1, dataset.files.length - 1));
   else if (e.key === "ArrowLeft") load(Math.max(index - 1, 0));
   else if ((e.key === "Delete" || e.key === "Backspace") && selected >= 0) {
@@ -293,6 +370,15 @@ function onKey(e) {
   e.preventDefault();
 }
 
+document.addEventListener("keyup", (e) => {
+  if (e.code === "Space") { spaceDown = false; canvas.style.cursor = "crosshair"; }
+});
+
+$("copy").onclick = copyPrevious;
+$("add-class").onclick = addClass;
+$("new-class").onkeydown = (e) => { if (e.key === "Enter") addClass(); };
+$("reset-zoom").onclick = () => { zoom = 1; applyZoom(); };
+$("only-unlabelled").onchange = (e) => { onlyUnlabelled = e.target.checked; renderFiles(); };
 $("prev").onclick = () => load(Math.max(index - 1, 0));
 $("next").onclick = () => load(Math.min(index + 1, dataset.files.length - 1));
 $("auto").onclick = autolabel;

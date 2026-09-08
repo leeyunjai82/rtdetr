@@ -23,7 +23,11 @@ python platform/run.py                 # http://127.0.0.1:8080
 2. **Label** — *라벨링* on the dataset card. Drag to draw, drag inside a box to
    move it, drag a corner to resize, <kbd>1</kbd>–<kbd>9</kbd> to set the class,
    <kbd>Del</kbd> to remove, <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo. Saving is
-   automatic.
+   automatic. The wheel zooms and the middle button (or <kbd>Space</kbd>) pans,
+   for boxes too small to place at fit-to-window. <kbd>C</kbd> copies the
+   previous image's boxes — a fixed camera repeats itself. Classes can be added
+   from the sidebar and show how many boxes each has, and the file list can hide
+   what is already labelled.
 3. **Let the model do the first pass** — *자동 라벨* fills the current image;
    *전체 자동 라벨* queues a job over every unlabelled image in the dataset.
    Correcting boxes is far quicker than drawing them, and once you have a
