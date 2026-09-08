@@ -15,9 +15,11 @@ python platform/run.py                 # http://127.0.0.1:8080
 
 ## The loop
 
-1. **Add a dataset** — upload a zip (images, plus labels and a data.yaml if you
-   have them), or register a folder that is already on this machine:
-   `python platform/run.py label --source images/ --names can,bottle`.
+1. **Collect** — four ways into a dataset, and all of them can add to one that
+   already exists: pick image files, upload a video and sample frames from it
+   (interval and cap are yours), upload a zip (images, plus labels and a
+   data.yaml if you have them), or register a folder already on this machine
+   (`python platform/run.py label --source images/ --names can,bottle`).
 2. **Label** — *라벨링* on the dataset card. Drag to draw, drag inside a box to
    move it, drag a corner to resize, <kbd>1</kbd>–<kbd>9</kbd> to set the class,
    <kbd>Del</kbd> to remove, <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo. Saving is
@@ -53,6 +55,10 @@ The pages are only clients of these, so a script can do anything the UI does:
 | endpoint | |
 | --- | --- |
 | `POST /api/datasets` | multipart: `name`, `archive` (zip) |
+| `POST /api/datasets/images` | multipart: `name`, `files` (images), optional `dataset_id` |
+| `POST /api/datasets/video` | multipart: `name`, `video`, `every`, `max_frames` |
+| `GET /api/datasets/{id}/export` | the dataset as a zip |
+| `DELETE /api/datasets/{id}` | |
 | `POST /api/datasets/local` | `{path, name, names}` — register a folder in place |
 | `GET /api/datasets` · `GET /api/datasets/{id}` | the second lists the images |
 | `GET`/`POST /api/datasets/{id}/labels/{index}` | read and write one image's boxes |

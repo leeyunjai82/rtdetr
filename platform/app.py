@@ -27,6 +27,7 @@ from db import Database
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from labeling import (
+    IMG_SUFFIXES,
     label_path,
     labels_beside,
     list_images,
@@ -85,6 +86,76 @@ async def upload_dataset(name: str = Form(...), archive: UploadFile = None):
         shutil.rmtree(target, ignore_errors=True)
         raise HTTPException(400, "that file is not a zip") from exc
     return _register(name, target)
+
+
+@app.post("/api/datasets/images")
+async def upload_images(
+    name: str = Form(...), dataset_id: int = Form(None), files: list[UploadFile] = None
+):
+    """Take image files straight from the file picker — no zip to make first."""
+    if not files:
+        raise HTTPException(400, "no files uploaded")
+    target, dataset = _collection_target(name, dataset_id)
+    written = 0
+    for upload in files:
+        if Path(upload.filename or "").suffix.lower() not in IMG_SUFFIXES:
+            continue
+        destination = _unique(target / Path(upload.filename).name)
+        destination.write_bytes(await upload.read())
+        written += 1
+    if not written:
+        _discard(target, dataset)
+        raise HTTPException(400, "none of those files are images")
+    return _finish_collection(name, target, dataset, added=written)
+
+
+@app.post("/api/datasets/video")
+async def upload_video(
+    name: str = Form(...),
+    dataset_id: int = Form(None),
+    every: int = Form(30),
+    max_frames: int = Form(300),
+    video: UploadFile = None,
+):
+    """Sample frames out of a video into a dataset.
+
+    Collection usually starts with a recording, not a folder of stills. One
+    frame every ``every`` frames, up to ``max_frames`` — consecutive frames are
+    nearly identical and only cost labelling time.
+    """
+    import cv2
+
+    if video is None:
+        raise HTTPException(400, "no video uploaded")
+    target, dataset = _collection_target(name, dataset_id)
+    scratch = target / f".{int(time.time())}_{Path(video.filename or 'clip').name}"
+    scratch.write_bytes(await video.read())
+
+    capture = cv2.VideoCapture(str(scratch))
+    if not capture.isOpened():
+        scratch.unlink(missing_ok=True)
+        _discard(target, dataset)
+        raise HTTPException(400, "could not read that video")
+
+    stem = _slug(Path(video.filename or "clip").stem)
+    written = index = 0
+    try:
+        while written < max(int(max_frames), 1):
+            ok, frame = capture.read()
+            if not ok:
+                break
+            if index % max(int(every), 1) == 0:
+                cv2.imwrite(str(_unique(target / f"{stem}_{index:06d}.jpg")), frame)
+                written += 1
+            index += 1
+    finally:
+        capture.release()
+        scratch.unlink(missing_ok=True)
+
+    if not written:
+        _discard(target, dataset)
+        raise HTTPException(400, "that video had no frames")
+    return _finish_collection(name, target, dataset, added=written, scanned=index)
 
 
 @app.post("/api/datasets/local")
@@ -393,6 +464,48 @@ def http_error(_request, exc: HTTPException):
 
 
 # ------------------------------------------------------------------ helpers
+
+
+def _collection_target(name: str, dataset_id: int | None) -> tuple[Path, dict | None]:
+    """Where new images go: into an existing dataset, or into a fresh folder."""
+    if dataset_id:
+        dataset = _dataset(dataset_id)
+        return Path(dataset["images_dir"]), dataset
+    target = DATASETS / f"{int(time.time())}_{_slug(name)}" / "images"
+    target.mkdir(parents=True)
+    return target, None
+
+
+def _finish_collection(name: str, target: Path, dataset: dict | None, **counts) -> dict:
+    """Register a new dataset, or refresh the counts of the one we added to."""
+    if dataset is None:
+        return {**_register(name, target.parent), **counts}
+    worker.refresh_counts(dataset["id"])
+    updated = _dataset(dataset["id"])
+    return {
+        "id": dataset["id"],
+        "images": updated["images"],
+        "labelled": updated["labelled"],
+        "classes": json.loads(updated["classes"]),
+        **counts,
+    }
+
+
+def _discard(target: Path, dataset: dict | None) -> None:
+    """Undo a half-made dataset; never touch one that already existed."""
+    if dataset is None and target.parent.parent == DATASETS:
+        shutil.rmtree(target.parent, ignore_errors=True)
+
+
+def _unique(path: Path) -> Path:
+    """Keep a second upload of "frame.jpg" from overwriting the first."""
+    if not path.exists():
+        return path
+    for i in range(2, 10000):
+        candidate = path.with_name(f"{path.stem}_{i}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+    raise HTTPException(400, f"too many files named {path.name}")
 
 
 def _dataset(dataset_id) -> dict:

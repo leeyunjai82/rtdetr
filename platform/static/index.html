@@ -33,6 +33,9 @@
   button:disabled { opacity:.45; cursor:default; }
   button.primary { background:var(--accent); border-color:var(--accent); color:#08101c; font-weight:600; }
   .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .tabs { display:flex; gap:6px; margin:12px 0 4px; }
+  .tabs button { padding:5px 10px; font-size:13px; }
+  .tabs button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
   canvas#chart { width:100%; height:260px; background:var(--panel); border:1px solid var(--line); border-radius:9px; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); }
@@ -53,17 +56,50 @@
 
 <div class="wrap">
   <div class="col">
-    <h2>데이터셋</h2>
+    <h2>수집</h2>
     <div class="card">
       <label>이름</label>
       <input id="ds-name" placeholder="cans-line-1">
-      <label>zip (images/ + labels/, data.yaml 있으면 함께)</label>
-      <input id="ds-file" type="file" accept=".zip">
-      <div class="row" style="margin-top:10px">
-        <button class="primary" id="ds-upload">업로드</button>
+      <label>기존 데이터셋에 추가 (비우면 새로 만듦)</label>
+      <select id="ds-target"><option value="">새 데이터셋</option></select>
+
+      <div class="tabs" id="ds-tabs">
+        <button data-tab="images" aria-pressed="true">이미지</button>
+        <button data-tab="video">영상</button>
+        <button data-tab="zip">zip</button>
+        <button data-tab="folder">폴더</button>
+      </div>
+
+      <div data-panel="images">
+        <label>이미지 파일 (여러 장 선택 가능)</label>
+        <input id="ds-images" type="file" accept="image/*" multiple>
+      </div>
+      <div data-panel="video" hidden>
+        <label>영상 파일</label>
+        <input id="ds-video" type="file" accept="video/*">
+        <div class="two">
+          <div><label>프레임 간격</label><input id="ds-every" type="number" value="30" min="1"></div>
+          <div><label>최대 장수</label><input id="ds-max" type="number" value="300" min="1"></div>
+        </div>
+      </div>
+      <div data-panel="zip" hidden>
+        <label>zip (images/ + labels/, data.yaml 있으면 함께)</label>
+        <input id="ds-file" type="file" accept=".zip">
+      </div>
+      <div data-panel="folder" hidden>
+        <label>이 컴퓨터의 폴더 경로</label>
+        <input id="ds-path" placeholder="/data/line-a/images">
+        <label>클래스 (쉼표로 구분, 비우면 data.yaml 또는 자동)</label>
+        <input id="ds-classes" placeholder="can, bottle">
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="ds-upload">추가</button>
         <span class="msg" id="ds-msg"></span>
       </div>
     </div>
+
+    <h2>데이터셋</h2>
     <div id="datasets"></div>
 
     <h2>학습 시작</h2>
@@ -150,8 +186,12 @@ async function refresh() {
   document.querySelectorAll("[data-delete]").forEach((el) =>
     el.onclick = () => removeDataset(Number(el.dataset.delete)));
 
-  $("job-dataset").innerHTML = datasets.map((d) =>
+  const options = datasets.map((d) =>
     `<option value="${d.id}">${d.name} (이미지 ${d.images})</option>`).join("");
+  $("job-dataset").innerHTML = options;
+  const keep = $("ds-target").value;
+  $("ds-target").innerHTML = `<option value="">새 데이터셋</option>` + options;
+  $("ds-target").value = keep;
 
   $("jobs").innerHTML = jobs.map((j) => `
     <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
@@ -230,18 +270,63 @@ function chart(rows, total) {
   ctx.fillText("mAP50-95", pad + 46 * devicePixelRatio, 18 * devicePixelRatio);
 }
 
+let tab = "images";
+document.querySelectorAll("#ds-tabs button").forEach((b) => {
+  b.onclick = () => {
+    tab = b.dataset.tab;
+    document.querySelectorAll("#ds-tabs button").forEach((x) =>
+      x.setAttribute("aria-pressed", x.dataset.tab === tab));
+    document.querySelectorAll("[data-panel]").forEach((p) => p.hidden = p.dataset.panel !== tab);
+  };
+});
+
 $("ds-upload").onclick = async () => {
-  const file = $("ds-file").files[0];
-  if (!file) return ($("ds-msg").textContent = "zip을 고르세요");
+  const say = (text, bad) => { $("ds-msg").textContent = text; $("ds-msg").className = "msg" + (bad ? " err" : ""); };
+  const target = $("ds-target").value;
+  const name = $("ds-name").value.trim();
   const form = new FormData();
-  form.append("name", $("ds-name").value || file.name.replace(/\.zip$/, ""));
-  form.append("archive", file);
-  $("ds-msg").textContent = "업로드 중…"; $("ds-msg").className = "msg";
+  if (target) form.append("dataset_id", target);
+
+  let endpoint = null;
+  if (tab === "images") {
+    const files = [...$("ds-images").files];
+    if (!files.length) return say("이미지를 고르세요", true);
+    files.forEach((f) => form.append("files", f));
+    form.append("name", name || "images");
+    endpoint = "/api/datasets/images";
+  } else if (tab === "video") {
+    const file = $("ds-video").files[0];
+    if (!file) return say("영상을 고르세요", true);
+    form.append("video", file);
+    form.append("name", name || file.name.replace(/\.[^.]+$/, ""));
+    form.append("every", $("ds-every").value || "30");
+    form.append("max_frames", $("ds-max").value || "300");
+    endpoint = "/api/datasets/video";
+  } else if (tab === "zip") {
+    const file = $("ds-file").files[0];
+    if (!file) return say("zip을 고르세요", true);
+    form.append("archive", file);
+    form.append("name", name || file.name.replace(/\.zip$/, ""));
+    endpoint = "/api/datasets";
+  }
+
+  say("처리 중…");
   try {
-    const res = await api("/api/datasets", { method: "POST", body: form });
-    $("ds-msg").textContent = `이미지 ${res.images} · 라벨 ${res.labelled}`;
+    let res;
+    if (tab === "folder") {
+      const path = $("ds-path").value.trim();
+      if (!path) return say("폴더 경로를 적으세요", true);
+      const classes = $("ds-classes").value.split(",").map((c) => c.trim()).filter(Boolean);
+      res = await api("/api/datasets/local", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, name: name || undefined, names: classes.length ? classes : null }) });
+    } else {
+      res = await api(endpoint, { method: "POST", body: form });
+    }
+    const added = res.added ? `${res.added}장 추가 · ` : "";
+    say(`${added}이미지 ${res.images} · 라벨 ${res.labelled}`);
     await refresh();
-  } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
+  } catch (e) { say(e.message, true); }
 };
 
 async function removeDataset(datasetId) {

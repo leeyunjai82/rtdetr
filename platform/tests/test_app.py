@@ -304,3 +304,99 @@ def test_a_dataset_can_be_deleted_unless_a_job_is_using_it(studio):
     client.post(f"/api/jobs/{job_id}/cancel")
     assert client.request("DELETE", "/api/datasets/1").json()["files_removed"] is True
     assert client.get("/api/datasets").json() == [] and not path.exists()
+
+
+def test_images_can_be_uploaded_without_making_a_zip(studio):
+    client, _ = studio
+    response = client.post(
+        "/api/datasets/images",
+        data={"name": "picked"},
+        files=[
+            ("files", ("a.jpg", image_bytes(), "image/jpeg")),
+            ("files", ("b.png", image_bytes(80), "image/png")),
+            ("files", ("notes.txt", b"not an image", "text/plain")),
+        ],
+    )
+    assert response.status_code == 200
+    assert response.json()["added"] == 2 and response.json()["images"] == 2
+
+
+def test_more_images_can_be_added_to_a_dataset_later(studio):
+    """Collection happens over time, not in one go."""
+    client, _ = studio
+    first = client.post(
+        "/api/datasets/images",
+        data={"name": "line"},
+        files=[("files", ("a.jpg", image_bytes(), "image/jpeg"))],
+    ).json()
+
+    again = client.post(
+        "/api/datasets/images",
+        data={"name": "line", "dataset_id": str(first["id"])},
+        files=[("files", ("a.jpg", image_bytes(90), "image/jpeg"))],
+    ).json()
+    assert again["id"] == first["id"] and again["images"] == 2  # same name, not overwritten
+
+
+def test_uploading_no_images_at_all_leaves_nothing_behind(studio, tmp_path):
+    client, module = studio
+    response = client.post(
+        "/api/datasets/images",
+        data={"name": "junk"},
+        files=[("files", ("notes.txt", b"nope", "text/plain"))],
+    )
+    assert response.status_code == 400
+    assert client.get("/api/datasets").json() == []
+    assert list(module.DATASETS.iterdir()) == []
+
+
+def test_a_video_becomes_a_dataset_of_frames(studio, tmp_path):
+    import cv2
+    import numpy as np
+
+    client, _ = studio
+    clip = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (48, 32))
+    for i in range(25):
+        writer.write(np.full((32, 48, 3), i * 8, np.uint8))
+    writer.release()
+
+    response = client.post(
+        "/api/datasets/video",
+        data={"name": "clip", "every": "10", "max_frames": "50"},
+        files={"video": ("clip.mp4", clip.read_bytes(), "video/mp4")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["added"] == 3 and body["images"] == 3  # frames 0, 10, 20
+    assert body["scanned"] == 25
+
+
+def test_a_video_frame_cap_is_respected(studio, tmp_path):
+    import cv2
+    import numpy as np
+
+    client, _ = studio
+    clip = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (48, 32))
+    for i in range(30):
+        writer.write(np.full((32, 48, 3), i * 8, np.uint8))
+    writer.release()
+
+    body = client.post(
+        "/api/datasets/video",
+        data={"name": "capped", "every": "1", "max_frames": "5"},
+        files={"video": ("clip.mp4", clip.read_bytes(), "video/mp4")},
+    ).json()
+    assert body["added"] == 5
+
+
+def test_something_that_is_not_a_video_is_refused(studio):
+    client, module = studio
+    response = client.post(
+        "/api/datasets/video",
+        data={"name": "bad"},
+        files={"video": ("clip.mp4", b"definitely not a video", "video/mp4")},
+    )
+    assert response.status_code == 400
+    assert list(module.DATASETS.iterdir()) == []
