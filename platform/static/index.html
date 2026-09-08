@@ -22,7 +22,7 @@
   .grow { flex:1; }
   .dim { color:var(--dim); }
   .tag { font-size:12px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
-  .tag.running { color:var(--accent); border-color:var(--accent); }
+  .tag.running, .tag.exporting { color:var(--accent); border-color:var(--accent); }
   .tag.done { color:var(--ok); border-color:var(--ok); }
   .tag.failed, .tag.cancelled { color:var(--bad); border-color:var(--bad); }
   label { display:block; font-size:12.5px; color:var(--dim); margin:9px 0 3px; }
@@ -80,6 +80,7 @@
         <div><label>배치</label><input id="job-batch" type="number" value="4" min="1"></div>
         <div><label>백본 고정</label>
           <select id="job-freeze"><option value="backbone">예 (빠름)</option><option value="">아니오</option></select></div>
+        <div><label>검증 비율</label><input id="job-val" type="number" value="0.2" step="0.05" min="0.05" max="0.5"></div>
         <div><label>장치</label>
           <select id="job-device"><option value="">자동</option><option value="cpu">CPU</option><option value="0">GPU 0</option></select></div>
       </div>
@@ -140,10 +141,14 @@ async function refresh() {
       <div class="row" style="margin-top:9px">
         <button onclick="location.assign('/label/${d.id}')">라벨링</button>
         <button data-autolabel="${d.id}">전체 자동 라벨</button>
+        <button onclick="location.assign('/api/datasets/${d.id}/export')">내보내기</button>
+        <button data-delete="${d.id}">삭제</button>
       </div>
     </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
   document.querySelectorAll("[data-autolabel]").forEach((el) =>
     el.onclick = () => autolabelAll(Number(el.dataset.autolabel)));
+  document.querySelectorAll("[data-delete]").forEach((el) =>
+    el.onclick = () => removeDataset(Number(el.dataset.delete)));
 
   $("job-dataset").innerHTML = datasets.map((d) =>
     `<option value="${d.id}">${d.name} (이미지 ${d.images})</option>`).join("");
@@ -157,7 +162,7 @@ async function refresh() {
           ? `conf ${fmt(j.conf, 2)}`
           : `에폭 ${j.epochs} · ${j.imgsz}px · batch ${j.batch}${j.freeze ? " · 백본 고정" : ""}`}
         ${j.best_map != null ? ` · mAP50-95 ${fmt(j.best_map)}` : ""}</div>
-      ${j.status === "running" ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div>` : ""}
+      ${["running", "exporting"].includes(j.status) ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div>` : ""}
       ${j.detail ? `<div class="row msg ${j.status === "failed" ? "err" : ""}">${j.detail}</div>` : ""}
     </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
   document.querySelectorAll("[data-job]").forEach((el) =>
@@ -172,7 +177,7 @@ async function select(id) {
   const job = await api(`/api/jobs/${id}`);
   render(job);
   if (stream) stream.close();
-  if (job.status === "queued" || job.status === "running") {
+  if (["queued", "running", "exporting"].includes(job.status)) {
     stream = new EventSource(`/api/jobs/${id}/stream`);
     stream.onmessage = async (e) => {
       const msg = JSON.parse(e.data);
@@ -239,6 +244,15 @@ $("ds-upload").onclick = async () => {
   } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
 };
 
+async function removeDataset(datasetId) {
+  if (!confirm(`데이터셋 #${datasetId}과 그 작업 기록을 지웁니다. 계속할까요?`)) return;
+  try {
+    await api(`/api/datasets/${datasetId}`, { method: "DELETE" });
+    current = null; $("detail").hidden = true;
+    await refresh();
+  } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
+}
+
 async function autolabelAll(datasetId) {
   try {
     const res = await api(`/api/datasets/${datasetId}/autolabel`, {
@@ -256,7 +270,7 @@ $("job-start").onclick = async () => {
         dataset_id: Number($("job-dataset").value), model: $("job-model").value,
         epochs: Number($("job-epochs").value), imgsz: Number($("job-imgsz").value),
         batch: Number($("job-batch").value), freeze: $("job-freeze").value,
-        device: $("job-device").value })});
+        val_ratio: Number($("job-val").value), device: $("job-device").value })});
     await select(res.id);
   } catch (e) { $("job-msg").textContent = e.message; $("job-msg").className = "msg err"; }
 };

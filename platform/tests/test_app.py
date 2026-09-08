@@ -230,3 +230,77 @@ def test_jobs_left_running_by_a_dead_process_are_marked_failed(studio):
     assert module.worker.reap_stale() == 1
     job = client.get(f"/api/jobs/{job_id}").json()
     assert job["status"] == "failed" and "restart" in job["detail"]
+
+
+def test_a_dataset_can_be_exported_and_imported_again(studio):
+    """Round trip: what comes out of export goes back in and counts the same."""
+    client, _ = studio
+    upload(
+        client,
+        {
+            "images/a.jpg": image_bytes(),
+            "images/b.jpg": image_bytes(70),
+            "labels/a.txt": b"0 0.5 0.5 0.2 0.2\n",
+            "data.yaml": b"train: images\nval: images\nnames:\n  0: can\n",
+        },
+    )
+    response = client.get("/api/datasets/1/export")
+    assert response.status_code == 200
+    assert response.headers["content-disposition"].endswith('.zip"')
+
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    assert sorted(archive.namelist()) == [
+        "data.yaml", "images/a.jpg", "images/b.jpg", "labels/a.txt",
+    ]
+
+    again = client.post(
+        "/api/datasets",
+        data={"name": "round-trip"},
+        files={"archive": ("d.zip", response.content, "application/zip")},
+    ).json()
+    assert again["images"] == 2 and again["labelled"] == 1 and again["classes"] == ["can"]
+
+
+def test_training_holds_images_back_for_validation(studio):
+    """Validating on the training images only ever flatters the run."""
+    import yaml
+
+    client, module = studio
+    files = {}
+    for i in range(8):
+        files[f"images/{i}.jpg"] = image_bytes(10 * i)
+        files[f"labels/{i}.txt"] = b"0 0.5 0.5 0.2 0.2\n"
+    upload(client, files)
+
+    job = client.post("/api/jobs", json={"dataset_id": 1, "val_ratio": 0.25}).json()
+    detail = client.get(f"/api/jobs/{job['id']}").json()["detail"]
+    assert detail == "6 train / 2 val images"
+
+    root = module.Path(client.get("/api/datasets").json()[0]["path"])
+    cfg = yaml.safe_load((root / "data.yaml").read_text())
+    assert cfg["train"] == "train.txt" and cfg["val"] == "val.txt"
+    train = (root / "train.txt").read_text().splitlines()
+    val = (root / "val.txt").read_text().splitlines()
+    assert len(train) == 6 and len(val) == 2
+    assert not set(train) & set(val)  # nothing is in both
+
+
+def test_a_dataset_too_small_to_split_says_so(studio):
+    client, _ = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1}).json()
+    assert "validating on the same ones" in client.get(f"/api/jobs/{job['id']}").json()["detail"]
+
+
+def test_a_dataset_can_be_deleted_unless_a_job_is_using_it(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    path = module.Path(client.get("/api/datasets").json()[0]["path"])
+    job_id = client.post("/api/jobs", json={"dataset_id": 1}).json()["id"]
+
+    blocked = client.request("DELETE", "/api/datasets/1")
+    assert blocked.status_code == 400 and "still using it" in blocked.json()["error"]
+
+    client.post(f"/api/jobs/{job_id}/cancel")
+    assert client.request("DELETE", "/api/datasets/1").json()["files_removed"] is True
+    assert client.get("/api/datasets").json() == [] and not path.exists()

@@ -109,15 +109,17 @@ class Worker(threading.Thread):
         )
         run_dir = best.parent.parent
         summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+        # export first: a job that says "done" must have everything it advertises
+        self.db.update_job(job_id, status="exporting", progress=1.0, detail="exporting…")
+        note = self._export(model, run_dir, job_id)
         self.db.update_job(
             job_id,
             status="done",
+            detail=note,
             run_dir=str(run_dir),
             best_map=summary.get("best_map50_95"),
-            progress=1.0,
             finished=time.time(),
         )
-        self._export(model, run_dir, job_id)
 
     def _autolabel(self, job: dict) -> None:
         """Pre-label every unlabelled image in a dataset, so a person only corrects."""
@@ -169,9 +171,10 @@ class Worker(threading.Thread):
         self.db.update_dataset(dataset_id, images=len(images), labelled=labelled)
         return boxes
 
-    def _export(self, model, run_dir: Path, job_id: int) -> None:
+    def _export(self, model, run_dir: Path, job_id: int) -> str | None:
         """Deployable artefacts, so a finished job is downloadable straight away."""
         try:
             model.export(format="openvino", out_dir=run_dir / "openvino", verbose=False)
+            return None
         except Exception as exc:  # a model that trained is still worth keeping
-            self.db.update_job(job_id, detail=f"export failed: {exc}")
+            return f"export failed: {exc}"

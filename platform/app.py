@@ -171,6 +171,61 @@ def autolabel_all(dataset_id: int, payload: dict):
     return {"id": job_id}
 
 
+@app.get("/api/datasets/{dataset_id}/export")
+def export_dataset(dataset_id: int):
+    """The whole dataset as a zip: images, labels, data.yaml — ready to re-import."""
+    dataset = _dataset(dataset_id)
+    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for image in list_images(images_root):
+            relative = image.relative_to(images_root)
+            zf.write(image, f"images/{relative}")
+            label = label_path(image, images_root, labels_root)
+            if label.exists():
+                zf.write(label, f"labels/{relative.with_suffix('.txt')}")
+        zf.writestr(
+            "data.yaml",
+            yaml.safe_dump(
+                {
+                    "train": "images",
+                    "val": "images",
+                    "names": dict(enumerate(json.loads(dataset["classes"]))),
+                },
+                sort_keys=False,
+                allow_unicode=True,
+            ),
+        )
+    buffer.seek(0)
+    name = _slug(dataset["name"])
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{name}.zip"'},
+    )
+
+
+@app.delete("/api/datasets/{dataset_id}")
+def delete_dataset(dataset_id: int):
+    """Forget a dataset. Uploaded copies are removed; registered folders are left alone."""
+    dataset = _dataset(dataset_id)
+    running = db.one(
+        "SELECT id FROM jobs WHERE dataset_id = ? AND status IN ('queued', 'running')",
+        (dataset_id,),
+    )
+    if running:
+        raise HTTPException(400, f"job #{running['id']} is still using it")
+    path = Path(dataset["path"])
+    removed = path.parent == DATASETS and path.is_dir()
+    if removed:
+        shutil.rmtree(path, ignore_errors=True)
+    db.execute("DELETE FROM epochs WHERE job_id IN (SELECT id FROM jobs WHERE dataset_id = ?)",
+               (dataset_id,))
+    db.execute("DELETE FROM jobs WHERE dataset_id = ?", (dataset_id,))
+    db.execute("DELETE FROM datasets WHERE id = ?", (dataset_id,))
+    return {"deleted": True, "files_removed": removed}
+
+
 @app.post("/api/datasets/{dataset_id}/classes")
 def set_classes(dataset_id: int, payload: dict):
     """Rename or add classes; the data.yaml follows."""
@@ -191,8 +246,10 @@ def create_job(payload: dict):
     dataset = _dataset(payload.get("dataset_id"))
     if not dataset["labelled"]:
         raise HTTPException(400, "that dataset has no labels yet")
+    note = _ensure_split(dataset, float(payload.get("val_ratio", 0.2)))
     job_id = db.add_job(
         kind="train",
+        detail=note,
         dataset_id=dataset["id"],
         model=str(payload.get("model", "rtdetr-r18")),
         epochs=int(payload.get("epochs", 50)),
@@ -232,7 +289,7 @@ def cancel_job(job_id: int):
         raise HTTPException(404, "no such job")
     if job["status"] == "queued":
         db.update_job(job_id, status="cancelled", finished=time.time())
-    elif job["status"] == "running":
+    elif job["status"] in ("running", "exporting"):
         worker.cancel(job_id)  # stops at the next epoch or image
     return {"status": "cancelling"}
 
@@ -415,6 +472,41 @@ def _register(name: str, root: Path, names: list[str] | None = None) -> dict:
         "labelled": labelled,
         "classes": class_names,
     }
+
+
+def _ensure_split(dataset: dict, val_ratio: float) -> str | None:
+    """Hold images out for validation, unless the dataset already has its own split.
+
+    Validating on the training images reports a number that only ever flatters
+    the run, which is worse than no number at all. Every k-th image (sorted, so
+    the choice is stable across runs) becomes the val set, and data.yaml points
+    at the two lists.
+    """
+    root = Path(dataset["path"])
+    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    cfg = yaml.safe_load((root / "data.yaml").read_text(encoding="utf-8")) or {}
+    if cfg.get("train") != cfg.get("val"):
+        return None  # the dataset came with its own split; leave it alone
+
+    images = [
+        image
+        for image in list_images(images_root)
+        if label_path(image, images_root, labels_root).exists()
+    ]
+    if len(images) < 4:
+        return f"only {len(images)} labelled images — validating on the same ones"
+
+    step = max(int(round(1 / max(min(val_ratio, 0.5), 0.05))), 2)
+    val = images[::step]
+    train = [i for i in images if i not in set(val)]
+    (root / "train.txt").write_text("\n".join(str(p.resolve()) for p in train), encoding="utf-8")
+    (root / "val.txt").write_text("\n".join(str(p.resolve()) for p in val), encoding="utf-8")
+
+    cfg.update({"path": str(root.resolve()), "train": "train.txt", "val": "val.txt"})
+    (root / "data.yaml").write_text(
+        yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    return f"{len(train)} train / {len(val)} val images"
 
 
 def _write_data_yaml(root: Path, images_root: Path, names: list[str]) -> Path:

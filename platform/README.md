@@ -11,6 +11,8 @@ python platform/run.py                 # http://127.0.0.1:8080
 
 ![the platform](../docs/assets/platform.jpg)
 
+[PLAN.md](PLAN.md) is what this is meant to become, and what is missing today.
+
 ## The loop
 
 1. **Add a dataset** — upload a zip (images, plus labels and a data.yaml if you

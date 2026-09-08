@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 import json
+import threading
 import warnings
 from pathlib import Path
+
+#: torch.onnx keeps global state while exporting ("in_onnx_export"), so two
+#: exports at once fail an assertion deep inside it. Serialise them.
+_EXPORT_LOCK = threading.Lock()
 
 
 def _write_labels(out_dir: Path, fname: str, names) -> dict[int, str]:
@@ -37,7 +42,7 @@ def export_onnx(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=False, 
 
     wrapper = DeployWrapper(net).eval().cpu()
     dummy = torch.zeros(1, 3, imgsz, imgsz)
-    with warnings.catch_warnings():
+    with _EXPORT_LOCK, warnings.catch_warnings():
         # The graph is exported at a fixed input size on purpose, so the tracer
         # baking shape-dependent constants (the query count) in is what we want.
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
