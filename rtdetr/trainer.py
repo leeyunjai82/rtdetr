@@ -180,6 +180,14 @@ class Trainer:
         )
         net = self.net.to(self.device)
         since_improved = 0
+        if self.start_epoch >= self.epochs:
+            # resuming a run that already finished its schedule: there is nothing
+            # to do until someone asks for more epochs
+            print(
+                f"[rtdetr] already trained {self.start_epoch} epochs; "
+                f"raise epochs above {self.epochs} to continue"
+            )
+            return self.save_dir / "weights" / "best.pt"
         print(
             f"[rtdetr] training on {self.device}, {len(ds)} images, "
             f"{self.epochs} epochs -> {self.save_dir}"

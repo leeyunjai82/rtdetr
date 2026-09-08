@@ -17,7 +17,8 @@
   .card.click { cursor:pointer; }
   .card.click:hover { border-color:#3c444f; background:#20252e; }
   .card[aria-current="true"] { border-color:var(--accent); }
-  .row { display:flex; align-items:center; gap:8px; }
+  .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .row > button { flex:none; }
   .row + .row { margin-top:7px; }
   .grow { flex:1; }
   .dim { color:var(--dim); }
@@ -49,6 +50,12 @@
   .stats td { padding:2px 0; border:0; }
   .stats td:last-child { text-align:right; color:var(--dim); }
   .warn { color:#ffb648; }
+  .gallery { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px; margin-top:10px; }
+  .shot { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .shot img { width:100%; display:block; cursor:zoom-in; }
+  .shot .cap { padding:5px 8px; font-size:12px; color:var(--dim); display:flex; }
+  .shot .cap span:last-child { margin-left:auto; }
+  .miss { color:var(--bad); }
   img#preview { max-width:100%; border-radius:9px; border:1px solid var(--line); margin-top:10px; }
 </style>
 
@@ -111,6 +118,11 @@
     <div class="card">
       <label>데이터셋</label>
       <select id="job-dataset"></select>
+      <div class="tabs" id="presets">
+        <button data-preset="fast">빠름</button>
+        <button data-preset="balanced" aria-pressed="true">균형</button>
+        <button data-preset="accurate">정확</button>
+      </div>
       <div class="two">
         <div><label>모델</label>
           <select id="job-model">
@@ -136,20 +148,30 @@
     <h2>작업</h2>
     <div id="jobs"></div>
     <div id="detail" hidden>
-      <h2>진행 상황</h2>
+      <h2 id="chart-title">진행 상황</h2>
       <canvas id="chart"></canvas>
       <div class="row" style="margin-top:10px">
         <button id="cancel">중지</button>
+        <button id="evaluate">평가</button>
+        <button id="resume">이어서 학습</button>
         <button id="dl-weights">best.pt</button>
         <button id="dl-ir">OpenVINO IR</button>
         <button id="dl-csv">results.csv</button>
-        <span class="grow"></span>
-        <input id="try-file" type="file" accept="image/*" style="width:auto">
+        <button id="dl-log">로그</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <span class="dim">이 모델로 시험:</span>
+        <input id="try-file" type="file" accept="image/*" style="width:auto;flex:1;min-width:180px">
         <input id="try-conf" type="number" value="0.25" step="0.05" min="0" max="1" style="width:80px" title="conf">
         <button id="try">이 모델로 추론</button>
       </div>
       <div class="msg" id="detail-msg"></div>
       <img id="preview" hidden>
+      <div id="report" hidden>
+        <h2>평가</h2>
+        <div class="card" id="report-summary"></div>
+        <div class="gallery" id="gallery"></div>
+      </div>
       <h2>에폭</h2>
       <table><thead><tr><th>#</th><th>loss</th><th>mAP50-95</th><th>초</th></tr></thead>
         <tbody id="epochs"></tbody></table>
@@ -168,6 +190,7 @@ const api = async (path, options) => {
   return body;
 };
 const fmt = (v, digits = 3) => (v === null || v === undefined || v === "" ? "—" : Number(v).toFixed(digits));
+const short = (name) => String(name).split(/[\\/]/).pop();
 
 async function refresh() {
   const [state, datasets, jobs] = await Promise.all([
@@ -213,11 +236,12 @@ async function refresh() {
 
   $("jobs").innerHTML = jobs.map((j) => `
     <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
-      <div class="row"><b>#${j.id} ${j.kind === "autolabel" ? "자동 라벨" : "학습"}</b>
-        <span class="dim">${j.model} · ${j.dataset}</span><span class="grow"></span>
+      <div class="row"><b>#${j.id} ${{ autolabel: "자동 라벨", evaluate: "평가" }[j.kind] || "학습"}</b>
+        <span class="dim" title="${j.model}">${short(j.model)} · ${j.dataset}</span>
+        <span class="grow"></span>
         <span class="tag ${j.status}">${j.status}</span></div>
-      <div class="row dim">${j.kind === "autolabel"
-          ? `conf ${fmt(j.conf, 2)}`
+      <div class="row dim">${j.kind !== "train"
+          ? `conf ${fmt(j.conf, 2)}${j.resume_of ? ` · #${j.resume_of}` : ""}`
           : `에폭 ${j.epochs} · ${j.imgsz}px · batch ${j.batch}${j.freeze ? " · 백본 고정" : ""}`}
         ${j.best_map != null ? ` · mAP50-95 ${fmt(j.best_map)}` : ""}</div>
       ${["running", "exporting"].includes(j.status) ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div>` : ""}
@@ -247,17 +271,22 @@ async function select(id) {
 
 function render(job) {
   const rows = job.epochs_done;
-  $("chart").hidden = job.kind === "autolabel";
+  const curve = job.kind === "train";
+  $("chart").hidden = !curve;
+  $("chart-title").hidden = !curve;
   $("epochs").innerHTML = rows.slice().reverse().map((r) =>
     `<tr><td>${r.epoch}</td><td>${fmt(r.loss)}</td><td>${fmt(r.map50_95)}</td><td>${fmt(r.seconds, 1)}</td></tr>`).join("");
   $("detail-msg").textContent = job.detail || "";
   $("detail-msg").className = "msg" + (job.status === "failed" ? " err" : "");
   $("cancel").disabled = !["queued", "running"].includes(job.status);
-  ["weights", "openvino", "results"].forEach((kind, i) => {
-    $(["dl-weights", "dl-ir", "dl-csv"][i]).disabled = !job.artifacts.includes(kind);
+  ["weights", "openvino", "results", "log"].forEach((kind, i) => {
+    $(["dl-weights", "dl-ir", "dl-csv", "dl-log"][i]).disabled = !job.artifacts.includes(kind);
   });
   $("try").disabled = !job.artifacts.includes("weights");
+  $("evaluate").disabled = !job.artifacts.includes("weights") || job.kind !== "train";
+  $("resume").disabled = job.kind !== "train" || ["queued", "running", "exporting"].includes(job.status);
   chart(rows, job.epochs);
+  loadReport(job);
 }
 
 function chart(rows, total) {
@@ -412,6 +441,56 @@ $("job-start").onclick = async () => {
     await select(res.id);
   } catch (e) { $("job-msg").textContent = e.message; $("job-msg").className = "msg err"; }
 };
+
+document.querySelectorAll("#presets button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("#presets button").forEach((x) =>
+      x.setAttribute("aria-pressed", x === b));
+    const p = { fast: { imgsz: 320, epochs: 30, batch: 8, freeze: "backbone" },
+                balanced: { imgsz: 640, epochs: 50, batch: 4, freeze: "backbone" },
+                accurate: { imgsz: 640, epochs: 150, batch: 2, freeze: "" } }[b.dataset.preset];
+    $("job-imgsz").value = p.imgsz; $("job-epochs").value = p.epochs;
+    $("job-batch").value = p.batch; $("job-freeze").value = p.freeze;
+  };
+});
+
+async function loadReport(job) {
+  const panel = $("report");
+  if (!job.artifacts.includes("report")) { panel.hidden = true; return; }
+  const r = await api(`/api/jobs/${job.id}/report`);
+  const rows = r.per_class.map((c) =>
+    `<tr><td>${c.name}</td><td>${fmt(c.ap50_95)}</td></tr>`).join("");
+  $("report-summary").innerHTML =
+    `<div class="row"><b>mAP50 ${fmt(r.map50)}</b><span class="dim">mAP50-95 ${fmt(r.map50_95)}</span>
+     <span class="grow"></span><span class="dim">conf ${fmt(r.conf, 2)}</span></div>
+     <table style="margin-top:8px"><tr><th>클래스</th><th>AP50-95</th></tr>${rows}</table>`;
+  $("gallery").innerHTML = r.images.map((im) => `
+    <div class="shot">
+      <img src="/api/jobs/${job.id}/eval/${im.file}" loading="lazy"
+           onclick="window.open(this.src)">
+      <div class="cap"><span>참 ${im.truth}</span>
+        <span class="${im.found < im.truth ? "miss" : ""}">찾음 ${im.found}</span></div>
+    </div>`).join("");
+  panel.hidden = false;
+}
+
+$("evaluate").onclick = async () => {
+  try { const res = await api(`/api/jobs/${current}/evaluate`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conf: 0.25 }) });
+    await select(res.id); }
+  catch (e) { $("detail-msg").textContent = e.message; $("detail-msg").className = "msg err"; }
+};
+
+$("resume").onclick = async () => {
+  const more = Number(prompt("몇 에폭 더 학습할까요?", "10"));
+  if (!more) return;
+  try { const res = await api(`/api/jobs/${current}/resume`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ add_epochs: more }) });
+    await select(res.id); }
+  catch (e) { $("detail-msg").textContent = e.message; $("detail-msg").className = "msg err"; }
+};
+
+$("dl-log").onclick = () => location.assign(`/api/jobs/${current}/download/log`);
 
 $("cancel").onclick = async () => { await api(`/api/jobs/${current}/cancel`, { method: "POST" }); await select(current); };
 $("dl-weights").onclick = () => location.assign(`/api/jobs/${current}/download/weights`);

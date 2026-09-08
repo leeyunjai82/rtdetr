@@ -425,6 +425,76 @@ def get_job(job_id: int):
     return job
 
 
+@app.post("/api/jobs/{job_id}/resume")
+def resume_job(job_id: int, payload: dict = None):
+    """Pick a run back up where it left off, and give it more epochs to use.
+
+    Resuming with the schedule it already finished would do nothing, so the
+    default is to extend it.
+    """
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None or job["kind"] != "train":
+        raise HTTPException(404, "no such training job")
+    if job["status"] in ("queued", "running", "exporting"):
+        raise HTTPException(400, "that job is still going")
+    root = job["resume_of"] or job_id
+    if not (RUNS / f"job{root}" / "weights" / "last.pt").exists():
+        raise HTTPException(400, "no last.pt to resume from")
+    add = int((payload or {}).get("add_epochs", 10))
+    new_id = db.add_job(
+        kind="train",
+        resume_of=root,
+        dataset_id=job["dataset_id"],
+        model=job["model"],
+        epochs=job["epochs"] + max(add, 1),
+        imgsz=job["imgsz"],
+        batch=job["batch"],
+        freeze=job["freeze"],
+        device=job["device"],
+        detail=f"#{root} 이어서 +{max(add, 1)}에폭",
+    )
+    return {"id": new_id}
+
+
+@app.post("/api/jobs/{job_id}/evaluate")
+def evaluate_job(job_id: int, payload: dict = None):
+    """Queue a scoring pass over the validation split, with pictures."""
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None or not job["run_dir"]:
+        raise HTTPException(404, "that job has no weights")
+    new_id = db.add_job(
+        kind="evaluate",
+        resume_of=job_id,
+        dataset_id=job["dataset_id"],
+        model=job["model"],
+        conf=float((payload or {}).get("conf", 0.25)),
+    )
+    return {"id": new_id}
+
+
+@app.get("/api/jobs/{job_id}/report")
+def job_report(job_id: int):
+    """The evaluation report, if this run has one."""
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None or not job["run_dir"]:
+        raise HTTPException(404, "no such job")
+    report = Path(job["run_dir"]) / "eval" / "report.json"
+    if not report.exists():
+        raise HTTPException(404, "not evaluated yet")
+    return json.loads(report.read_text(encoding="utf-8"))
+
+
+@app.get("/api/jobs/{job_id}/eval/{name}")
+def eval_image(job_id: int, name: str):
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None or not job["run_dir"]:
+        raise HTTPException(404, "no such job")
+    path = (Path(job["run_dir"]) / "eval" / name).resolve()
+    if not path.is_file() or not str(path).startswith(str(Path(job["run_dir"]).resolve())):
+        raise HTTPException(404, "no such image")
+    return FileResponse(path)
+
+
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: int):
     job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
@@ -489,6 +559,11 @@ def download(job_id: int, kind: str):
         if not path.exists():
             raise HTTPException(404, "no results yet")
         return FileResponse(path, filename=f"job{job_id}-results.csv")
+    if kind == "log":
+        path = run_dir / "train.log"
+        if not path.exists():
+            raise HTTPException(404, "no log")
+        return FileResponse(path, filename=f"job{job_id}-train.log", media_type="text/plain")
     raise HTTPException(404, "unknown artefact")
 
 
@@ -780,4 +855,8 @@ def _artifacts(job: dict) -> list[str]:
         found.append("openvino")
     if (run_dir / "results.csv").exists():
         found.append("results")
+    if (run_dir / "train.log").exists():
+        found.append("log")
+    if (run_dir / "eval" / "report.json").exists():
+        found.append("report")
     return found

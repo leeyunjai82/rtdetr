@@ -37,10 +37,16 @@ python platform/run.py                 # http://127.0.0.1:8080
    *전체 자동 라벨* queues a job over every unlabelled image in the dataset.
    Correcting boxes is far quicker than drawing them, and once you have a
    `best.pt` you can point the auto-labeller at it.
-5. **Train** — model, epochs, image size, batch, whether to freeze the backbone,
-   which device. Jobs queue and run one at a time; the loss and mAP curve updates
-   per epoch; *중지* stops at the next epoch boundary.
-6. **Take it away** — `best.pt`, the OpenVINO IR as a zip (exported when a run
+5. **Train** — a preset (빠름 / 균형 / 정확) or your own model, epochs, image size,
+   batch, backbone freezing and device. Jobs queue and run one at a time; the
+   loss and mAP curve updates per epoch; *중지* stops at the next epoch boundary;
+   *이어서 학습* continues a finished run with more epochs in the same directory;
+   every run keeps a `train.log`, and a failure carries the end of it.
+6. **See what it learned** — *평가* scores the run on its validation split and
+   draws every one of those frames with the truth in green and the prediction in
+   its class colour, next to per-class AP. A single mAP says whether to keep
+   going; this says what to fix.
+7. **Take it away** — `best.pt`, the OpenVINO IR as a zip (exported when a run
    finishes), `results.csv`. *이 모델로 추론* tries the trained model on an image.
 
 ![labelling](../docs/assets/labeling.jpg)
@@ -82,7 +88,10 @@ The pages are only clients of these, so a script can do anything the UI does:
 | `GET /api/jobs` · `GET /api/jobs/{id}` | the second includes per-epoch rows |
 | `GET /api/jobs/{id}/stream` | server-sent events: progress, then a status |
 | `POST /api/jobs/{id}/cancel` | |
-| `GET /api/jobs/{id}/download/{weights,openvino,results}` | |
+| `POST /api/jobs/{id}/resume` | `{add_epochs}` — continue a finished run |
+| `POST /api/jobs/{id}/evaluate` | `{conf}` — queue a scoring pass with pictures |
+| `GET /api/jobs/{id}/report` · `/eval/{name}` | the numbers, and the pictures |
+| `GET /api/jobs/{id}/download/{weights,openvino,results,log}` | |
 | `POST /api/jobs/{id}/predict` | multipart: `image`, `conf` → annotated JPEG |
 
 ## What it is not

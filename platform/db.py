@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     freeze TEXT,
     device TEXT,
     conf REAL,
+    resume_of INTEGER,
+    source TEXT,
     status TEXT NOT NULL,
     detail TEXT,
     progress REAL DEFAULT 0,

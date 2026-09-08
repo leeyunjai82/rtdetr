@@ -25,8 +25,14 @@ def draw_boxes(
     conf: bool = True,
     labels: bool = True,
     line_width: int | None = None,
+    color: tuple[int, int, int] | None = None,
 ) -> np.ndarray:
-    """Draw ``boxes`` (a :class:`~rtdetr.results.Boxes`) onto a copy of ``img``."""
+    """Draw ``boxes`` (a :class:`~rtdetr.results.Boxes`) onto a copy of ``img``.
+
+    ``color`` (BGR) overrides the per-class palette — what you want when two
+    sets of boxes share a frame and the distinction is truth versus prediction
+    rather than one class versus another.
+    """
     import cv2
 
     out = np.ascontiguousarray(img.copy())
@@ -40,8 +46,8 @@ def draw_boxes(
     for i in range(len(boxes)):
         x1, y1, x2, y2 = (int(round(v)) for v in boxes.xyxy[i])
         cls = int(boxes.cls[i])
-        color = color_for(cls)
-        cv2.rectangle(out, (x1, y1), (x2, y2), color, lw, cv2.LINE_AA)
+        box_color = color or color_for(cls)
+        cv2.rectangle(out, (x1, y1), (x2, y2), box_color, lw, cv2.LINE_AA)
         if not labels:
             continue
         text = names.get(cls, f"class_{cls}")
@@ -52,7 +58,7 @@ def draw_boxes(
         (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, max(lw - 1, 1))
         left, top = _label_position(x1, y1, y2, tw, th + 3, (h, w), placed)
         placed.append((left, top, left + tw, top + th + 3))
-        cv2.rectangle(out, (left, top), (left + tw, top + th + 3), color, -1, cv2.LINE_AA)
+        cv2.rectangle(out, (left, top), (left + tw, top + th + 3), box_color, -1, cv2.LINE_AA)
         cv2.putText(
             out,
             text,

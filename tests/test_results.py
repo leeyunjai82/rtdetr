@@ -132,3 +132,16 @@ class TestLabelPlacement:
             assert 0 <= left and left + 50 <= 300
             assert 0 <= top and top + 12 <= 100
             placed.append((left, top, left + 50, top + 12))
+
+
+def test_a_fixed_colour_overrides_the_class_palette(result):
+    """Overlays need "truth vs prediction" to read, not "class 0 vs class 1"."""
+    import numpy as np
+
+    from rtdetr.plotting import color_for, draw_boxes
+
+    palette = draw_boxes(result.orig_img, result.boxes, result.names)
+    pinned = draw_boxes(result.orig_img, result.boxes, result.names, color=(0, 255, 0))
+    assert not np.array_equal(palette, pinned)
+    assert (pinned[:, :, 1] == 255).any()          # the green went on
+    assert tuple(color_for(0)) != (0, 255, 0)      # and it is not the class colour
