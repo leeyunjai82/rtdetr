@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rtdetr"
-version = "0.4.0"
+version = "0.5.0"
 description = "RT-DETR real-time object detection — training and OpenVINO inference, Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -36,8 +36,14 @@ train = [
     "scipy>=1.9",
     "onnx>=1.14",
 ]
+studio = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+]
 dev = [
     "pytest>=7.0",
+    "httpx>=0.24",
     "ruff>=0.5",
     "pillow>=9.0",
 ]
@@ -52,7 +58,7 @@ rtdetr = "rtdetr.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["rtdetr"]
-artifacts = ["rtdetr/label_app.html"]
+artifacts = ["rtdetr/label_app.html", "rtdetr/studio/static/*"]
 
 [tool.hatch.build.targets.sdist]
 include = ["rtdetr", "tools", "tests", "README.md", "LICENSE", "pyproject.toml"]

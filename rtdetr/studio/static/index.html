@@ -1,0 +1,263 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>rtdetr studio</title>
+<style>
+  :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; --ok:#3ecf8e; --bad:#ff6b6b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header b { font-size:15px; letter-spacing:.02em; }
+  header .dim { color:var(--dim); font-size:13px; }
+  .wrap { display:grid; grid-template-columns:340px 1fr; gap:0; height:calc(100vh - 53px); }
+  .col { overflow:auto; padding:16px 18px; }
+  .col + .col { border-left:1px solid var(--line); }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); margin:22px 0 10px; }
+  h2:first-child { margin-top:0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin-bottom:10px; }
+  .card.click { cursor:pointer; }
+  .card.click:hover { border-color:#3c444f; background:#20252e; }
+  .card[aria-current="true"] { border-color:var(--accent); }
+  .row { display:flex; align-items:center; gap:8px; }
+  .row + .row { margin-top:7px; }
+  .grow { flex:1; }
+  .dim { color:var(--dim); }
+  .tag { font-size:12px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .tag.running { color:var(--accent); border-color:var(--accent); }
+  .tag.done { color:var(--ok); border-color:var(--ok); }
+  .tag.failed, .tag.cancelled { color:var(--bad); border-color:var(--bad); }
+  label { display:block; font-size:12.5px; color:var(--dim); margin:9px 0 3px; }
+  input, select { width:100%; background:#171b22; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:inherit; }
+  input[type=file] { padding:6px; }
+  button { background:#252b35; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 12px; font:inherit; cursor:pointer; }
+  button:hover:not(:disabled) { background:#2e3542; }
+  button:disabled { opacity:.45; cursor:default; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#08101c; font-weight:600; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  canvas#chart { width:100%; height:260px; background:var(--panel); border:1px solid var(--line); border-radius:9px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:500; }
+  .msg { font-size:13px; margin-top:8px; min-height:19px; }
+  .msg.err { color:var(--bad); }
+  img#preview { max-width:100%; border-radius:9px; border:1px solid var(--line); margin-top:10px; }
+</style>
+
+<header>
+  <b>rtdetr studio</b>
+  <span class="dim" id="status">…</span>
+  <span class="grow"></span>
+  <span class="dim">라벨링은 <code>rtdetr label source=images/ names=…</code></span>
+</header>
+
+<div class="wrap">
+  <div class="col">
+    <h2>데이터셋</h2>
+    <div class="card">
+      <label>이름</label>
+      <input id="ds-name" placeholder="cans-line-1">
+      <label>zip (images/ + labels/, data.yaml 있으면 함께)</label>
+      <input id="ds-file" type="file" accept=".zip">
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="ds-upload">업로드</button>
+        <span class="msg" id="ds-msg"></span>
+      </div>
+    </div>
+    <div id="datasets"></div>
+
+    <h2>학습 시작</h2>
+    <div class="card">
+      <label>데이터셋</label>
+      <select id="job-dataset"></select>
+      <div class="two">
+        <div><label>모델</label>
+          <select id="job-model">
+            <option>rtdetr-r18</option><option>rtdetr-r34</option><option>rtdetr-r50</option>
+          </select></div>
+        <div><label>에폭</label><input id="job-epochs" type="number" value="20" min="1"></div>
+        <div><label>입력 크기</label><input id="job-imgsz" type="number" value="640" step="32"></div>
+        <div><label>배치</label><input id="job-batch" type="number" value="4" min="1"></div>
+        <div><label>백본 고정</label>
+          <select id="job-freeze"><option value="backbone">예 (빠름)</option><option value="">아니오</option></select></div>
+        <div><label>장치</label>
+          <select id="job-device"><option value="">자동</option><option value="cpu">CPU</option><option value="0">GPU 0</option></select></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="job-start">학습 시작</button>
+        <span class="msg" id="job-msg"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <h2>작업</h2>
+    <div id="jobs"></div>
+    <div id="detail" hidden>
+      <h2>진행 상황</h2>
+      <canvas id="chart"></canvas>
+      <div class="row" style="margin-top:10px">
+        <button id="cancel">중지</button>
+        <button id="dl-weights">best.pt</button>
+        <button id="dl-ir">OpenVINO IR</button>
+        <button id="dl-csv">results.csv</button>
+        <span class="grow"></span>
+        <input id="try-file" type="file" accept="image/*" style="width:auto">
+        <input id="try-conf" type="number" value="0.25" step="0.05" min="0" max="1" style="width:80px" title="conf">
+        <button id="try">이 모델로 추론</button>
+      </div>
+      <div class="msg" id="detail-msg"></div>
+      <img id="preview" hidden>
+      <h2>에폭</h2>
+      <table><thead><tr><th>#</th><th>loss</th><th>mAP50-95</th><th>초</th></tr></thead>
+        <tbody id="epochs"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let current = null, stream = null;
+
+const api = async (path, options) => {
+  const res = await fetch(path, options);
+  const body = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(body.error || res.status);
+  return body;
+};
+const fmt = (v, digits = 3) => (v === null || v === undefined || v === "" ? "—" : Number(v).toFixed(digits));
+
+async function refresh() {
+  const [state, datasets, jobs] = await Promise.all([
+    api("/api/status"), api("/api/datasets"), api("/api/jobs")]);
+  $("status").textContent =
+    `데이터셋 ${state.datasets} · 대기 ${state.queued}` + (state.running_job ? ` · 실행 중 #${state.running_job}` : "");
+
+  $("datasets").innerHTML = datasets.map((d) => `
+    <div class="card"><div class="row"><b>${d.name}</b><span class="grow"></span>
+      <span class="tag">#${d.id}</span></div>
+      <div class="row dim">이미지 ${d.images} · 라벨 ${d.labelled} · 클래스 ${d.classes.join(", ")}</div>
+    </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
+
+  $("job-dataset").innerHTML = datasets.map((d) =>
+    `<option value="${d.id}">${d.name} (이미지 ${d.images})</option>`).join("");
+
+  $("jobs").innerHTML = jobs.map((j) => `
+    <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
+      <div class="row"><b>#${j.id} ${j.model}</b>
+        <span class="dim">${j.dataset}</span><span class="grow"></span>
+        <span class="tag ${j.status}">${j.status}</span></div>
+      <div class="row dim">에폭 ${j.epochs} · ${j.imgsz}px · batch ${j.batch}${j.freeze ? " · 백본 고정" : ""}
+        ${j.best_map != null ? ` · mAP50-95 ${fmt(j.best_map)}` : ""}</div>
+      ${j.detail ? `<div class="row msg err">${j.detail}</div>` : ""}
+    </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
+  document.querySelectorAll("[data-job]").forEach((el) =>
+    el.onclick = () => select(Number(el.dataset.job)));
+}
+
+async function select(id) {
+  current = id;
+  $("detail").hidden = false;
+  $("preview").hidden = true;
+  await refresh();
+  const job = await api(`/api/jobs/${id}`);
+  render(job);
+  if (stream) stream.close();
+  if (job.status === "queued" || job.status === "running") {
+    stream = new EventSource(`/api/jobs/${id}/stream`);
+    stream.onmessage = async (e) => {
+      const msg = JSON.parse(e.data);
+      if (msg.type === "end") { stream.close(); await select(id); }
+      else render(await api(`/api/jobs/${id}`));
+    };
+  }
+}
+
+function render(job) {
+  const rows = job.epochs_done;
+  $("epochs").innerHTML = rows.slice().reverse().map((r) =>
+    `<tr><td>${r.epoch}</td><td>${fmt(r.loss)}</td><td>${fmt(r.map50_95)}</td><td>${fmt(r.seconds, 1)}</td></tr>`).join("");
+  $("detail-msg").textContent = job.detail || "";
+  $("detail-msg").className = "msg" + (job.status === "failed" ? " err" : "");
+  $("cancel").disabled = !["queued", "running"].includes(job.status);
+  ["weights", "openvino", "results"].forEach((kind, i) => {
+    $(["dl-weights", "dl-ir", "dl-csv"][i]).disabled = !job.artifacts.includes(kind);
+  });
+  $("try").disabled = !job.artifacts.includes("weights");
+  chart(rows, job.epochs);
+}
+
+function chart(rows, total) {
+  const c = $("chart"), ctx = c.getContext("2d");
+  const w = c.width = c.clientWidth * devicePixelRatio, h = c.height = 260 * devicePixelRatio;
+  ctx.clearRect(0, 0, w, h);
+  const pad = 38 * devicePixelRatio;
+  ctx.strokeStyle = "#2c323c"; ctx.lineWidth = devicePixelRatio;
+  ctx.beginPath(); ctx.moveTo(pad, 8); ctx.lineTo(pad, h - pad); ctx.lineTo(w - 8, h - pad); ctx.stroke();
+  if (!rows.length) return;
+  const line = (values, color, lo, hi) => {
+    const points = values.map((v, i) => v == null ? null : [
+      pad + (w - pad - 8) * (rows.length === 1 ? 0.5 : i / Math.max(total - 1, rows.length - 1)),
+      h - pad - (h - pad - 8) * ((v - lo) / (hi - lo || 1))]).filter(Boolean);
+    if (!points.length) return;
+    ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio; ctx.beginPath();
+    points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.stroke();
+    points.forEach(([x, y]) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 2.5 * devicePixelRatio, 0, 7); ctx.fill(); });
+  };
+  const losses = rows.map((r) => r.loss);
+  line(losses, "#ff9060", Math.min(...losses) * 0.98, Math.max(...losses) * 1.02);
+  const maps = rows.map((r) => r.map50_95);
+  if (maps.some((v) => v != null)) line(maps, "#3ecf8e", 0, Math.max(0.05, ...maps.filter(Boolean)));
+  ctx.fillStyle = "#8b94a3"; ctx.font = `${11 * devicePixelRatio}px system-ui`;
+  ctx.fillText("loss", pad + 6 * devicePixelRatio, 18 * devicePixelRatio);
+  ctx.fillStyle = "#3ecf8e";
+  ctx.fillText("mAP50-95", pad + 46 * devicePixelRatio, 18 * devicePixelRatio);
+}
+
+$("ds-upload").onclick = async () => {
+  const file = $("ds-file").files[0];
+  if (!file) return ($("ds-msg").textContent = "zip을 고르세요");
+  const form = new FormData();
+  form.append("name", $("ds-name").value || file.name.replace(/\.zip$/, ""));
+  form.append("archive", file);
+  $("ds-msg").textContent = "업로드 중…"; $("ds-msg").className = "msg";
+  try {
+    const res = await api("/api/datasets", { method: "POST", body: form });
+    $("ds-msg").textContent = `이미지 ${res.images} · 라벨 ${res.labelled}`;
+    await refresh();
+  } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
+};
+
+$("job-start").onclick = async () => {
+  $("job-msg").textContent = ""; $("job-msg").className = "msg";
+  try {
+    const res = await api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dataset_id: Number($("job-dataset").value), model: $("job-model").value,
+        epochs: Number($("job-epochs").value), imgsz: Number($("job-imgsz").value),
+        batch: Number($("job-batch").value), freeze: $("job-freeze").value,
+        device: $("job-device").value })});
+    await select(res.id);
+  } catch (e) { $("job-msg").textContent = e.message; $("job-msg").className = "msg err"; }
+};
+
+$("cancel").onclick = async () => { await api(`/api/jobs/${current}/cancel`, { method: "POST" }); await select(current); };
+$("dl-weights").onclick = () => location.assign(`/api/jobs/${current}/download/weights`);
+$("dl-ir").onclick = () => location.assign(`/api/jobs/${current}/download/openvino`);
+$("dl-csv").onclick = () => location.assign(`/api/jobs/${current}/download/results`);
+$("try").onclick = async () => {
+  const file = $("try-file").files[0];
+  if (!file) return ($("detail-msg").textContent = "이미지를 고르세요");
+  const form = new FormData();
+  form.append("image", file);
+  form.append("conf", $("try-conf").value || "0.25");
+  $("detail-msg").textContent = "추론 중…";
+  const res = await fetch(`/api/jobs/${current}/predict`, { method: "POST", body: form });
+  if (!res.ok) { const e = await res.json(); $("detail-msg").textContent = e.error; return; }
+  const found = JSON.parse(res.headers.get("X-Detections") || "[]");
+  $("detail-msg").textContent = found.length ? found.map((d) => `${d.name} ${d.confidence}`).join(", ") : "검출 없음";
+  $("preview").src = URL.createObjectURL(await res.blob()); $("preview").hidden = false;
+};
+
+refresh();
+setInterval(() => { if (!stream || stream.readyState === 2) refresh(); }, 4000);
+</script>
