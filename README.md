@@ -64,7 +64,8 @@ rtdetr export  model=best.pt format=openvino half=true
 ## A browser front end
 
 `platform/` is a small web app on top of this package — label images, queue
-training runs, watch the curve, download the weights and the IR:
+training runs, watch the curve, run the result over a folder, a video or a
+webcam, and download the weights and the IR:
 
 ```bash
 pip install -r platform/requirements.txt

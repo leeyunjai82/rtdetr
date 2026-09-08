@@ -77,6 +77,8 @@ class Worker(threading.Thread):
                     self._autolabel(job)
                 elif job["kind"] == "evaluate":
                     self._evaluate(job)
+                elif job["kind"] == "predict":
+                    self._predict(job)
                 else:
                     self._train(job)
             except Cancelled:
@@ -281,6 +283,65 @@ class Worker(threading.Thread):
             progress=1.0,
             detail=f"mAP50 {metrics['map50']:.3f} · mAP50-95 {metrics['map']:.3f}"
                    f" · {len(cards)}장 미리보기",
+            finished=time.time(),
+        )
+
+    def _predict(self, job: dict) -> None:
+        """Run a model over everything in a source and keep the results.
+
+        One image at a time through the browser is fine for a look; a shift's
+        worth of footage is a job. Annotated frames land next to a results.json
+        that holds every box, and the pair zips up for download.
+        """
+        import cv2
+
+        from rtdetr import RTDETR
+        from rtdetr.sources import SourceLoader
+
+        job_id = job["id"]
+        out = self.runs_dir / f"job{job_id}"
+        (out / "images").mkdir(parents=True, exist_ok=True)
+        self.db.update_job(job_id, status="running", started=time.time(), detail=None, progress=0)
+
+        model = RTDETR(job["model"], verbose=False)
+        conf = job["conf"] or 0.25
+        loader = SourceLoader(job["source"], vid_stride=1)
+        total = max(len(loader), 1)
+        records, found, video = [], 0, None
+        try:
+            for i, frame in enumerate(loader, start=1):
+                if job_id in self.cancelled:
+                    raise Cancelled()
+                result = model.predict(frame.img, conf=conf, verbose=False)[0]
+                painted = result.plot()
+                found += len(result.boxes)
+                name = f"{i:05d}_{Path(frame.path).stem}.jpg"
+                cv2.imwrite(str(out / "images" / name), painted)
+                if frame.kind != "image":
+                    if video is None:
+                        height, width = painted.shape[:2]
+                        video = cv2.VideoWriter(
+                            str(out / "annotated.mp4"),
+                            cv2.VideoWriter_fourcc(*"mp4v"), 25.0, (width, height),
+                        )
+                    video.write(painted)
+                records.append({"file": name, "source": frame.path, "boxes": result.summary()})
+                self.db.update_job(
+                    job_id, progress=min(i / total, 0.99) if frame.kind == "image" else 0.5
+                )
+        finally:
+            if video is not None:
+                video.release()
+
+        (out / "results.json").write_text(
+            json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self.db.update_job(
+            job_id,
+            status="done",
+            run_dir=str(out),
+            progress=1.0,
+            detail=f"{len(records)}장 · 상자 {found}개",
             finished=time.time(),
         )
 

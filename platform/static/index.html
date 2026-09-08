@@ -56,6 +56,7 @@
   .shot .cap { padding:5px 8px; font-size:12px; color:var(--dim); display:flex; }
   .shot .cap span:last-child { margin-left:auto; }
   .miss { color:var(--bad); }
+  #cam, #cam-out { width:100%; border-radius:8px; margin-top:8px; display:block; }
   img#preview { max-width:100%; border-radius:9px; border:1px solid var(--line); margin-top:10px; }
 </style>
 
@@ -147,6 +148,46 @@
   <div class="col">
     <h2>작업</h2>
     <div id="jobs"></div>
+    <h2>추론</h2>
+    <div class="card">
+      <div class="two">
+        <div><label>모델</label><select id="run-model"></select></div>
+        <div><label>conf</label><input id="run-conf" type="number" value="0.25" step="0.05" min="0" max="1"></div>
+      </div>
+      <div class="tabs" id="run-tabs">
+        <button data-run="dataset" aria-pressed="true">데이터셋</button>
+        <button data-run="path">폴더 경로</button>
+        <button data-run="video">영상</button>
+        <button data-run="webcam">웹캠</button>
+      </div>
+      <div data-runpanel="dataset"><select id="run-dataset"></select></div>
+      <div data-runpanel="path" hidden><input id="run-path" placeholder="/data/새-촬영분"></div>
+      <div data-runpanel="video" hidden><input id="run-video" type="file" accept="video/*"></div>
+      <div data-runpanel="webcam" hidden>
+        <div class="row">
+          <button id="cam-start">카메라 시작</button>
+          <button id="cam-stop" disabled>정지</button>
+          <span class="dim" id="cam-msg"></span>
+        </div>
+        <video id="cam" playsinline muted hidden></video>
+        <img id="cam-out" hidden>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="run-start">추론 실행</button>
+        <span class="msg" id="run-msg"></span>
+      </div>
+    </div>
+
+    <h2>모델</h2>
+    <div class="card">
+      <div id="models" class="dim">아직 등록된 모델이 없습니다.</div>
+      <div class="row" style="margin-top:10px">
+        <input id="model-file" type="file" accept=".pt,.xml,.onnx" style="flex:1;min-width:150px">
+        <input id="model-name" placeholder="이름" style="width:110px">
+        <button id="model-upload">업로드</button>
+      </div>
+    </div>
+
     <div id="detail" hidden>
       <h2 id="chart-title">진행 상황</h2>
       <canvas id="chart"></canvas>
@@ -158,6 +199,9 @@
         <button id="dl-ir">OpenVINO IR</button>
         <button id="dl-csv">results.csv</button>
         <button id="dl-log">로그</button>
+        <button id="dl-pred">결과 zip</button>
+        <button id="dl-video">영상</button>
+        <button id="register">모델로 등록</button>
       </div>
       <div class="row" style="margin-top:8px">
         <span class="dim">이 모델로 시험:</span>
@@ -234,9 +278,27 @@ async function refresh() {
   $("ds-target").innerHTML = `<option value="">새 데이터셋</option>` + options;
   $("ds-target").value = keep;
 
+  const registry = await api("/api/models");
+  const choices = registry.builtin.map((n) => `<option value="${n}">${n}</option>`).join("")
+    + registry.models.map((m) => `<option value="${m.id}">${m.name} (등록됨)</option>`).join("");
+  for (const id of ["job-model", "run-model"]) {
+    const keep = $(id).value;
+    $(id).innerHTML = choices;
+    if (keep) $(id).value = keep;
+  }
+  $("run-dataset").innerHTML = options;
+  $("models").innerHTML = registry.models.length
+    ? registry.models.map((m) => `<div class="row"><b>${m.name}</b>
+        <span class="dim">${m.kind}${m.classes.length ? " · " + m.classes.join(", ") : ""}</span>
+        <span class="grow"></span><button data-model="${m.id}">삭제</button></div>`).join("")
+    : `<span class="dim">아직 등록된 모델이 없습니다. 학습 결과에서 "모델로 등록"을 누르세요.</span>`;
+  document.querySelectorAll("[data-model]").forEach((el) => el.onclick = async () => {
+    await api(`/api/models/${el.dataset.model}`, { method: "DELETE" }); await refresh();
+  });
+
   $("jobs").innerHTML = jobs.map((j) => `
     <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
-      <div class="row"><b>#${j.id} ${{ autolabel: "자동 라벨", evaluate: "평가" }[j.kind] || "학습"}</b>
+      <div class="row"><b>#${j.id} ${{ autolabel: "자동 라벨", evaluate: "평가", predict: "추론" }[j.kind] || "학습"}</b>
         <span class="dim" title="${j.model}">${short(j.model)} · ${j.dataset}</span>
         <span class="grow"></span>
         <span class="tag ${j.status}">${j.status}</span></div>
@@ -279,9 +341,11 @@ function render(job) {
   $("detail-msg").textContent = job.detail || "";
   $("detail-msg").className = "msg" + (job.status === "failed" ? " err" : "");
   $("cancel").disabled = !["queued", "running"].includes(job.status);
-  ["weights", "openvino", "results", "log"].forEach((kind, i) => {
-    $(["dl-weights", "dl-ir", "dl-csv", "dl-log"][i]).disabled = !job.artifacts.includes(kind);
+  ["weights", "openvino", "results", "log", "predictions", "video"].forEach((kind, i) => {
+    $(["dl-weights", "dl-ir", "dl-csv", "dl-log", "dl-pred", "dl-video"][i])
+      .disabled = !job.artifacts.includes(kind);
   });
+  $("register").disabled = !job.artifacts.includes("weights");
   $("try").disabled = !job.artifacts.includes("weights");
   $("evaluate").disabled = !job.artifacts.includes("weights") || job.kind !== "train";
   $("resume").disabled = job.kind !== "train" || ["queued", "running", "exporting"].includes(job.status);
@@ -491,6 +555,15 @@ $("resume").onclick = async () => {
 };
 
 $("dl-log").onclick = () => location.assign(`/api/jobs/${current}/download/log`);
+$("dl-pred").onclick = () => location.assign(`/api/jobs/${current}/download/predictions`);
+$("dl-video").onclick = () => location.assign(`/api/jobs/${current}/download/video`);
+$("register").onclick = async () => {
+  const name = prompt("모델 이름", `model-${current}`);
+  if (!name) return;
+  await api("/api/models", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: current, name }) });
+  await refresh();
+};
 
 $("cancel").onclick = async () => { await api(`/api/jobs/${current}/cancel`, { method: "POST" }); await select(current); };
 $("dl-weights").onclick = () => location.assign(`/api/jobs/${current}/download/weights`);
@@ -508,6 +581,92 @@ $("try").onclick = async () => {
   const found = JSON.parse(res.headers.get("X-Detections") || "[]");
   $("detail-msg").textContent = found.length ? found.map((d) => `${d.name} ${d.confidence}`).join(", ") : "검출 없음";
   $("preview").src = URL.createObjectURL(await res.blob()); $("preview").hidden = false;
+};
+
+let runTab = "dataset";
+document.querySelectorAll("#run-tabs button").forEach((b) => {
+  b.onclick = () => {
+    runTab = b.dataset.run;
+    document.querySelectorAll("#run-tabs button").forEach((x) =>
+      x.setAttribute("aria-pressed", x.dataset.run === runTab));
+    document.querySelectorAll("[data-runpanel]").forEach((p) =>
+      p.hidden = p.dataset.runpanel !== runTab);
+    $("run-start").hidden = runTab === "webcam";
+  };
+});
+
+$("run-start").onclick = async () => {
+  const say = (t, bad) => { $("run-msg").textContent = t; $("run-msg").className = "msg" + (bad ? " err" : ""); };
+  const form = new FormData();
+  form.append("model", $("run-model").value);
+  form.append("conf", $("run-conf").value || "0.25");
+  if (runTab === "dataset") form.append("dataset_id", $("run-dataset").value);
+  else if (runTab === "path") form.append("path", $("run-path").value.trim());
+  else if (runTab === "video") {
+    const file = $("run-video").files[0];
+    if (!file) return say("영상을 고르세요", true);
+    form.append("video", file);
+  }
+  say("보내는 중…");
+  try { const res = await api("/api/predict", { method: "POST", body: form });
+        say(""); await select(res.id); }
+  catch (e) { say(e.message, true); }
+};
+
+// --- webcam preview: frames go to the server, annotated frames come back ---
+let camStream = null, camTimer = null;
+$("cam-start").onclick = async () => {
+  try { camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 } }); }
+  catch (e) { $("cam-msg").textContent = "카메라를 열 수 없습니다: " + e.message; return; }
+  const video = $("cam");
+  video.srcObject = camStream; video.hidden = false; await video.play();
+  $("cam-start").disabled = true; $("cam-stop").disabled = false;
+
+  const canvas = document.createElement("canvas");
+  let busy = false;
+  camTimer = setInterval(async () => {
+    if (busy || video.videoWidth === 0) return;
+    busy = true;
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.8));
+    const form = new FormData();
+    form.append("model", $("run-model").value);
+    form.append("conf", $("run-conf").value || "0.25");
+    form.append("image", blob, "frame.jpg");
+    try {
+      const res = await fetch("/api/preview", { method: "POST", body: form });
+      if (res.ok) {
+        const found = JSON.parse(res.headers.get("X-Detections") || "[]");
+        $("cam-msg").textContent = found.length
+          ? found.map((d) => `${d.name} ${d.confidence}`).join(", ") : "검출 없음";
+        const out = $("cam-out");
+        if (out.src) URL.revokeObjectURL(out.src);
+        out.src = URL.createObjectURL(await res.blob()); out.hidden = false; video.hidden = true;
+      } else { $("cam-msg").textContent = (await res.json()).error; }
+    } catch (e) { $("cam-msg").textContent = e.message; }
+    busy = false;
+  }, 400);
+};
+
+$("cam-stop").onclick = () => {
+  clearInterval(camTimer); camTimer = null;
+  if (camStream) camStream.getTracks().forEach((t) => t.stop());
+  camStream = null;
+  $("cam").hidden = true; $("cam-out").hidden = true;
+  $("cam-start").disabled = false; $("cam-stop").disabled = true; $("cam-msg").textContent = "";
+};
+
+$("model-upload").onclick = async () => {
+  const file = $("model-file").files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("name", $("model-name").value || file.name);
+  try { const res = await api("/api/models/upload", { method: "POST", body: form });
+    $("run-msg").textContent = res.needs_bin ? ".bin 파일도 같은 폴더에 두세요" : "등록됨";
+    await refresh(); }
+  catch (e) { $("run-msg").textContent = e.message; $("run-msg").className = "msg err"; }
 };
 
 refresh();

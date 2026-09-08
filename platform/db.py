@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS jobs (
     started REAL,
     finished REAL
 );
+CREATE TABLE IF NOT EXISTS models (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    job_id INTEGER,
+    classes TEXT NOT NULL,
+    note TEXT,
+    created REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS epochs (
     job_id INTEGER NOT NULL REFERENCES jobs(id),
     epoch INTEGER NOT NULL,
@@ -100,6 +110,15 @@ class Database:
         assignments = ", ".join(f"{k} = ?" for k in fields)
         self.execute(
             f"UPDATE datasets SET {assignments} WHERE id = ?", (*fields.values(), dataset_id)
+        )
+
+    def add_model(self, **fields) -> int:
+        fields["classes"] = json.dumps(fields.get("classes", []), ensure_ascii=False)
+        fields["created"] = time.time()
+        columns = ", ".join(fields)
+        marks = ", ".join("?" for _ in fields)
+        return self.execute(
+            f"INSERT INTO models ({columns}) VALUES ({marks})", tuple(fields.values())
         )
 
     def add_job(self, **fields) -> int:

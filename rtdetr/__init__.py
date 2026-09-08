@@ -24,7 +24,7 @@ numpy/opencv/openvino/pyyaml; training adds
 
 from __future__ import annotations
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 from .errors import DownloadError, ModelNotFoundError, RTDETRError
 from .metrics import BoxMetrics, DetMetrics

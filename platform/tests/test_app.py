@@ -485,3 +485,81 @@ def test_merging_remaps_class_indices_onto_the_union(studio):
     classes = sorted(row["cls"] for p in labels for row in read_labels(p))
     assert classes == [0, 0, 1] and len(written) == 2
     assert client.post("/api/datasets/merge", json={"ids": [1]}).status_code == 400
+
+
+def test_a_trained_run_can_be_registered_as_a_named_model(studio, tmp_path):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job_id = client.post("/api/jobs", json={"dataset_id": 1}).json()["id"]
+
+    # nothing to register until the run has weights
+    assert client.post("/api/models", json={"job_id": job_id, "name": "v1"}).status_code == 404
+
+    run = module.RUNS / f"job{job_id}" / "weights"
+    run.mkdir(parents=True)
+    (run / "best.pt").write_bytes(b"weights")
+    module.db.update_job(job_id, run_dir=str(run.parent), status="done")
+
+    assert client.post("/api/models", json={"job_id": job_id, "name": "v1"}).json()["id"] == 1
+    registry = client.get("/api/models").json()
+    assert registry["models"][0]["name"] == "v1"
+    assert "rtdetr-r18" in registry["builtin"]
+
+    # and a job can name it instead of a path
+    assert module._resolve_model("v1") == str(run / "best.pt")
+    assert module._resolve_model("1") == str(run / "best.pt")
+    assert module._resolve_model("rtdetr-r34") == "rtdetr-r34"
+
+    assert client.request("DELETE", "/api/models/1").json()["deleted"] is True
+    assert client.get("/api/models").json()["models"] == []
+
+
+def test_a_model_file_can_be_brought_in_from_outside(studio):
+    client, _ = studio
+    response = client.post(
+        "/api/models/upload",
+        data={"name": "from-a-colleague", "classes": "can, bottle"},
+        files={"file": ("best.pt", b"weights", "application/octet-stream")},
+    )
+    assert response.status_code == 200 and response.json()["needs_bin"] is False
+    assert client.get("/api/models").json()["models"][0]["classes"] == ["can", "bottle"]
+
+    bad = client.post(
+        "/api/models/upload",
+        data={"name": "nope"},
+        files={"file": ("notes.txt", b"hello", "text/plain")},
+    )
+    assert bad.status_code == 400
+
+
+def test_batch_prediction_needs_something_to_run_on(studio, tmp_path):
+    client, _ = studio
+    assert client.post("/api/predict", data={"model": "rtdetr-r18"}).status_code == 400
+
+    missing = client.post(
+        "/api/predict", data={"model": "rtdetr-r18", "path": str(tmp_path / "nowhere")}
+    )
+    assert missing.status_code == 400 and "does not exist" in missing.json()["error"]
+
+
+def test_batch_prediction_over_a_dataset_is_queued_as_a_job(studio):
+    client, _ = studio
+    upload(client, {"images/a.jpg": image_bytes()})
+    job = client.post(
+        "/api/predict", data={"model": "rtdetr-r18", "dataset_id": "1", "conf": "0.4"}
+    ).json()
+
+    row = client.get(f"/api/jobs/{job['id']}").json()
+    assert row["kind"] == "predict" and row["status"] == "queued"
+    assert row["conf"] == 0.4 and row["source"].endswith("images")
+
+
+def test_the_preview_endpoint_refuses_what_it_cannot_read(studio):
+    client, _ = studio
+    assert client.post("/api/preview", data={"model": "rtdetr-r18"}).status_code == 400
+    unreadable = client.post(
+        "/api/preview",
+        data={"model": "rtdetr-r18"},
+        files={"image": ("x.jpg", b"not an image", "image/jpeg")},
+    )
+    assert unreadable.status_code == 400

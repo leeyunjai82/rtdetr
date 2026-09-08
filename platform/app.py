@@ -218,7 +218,7 @@ def autolabel_one(dataset_id: int, index: int, payload: dict):
     """Boxes for the image on screen, from a model — the first draft to correct."""
     dataset = _dataset(dataset_id)
     images = list_images(Path(dataset["images_dir"]))
-    model_name = str(payload.get("model") or "rtdetr-r18")
+    model_name = _resolve_model(payload.get("model") or "rtdetr-r18")
     try:
         model = _model(model_name)
         boxes = predict_boxes(
@@ -236,7 +236,7 @@ def autolabel_all(dataset_id: int, payload: dict):
     job_id = db.add_job(
         kind="autolabel",
         dataset_id=dataset_id,
-        model=str(payload.get("model") or "rtdetr-r18"),
+        model=_resolve_model(payload.get("model") or "rtdetr-r18"),
         conf=float(payload.get("conf", 0.35)),
     )
     return {"id": job_id}
@@ -384,6 +384,102 @@ def set_classes(dataset_id: int, payload: dict):
 # --------------------------------------------------------------------- jobs
 
 
+@app.get("/api/models")
+def list_models():
+    """Everything that can be used as a model: the registry plus the mirror names."""
+    rows = db.query("SELECT * FROM models ORDER BY id DESC")
+    for row in rows:
+        row["classes"] = json.loads(row["classes"])
+    from rtdetr.downloads import MODEL_NAMES
+
+    return {"models": rows, "builtin": list(MODEL_NAMES)}
+
+
+@app.post("/api/models")
+def register_model(payload: dict):
+    """Give a trained run a name, so it can be picked like any other model."""
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (payload.get("job_id"),))
+    if job is None or not job["run_dir"]:
+        raise HTTPException(404, "that job has no weights")
+    xml = next(Path(job["run_dir"]).glob("openvino/*.xml"), None)
+    weights = xml or Path(job["run_dir"]) / "weights" / "best.pt"
+    if not Path(weights).exists():
+        raise HTTPException(404, "no weights on disk")
+    dataset = db.one("SELECT * FROM datasets WHERE id = ?", (job["dataset_id"],))
+    model_id = db.add_model(
+        name=str(payload.get("name") or f"job{job['id']}"),
+        path=str(weights),
+        kind="openvino" if xml else "torch",
+        job_id=job["id"],
+        classes=json.loads(dataset["classes"]) if dataset else [],
+        note=payload.get("note"),
+    )
+    return {"id": model_id}
+
+
+@app.post("/api/models/upload")
+async def upload_model(name: str = Form(...), file: UploadFile = None, classes: str = Form("")):
+    """Bring a model in from outside — a .pt from a colleague, an IR from a mirror."""
+    if file is None:
+        raise HTTPException(400, "no file uploaded")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in (".pt", ".xml", ".onnx"):
+        raise HTTPException(400, "expected a .pt, .xml or .onnx file")
+    folder = DATA / "models" / f"{int(time.time())}_{_slug(name)}"
+    folder.mkdir(parents=True)
+    path = folder / Path(file.filename).name
+    path.write_bytes(await file.read())
+    model_id = db.add_model(
+        name=name,
+        path=str(path),
+        kind="openvino" if suffix == ".xml" else "torch",
+        classes=[c.strip() for c in classes.split(",") if c.strip()],
+        note="업로드",
+    )
+    return {"id": model_id, "path": str(path), "needs_bin": suffix == ".xml"}
+
+
+@app.delete("/api/models/{model_id}")
+def delete_model(model_id: int):
+    model = db.one("SELECT * FROM models WHERE id = ?", (model_id,))
+    if model is None:
+        raise HTTPException(404, "no such model")
+    db.execute("DELETE FROM models WHERE id = ?", (model_id,))
+    return {"deleted": True}
+
+
+@app.post("/api/predict")
+async def batch_predict(
+    model: str = Form(...),
+    conf: float = Form(0.25),
+    dataset_id: int = Form(None),
+    path: str = Form(None),
+    video: UploadFile = None,
+):
+    """Queue a run over a dataset, a folder on this machine, or an uploaded video."""
+    if video is not None:
+        folder = DATA / "predict-input" / str(int(time.time()))
+        folder.mkdir(parents=True)
+        source = folder / Path(video.filename or "clip.mp4").name
+        source.write_bytes(await video.read())
+    elif dataset_id:
+        source = Path(_dataset(dataset_id)["images_dir"])
+    elif path:
+        source = Path(path).expanduser()
+        if not source.exists():
+            raise HTTPException(400, f"{source} does not exist")
+    else:
+        raise HTTPException(400, "give a dataset, a path, or a video")
+    job_id = db.add_job(
+        kind="predict",
+        dataset_id=dataset_id or 0,
+        model=_resolve_model(model),
+        conf=conf,
+        source=str(source),
+    )
+    return {"id": job_id}
+
+
 @app.post("/api/jobs")
 def create_job(payload: dict):
     dataset = _dataset(payload.get("dataset_id"))
@@ -394,7 +490,7 @@ def create_job(payload: dict):
         kind="train",
         detail=note,
         dataset_id=dataset["id"],
-        model=str(payload.get("model", "rtdetr-r18")),
+        model=_resolve_model(payload.get("model", "rtdetr-r18")),
         epochs=int(payload.get("epochs", 50)),
         imgsz=int(payload.get("imgsz", 640)),
         batch=int(payload.get("batch", 4)),
@@ -559,6 +655,18 @@ def download(job_id: int, kind: str):
         if not path.exists():
             raise HTTPException(404, "no results yet")
         return FileResponse(path, filename=f"job{job_id}-results.csv")
+    if kind == "predictions":
+        folder = run_dir / "images"
+        if not folder.is_dir():
+            raise HTTPException(404, "no predictions")
+        shutil.copy2(run_dir / "results.json", folder / "results.json")
+        archive = shutil.make_archive(str(run_dir / f"job{job_id}-predictions"), "zip", folder)
+        return FileResponse(archive, filename=f"job{job_id}-predictions.zip")
+    if kind == "video":
+        path = run_dir / "annotated.mp4"
+        if not path.exists():
+            raise HTTPException(404, "no annotated video")
+        return FileResponse(path, filename=f"job{job_id}-annotated.mp4")
     if kind == "log":
         path = run_dir / "train.log"
         if not path.exists():
@@ -587,6 +695,31 @@ async def predict(job_id: int, image: UploadFile = None, conf: float = Form(0.25
     weights = str(xml or Path(job["run_dir"]) / "weights" / "best.pt")
     result = _model(weights)(frame, conf=conf)[0]
     ok, buffer = cv2.imencode(".jpg", result.plot())
+    if not ok:
+        raise HTTPException(500, "could not encode the result")
+    return StreamingResponse(
+        io.BytesIO(buffer.tobytes()),
+        media_type="image/jpeg",
+        headers={"X-Detections": json.dumps(result.summary(), ensure_ascii=False)},
+    )
+
+
+@app.post("/api/preview")
+async def preview(model: str = Form(...), conf: float = Form(0.35), image: UploadFile = None):
+    """One frame in, one annotated frame out — what the webcam preview posts to."""
+    import cv2
+    import numpy as np
+
+    if image is None:
+        raise HTTPException(400, "no image uploaded")
+    frame = cv2.imdecode(np.frombuffer(await image.read(), np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        raise HTTPException(400, "could not read that image")
+    try:
+        result = _model(_resolve_model(model))(frame, conf=conf, verbose=False)[0]
+    except Exception as exc:
+        raise HTTPException(503, str(exc)) from exc
+    ok, buffer = cv2.imencode(".jpg", result.plot(), [cv2.IMWRITE_JPEG_QUALITY, 80])
     if not ok:
         raise HTTPException(500, "could not encode the result")
     return StreamingResponse(
@@ -669,6 +802,17 @@ def _label_file(dataset_id: int, index: int) -> Path:
     if not 0 <= index < len(images):
         raise HTTPException(404, "no such image")
     return label_path(images[index], images_root, Path(dataset["labels_dir"]))
+
+
+def _resolve_model(name: str) -> str:
+    """A registry id, a registry name, a mirror name, or a path — all usable."""
+    text = str(name).strip()
+    row = None
+    if text.isdigit():
+        row = db.one("SELECT * FROM models WHERE id = ?", (int(text),))
+    if row is None:
+        row = db.one("SELECT * FROM models WHERE name = ?", (text,))
+    return row["path"] if row else text
 
 
 def _model(name: str):
@@ -859,4 +1003,8 @@ def _artifacts(job: dict) -> list[str]:
         found.append("log")
     if (run_dir / "eval" / "report.json").exists():
         found.append("report")
+    if (run_dir / "results.json").exists():
+        found.append("predictions")
+    if (run_dir / "annotated.mp4").exists():
+        found.append("video")
     return found

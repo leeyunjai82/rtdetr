@@ -46,8 +46,17 @@ python platform/run.py                 # http://127.0.0.1:8080
    draws every one of those frames with the truth in green and the prediction in
    its class colour, next to per-class AP. A single mAP says whether to keep
    going; this says what to fix.
-7. **Take it away** — `best.pt`, the OpenVINO IR as a zip (exported when a run
-   finishes), `results.csv`. *이 모델로 추론* tries the trained model on an image.
+7. **Run it on everything else** — *추론* takes a dataset, a folder path on this
+   machine, or an uploaded video, and queues it like a training job: progress
+   while it works, then a zip of the drawn frames (with `results.json` next to
+   them) and, for a video, `annotated.mp4`. *웹캠* opens the browser's camera and
+   posts a frame every 400 ms, so you see the model on live video even when the
+   server is somewhere else.
+8. **Take it away** — `best.pt`, the OpenVINO IR as a zip (exported when a run
+   finishes), `results.csv`. *모델로 등록* gives the run a name (the IR if it has
+   one, otherwise the weights) and it then appears wherever a model is chosen —
+   auto-labelling, batch inference, the webcam. A `.pt`, `.onnx` or IR from
+   elsewhere can be uploaded into the same list.
 
 ![labelling](../docs/assets/labeling.jpg)
 
@@ -61,6 +70,8 @@ rtdetr-platform/
   platform.db          datasets, jobs, per-epoch numbers
   datasets/<name>/     uploaded datasets (registered folders stay where they are)
   runs/job<id>/        weights/, openvino/, results.csv, summary.json
+                       (inference jobs: images/, results.json, annotated.mp4)
+  models/<name>/       models uploaded from outside
 ```
 
 ## API
@@ -84,6 +95,12 @@ The pages are only clients of these, so a script can do anything the UI does:
 | `POST /api/datasets/{id}/autolabel/{index}` | boxes for one image, from a model |
 | `POST /api/datasets/{id}/autolabel` | queue a pass over the whole dataset |
 | `POST /api/datasets/{id}/classes` | rename or add classes; data.yaml follows |
+| `GET /api/models` | the registry, plus the names that download themselves |
+| `POST /api/models` | `{job_id, name, note}` — register a finished run |
+| `POST /api/models/upload` | multipart: `name`, `file` (.pt/.onnx/.xml), `classes` |
+| `DELETE /api/models/{id}` | forget it (files stay) |
+| `POST /api/predict` | multipart: `model`, `conf`, and one of `dataset_id`, `path`, `video` |
+| `POST /api/preview` | multipart: `model`, `conf`, `image` → annotated JPEG, one frame |
 | `POST /api/jobs` | `{dataset_id, model, epochs, imgsz, batch, freeze, device}` |
 | `GET /api/jobs` · `GET /api/jobs/{id}` | the second includes per-epoch rows |
 | `GET /api/jobs/{id}/stream` | server-sent events: progress, then a status |
@@ -91,7 +108,7 @@ The pages are only clients of these, so a script can do anything the UI does:
 | `POST /api/jobs/{id}/resume` | `{add_epochs}` — continue a finished run |
 | `POST /api/jobs/{id}/evaluate` | `{conf}` — queue a scoring pass with pictures |
 | `GET /api/jobs/{id}/report` · `/eval/{name}` | the numbers, and the pictures |
-| `GET /api/jobs/{id}/download/{weights,openvino,results,log}` | |
+| `GET /api/jobs/{id}/download/{weights,openvino,results,log,predictions,video}` | |
 | `POST /api/jobs/{id}/predict` | multipart: `image`, `conf` → annotated JPEG |
 
 ## What it is not
