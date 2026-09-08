@@ -37,9 +37,9 @@ def is_url(value: Any) -> bool:
 class Frame:
     """One unit of work handed to the predictor."""
 
-    __slots__ = ("img", "path", "index", "total", "kind", "frame", "frames")
+    __slots__ = ("img", "path", "index", "total", "kind", "frame", "frames", "fps")
 
-    def __init__(self, img, path, index, total, kind, frame=0, frames=0):
+    def __init__(self, img, path, index, total, kind, frame=0, frames=0, fps=0.0):
         self.img = img  # BGR ndarray
         self.path = str(path)
         self.index = index  # 1-based source index
@@ -47,6 +47,7 @@ class Frame:
         self.kind = kind  # "image" | "video" | "stream"
         self.frame = frame  # 1-based frame number within a video
         self.frames = frames  # total frames, 0 when unknown
+        self.fps = fps  # frames per second after vid_stride, 0 when unknown
 
     def prefix(self) -> str:
         """``"image 1/3 bus.jpg: "`` — the head of the verbose log line."""
@@ -146,6 +147,9 @@ class SourceLoader:
                     raise ValueError(f"could not open {payload!r}")
                 frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if kind == "video" else 0
                 frames = max(frames, 0) // self.vid_stride
+                fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+                # a stride of 2 keeps every other frame, so playback halves too
+                fps = fps / self.vid_stride if fps > 0 else 0.0
                 label = "video" if kind == "video" else "stream"
                 n = 0
                 try:
@@ -158,12 +162,13 @@ class SourceLoader:
                             continue
                         yield Frame(
                             img,
-                            payload if isinstance(payload, str) else f"webcam{payload}",
+                            f"webcam{payload}" if isinstance(payload, int) else payload,
                             i,
                             self.total,
                             label,
                             frame=(n - 1) // self.vid_stride + 1,
                             frames=frames,
+                            fps=fps,
                         )
                 finally:
                     cap.release()

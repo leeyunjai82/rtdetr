@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -207,6 +209,31 @@ def test_training_reports_every_epoch_to_a_callback_and_a_csv(dataset, tmp_path,
 
     summary = json.loads((run / "summary.json").read_text())
     assert summary["epochs_run"] == 2 and summary["names"] == {"0": "box"}
+
+
+@needs_torch
+def test_a_callback_that_stops_the_run_keeps_the_epoch_it_just_saw(dataset, tmp_path, monkeypatch):
+    """Cancelling from on_epoch_end must not throw that epoch's weights away."""
+    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+
+    class Stop(Exception):
+        pass
+
+    seen = {}
+
+    def stop_after_the_first(row):
+        seen["epoch"] = row["epoch"]
+        seen["saved"] = (Path(row["save_dir"]) / "weights" / "last.pt").exists()
+        raise Stop()
+
+    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    with pytest.raises(Stop):
+        model.train(
+            data=str(dataset), project=str(tmp_path), epochs=3, imgsz=64, batch=2, workers=0,
+            device="cpu", val=False, amp=False, freeze="backbone",
+            on_epoch_end=stop_after_the_first,
+        )
+    assert seen == {"epoch": 1, "saved": True}
 
 
 @needs_torch

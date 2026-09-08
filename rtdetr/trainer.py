@@ -240,8 +240,6 @@ class Trainer:
                 "seconds": round(time.time() - t0, 2),
             }
             self._append_results(row)
-            if self.on_epoch_end is not None:
-                self.on_epoch_end(dict(row, epochs=self.epochs, save_dir=str(self.save_dir)))
 
             improved = metric is None or metric > self.best
             if improved:
@@ -252,6 +250,10 @@ class Trainer:
             self._save(net, epoch, "last.pt")
             if improved:
                 self._save(net, epoch, "best.pt")
+            # after the checkpoints: a callback that stops the run (a cancel
+            # button) must not throw away the epoch that just finished
+            if self.on_epoch_end is not None:
+                self.on_epoch_end(dict(row, epochs=self.epochs, save_dir=str(self.save_dir)))
             if val_fn is not None and self.patience and since_improved >= self.patience:
                 print(
                     f"[rtdetr] early stop: no mAP improvement for {self.patience} epochs "

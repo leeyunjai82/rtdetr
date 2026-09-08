@@ -299,7 +299,7 @@ async function refresh() {
   $("jobs").innerHTML = jobs.map((j) => `
     <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
       <div class="row"><b>#${j.id} ${{ autolabel: "자동 라벨", evaluate: "평가", predict: "추론" }[j.kind] || "학습"}</b>
-        <span class="dim" title="${j.model}">${short(j.model)} · ${j.dataset}</span>
+        <span class="dim" title="${j.model}">${short(j.model)} · ${j.dataset || (j.source ? short(j.source) : "—")}</span>
         <span class="grow"></span>
         <span class="tag ${j.status}">${j.status}</span></div>
       <div class="row dim">${j.kind !== "train"

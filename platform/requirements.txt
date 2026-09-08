@@ -1,4 +1,4 @@
-rtdetr[train]>=0.6.1
+rtdetr[train]>=0.6.2
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9

@@ -563,3 +563,72 @@ def test_the_preview_endpoint_refuses_what_it_cannot_read(studio):
         files={"image": ("x.jpg", b"not an image", "image/jpeg")},
     )
     assert unreadable.status_code == 400
+
+
+def test_a_job_without_a_dataset_still_shows_in_the_list(studio, tmp_path):
+    """Inference over a folder belongs to no dataset; the list must still have it."""
+    client, _ = studio
+    folder = tmp_path / "shift"
+    folder.mkdir()
+    (folder / "a.jpg").write_bytes(image_bytes())
+
+    job = client.post("/api/predict", data={"model": "rtdetr-r18", "path": str(folder)}).json()
+    listed = client.get("/api/jobs").json()
+    assert [row["id"] for row in listed] == [job["id"]]
+    assert listed[0]["dataset"] is None and listed[0]["source"] == str(folder)
+
+
+def test_an_archive_cannot_write_next_to_its_dataset(studio, tmp_path):
+    """A sibling folder shares the dataset folder's prefix — that is not "inside"."""
+    from fastapi import HTTPException
+
+    _, module = studio
+    target = tmp_path / "1757_set"
+    target.mkdir()
+    escape = f"../{target.name}-evil/pwned.txt"
+    with zipfile.ZipFile(io.BytesIO(make_zip({escape: b"x"}))) as zf:
+        with pytest.raises(HTTPException) as raised:
+            module._safe_extract(zf, target)
+    assert "unsafe path" in raised.value.detail
+    assert not (tmp_path / f"{target.name}-evil").exists()
+
+
+def test_cancelling_an_export_says_it_is_too_late(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    module.db.update_job(job, status="exporting")
+
+    body = client.post(f"/api/jobs/{job}/cancel").json()
+    assert body["status"] == "exporting"
+    assert module.db.one("SELECT status FROM jobs WHERE id = ?", (job,))["status"] == "exporting"
+
+
+def test_a_restart_clears_jobs_left_exporting(studio):
+    """An export killed mid-write is dead too, not a spinner to stare at."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    module.db.update_job(job, status="exporting")
+
+    assert module.worker.reap_stale() == 1
+    row = module.db.one("SELECT * FROM jobs WHERE id = ?", (job,))
+    assert row["status"] == "failed" and "restart" in row["detail"]
+
+
+def test_autolabelling_an_image_that_is_not_there(studio):
+    client, _ = studio
+    upload(client, {"images/a.jpg": image_bytes()})
+    assert client.post("/api/datasets/1/autolabel/9", json={}).status_code == 404
+
+
+def test_the_worker_does_not_shadow_the_thread_machinery(studio):
+    """threading.Thread has a private _stop(); overwriting it breaks fork handling."""
+    import threading
+
+    _, module = studio
+    assert callable(threading.Thread._stop)
+    assert callable(module.worker._stop)  # still the method, not an Event
+
+    module.worker.stop()
+    assert module.worker._stopping.is_set()

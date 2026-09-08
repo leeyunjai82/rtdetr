@@ -218,6 +218,8 @@ def autolabel_one(dataset_id: int, index: int, payload: dict):
     """Boxes for the image on screen, from a model — the first draft to correct."""
     dataset = _dataset(dataset_id)
     images = list_images(Path(dataset["images_dir"]))
+    if not 0 <= index < len(images):
+        raise HTTPException(404, "no such image")
     model_name = _resolve_model(payload.get("model") or "rtdetr-r18")
     try:
         model = _model(model_name)
@@ -502,9 +504,11 @@ def create_job(payload: dict):
 
 @app.get("/api/jobs")
 def list_jobs():
+    # LEFT JOIN: an inference job over a folder or an uploaded video belongs to
+    # no dataset, and an inner join would drop it out of the list entirely
     return db.query(
         "SELECT j.*, d.name AS dataset FROM jobs j"
-        " JOIN datasets d ON d.id = j.dataset_id ORDER BY j.id DESC"
+        " LEFT JOIN datasets d ON d.id = j.dataset_id ORDER BY j.id DESC"
     )
 
 
@@ -586,7 +590,7 @@ def eval_image(job_id: int, name: str):
     if job is None or not job["run_dir"]:
         raise HTTPException(404, "no such job")
     path = (Path(job["run_dir"]) / "eval" / name).resolve()
-    if not path.is_file() or not str(path).startswith(str(Path(job["run_dir"]).resolve())):
+    if not path.is_file() or not path.is_relative_to(Path(job["run_dir"]).resolve()):
         raise HTTPException(404, "no such image")
     return FileResponse(path)
 
@@ -598,8 +602,12 @@ def cancel_job(job_id: int):
         raise HTTPException(404, "no such job")
     if job["status"] == "queued":
         db.update_job(job_id, status="cancelled", finished=time.time())
-    elif job["status"] in ("running", "exporting"):
+    elif job["status"] == "running":
         worker.cancel(job_id)  # stops at the next epoch or image
+    elif job["status"] == "exporting":
+        # the training is over and the export is a few seconds; stopping here
+        # would only leave half an IR behind
+        return {"status": "exporting", "detail": "이미 학습은 끝났고 내보내는 중입니다"}
     return {"status": "cancelling"}
 
 
@@ -902,7 +910,8 @@ def _ensure_split(dataset: dict, val_ratio: float) -> str | None:
 
     step = max(int(round(1 / max(min(val_ratio, 0.5), 0.05))), 2)
     val = images[::step]
-    train = [i for i in images if i not in set(val)]
+    held_out = set(val)
+    train = [i for i in images if i not in held_out]
     (root / "train.txt").write_text("\n".join(str(p.resolve()) for p in train), encoding="utf-8")
     (root / "val.txt").write_text("\n".join(str(p.resolve()) for p in val), encoding="utf-8")
 
@@ -974,9 +983,10 @@ def _slug(name: str) -> str:
 
 def _safe_extract(zf: zipfile.ZipFile, target: Path) -> None:
     """Refuse entries that would escape the dataset folder."""
+    root = target.resolve()
     for member in zf.infolist():
-        destination = (target / member.filename).resolve()
-        if not str(destination).startswith(str(target.resolve())):
+        # is_relative_to, not startswith: "…/set-evil" starts with "…/set"
+        if not (target / member.filename).resolve().is_relative_to(root):
             raise HTTPException(400, f"unsafe path in archive: {member.filename}")
     zf.extractall(target)
 

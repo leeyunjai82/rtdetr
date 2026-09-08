@@ -41,10 +41,12 @@ class Worker(threading.Thread):
         self.poll = poll
         self.cancelled: set[int] = set()
         self.current: int | None = None
-        self._stop = threading.Event()
+        # not _stop: threading.Thread has a private _stop() of its own, and
+        # shadowing it breaks the interpreter's own bookkeeping after a fork
+        self._stopping = threading.Event()
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stopping.set()
 
     def cancel(self, job_id: int) -> None:
         self.cancelled.add(job_id)
@@ -55,7 +57,7 @@ class Worker(threading.Thread):
         Nothing survives a restart — say so instead of showing a spinner that
         will never finish.
         """
-        stale = self.db.query("SELECT id FROM jobs WHERE status = 'running'")
+        stale = self.db.query("SELECT id FROM jobs WHERE status IN ('running', 'exporting')")
         for job in stale:
             self.db.update_job(
                 job["id"],
@@ -66,7 +68,7 @@ class Worker(threading.Thread):
         return len(stale)
 
     def run(self) -> None:
-        while not self._stop.is_set():
+        while not self._stopping.is_set():
             job = self.db.one("SELECT * FROM jobs WHERE status = 'queued' ORDER BY id LIMIT 1")
             if job is None:
                 time.sleep(self.poll)
@@ -135,7 +137,9 @@ class Worker(threading.Thread):
                 )
         except Exception:
             self.db.update_job(job_id, detail=_tail(log))  # what it said before it died
-            log.replace(self.runs_dir / f"job{job_id}-failed.log")
+            # move, not replace: the temp directory is often a different
+            # filesystem, and a rename across one would mask the real failure
+            shutil.move(str(log), self.runs_dir / f"job{job_id}-failed.log")
             raise
         run_dir = best.parent.parent
         shutil.move(str(log), run_dir / "train.log")
@@ -322,13 +326,15 @@ class Worker(threading.Thread):
                         height, width = painted.shape[:2]
                         video = cv2.VideoWriter(
                             str(out / "annotated.mp4"),
-                            cv2.VideoWriter_fourcc(*"mp4v"), 25.0, (width, height),
+                            cv2.VideoWriter_fourcc(*"mp4v"),
+                            frame.fps or 25.0,  # play back at the speed it was shot
+                            (width, height),
                         )
                     video.write(painted)
                 records.append({"file": name, "source": frame.path, "boxes": result.summary()})
-                self.db.update_job(
-                    job_id, progress=min(i / total, 0.99) if frame.kind == "image" else 0.5
-                )
+                # a video is one source with many frames, so count frames there
+                done = frame.frame / frame.frames if frame.frames else i / total
+                self.db.update_job(job_id, progress=min(done, 0.99))
         finally:
             if video is not None:
                 video.release()

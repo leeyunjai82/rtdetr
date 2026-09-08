@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import cv2
 import numpy as np
 import pytest
@@ -99,3 +101,21 @@ def test_video_frames_carry_their_position_and_honour_vid_stride(tmp_path):
     assert frames[1].kind == "video" and frames[1].frame == 2
     assert "(frame 2/6)" in frames[1].prefix()
     assert len(list(SourceLoader(path, vid_stride=2))) == 3
+
+
+def test_a_video_file_keeps_its_own_path_and_frame_rate(tmp_path):
+    """A file is not a webcam: its name is what the log and the saved file use."""
+    path = tmp_path / "clip.mp4"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (32, 32))
+    for _ in range(4):
+        writer.write(np.zeros((32, 32, 3), np.uint8))
+    writer.release()
+
+    frame = next(iter(SourceLoader(path)))
+    assert frame.path == str(path)
+    assert Path(frame.path).stem == "clip"
+    assert frame.fps == pytest.approx(5.0, abs=0.1)
+    # every other frame kept means playback at half the rate
+    strided = next(iter(SourceLoader(path, vid_stride=2)))
+    assert strided.fps == pytest.approx(2.5, abs=0.1)
+

@@ -555,7 +555,7 @@ class _OutputWriter:
             writer = cv2.VideoWriter(
                 str(self.save_dir / f"{stem}.mp4"),
                 cv2.VideoWriter_fourcc(*"mp4v"),
-                25.0,
+                frame.fps or 25.0,  # keep the source's timing, not a guess
                 (w, h),
             )
             self.videos[frame.path] = writer
