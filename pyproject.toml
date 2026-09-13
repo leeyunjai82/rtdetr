@@ -4,14 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rtdetr"
-version = "0.6.2"
-description = "RT-DETR real-time object detection — training and OpenVINO inference, Apache-2.0"
+version = "0.6.3"
+description = "Real-time object detection you can ship: RT-DETR with PyTorch training, OpenVINO inference, and a browser app. Apache-2.0 throughout."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "leeyunjai", email = "leeyunjai1982@gmail.com" }]
-keywords = ["rt-detr", "rtdetr", "object-detection", "detr", "openvino", "apache-2.0"]
+keywords = [
+    "rt-detr", "rtdetr", "object-detection", "detr", "transformer",
+    "openvino", "pytorch", "computer-vision", "real-time", "edge-ai",
+    "inference", "annotation", "labeling", "apache-2.0",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,6 +25,9 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Topic :: Multimedia :: Video",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
     "numpy>=1.23",
@@ -46,6 +53,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/leeyunjai82/rtdetr"
 Source = "https://github.com/leeyunjai82/rtdetr"
+Documentation = "https://github.com/leeyunjai82/rtdetr/blob/main/docs/usage.md"
 Issues = "https://github.com/leeyunjai82/rtdetr/issues"
 
 [project.scripts]

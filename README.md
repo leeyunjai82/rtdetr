@@ -8,7 +8,7 @@ Apache-2.0 from the code to the model you export.
 
 [![PyPI](https://img.shields.io/pypi/v/rtdetr?color=2b7489)](https://pypi.org/project/rtdetr/)
 [![Python](https://img.shields.io/pypi/pyversions/rtdetr)](https://pypi.org/project/rtdetr/)
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](https://github.com/leeyunjai82/rtdetr/blob/main/LICENSE)
 [![CI](https://github.com/leeyunjai82/rtdetr/actions/workflows/ci.yml/badge.svg)](https://github.com/leeyunjai82/rtdetr/actions/workflows/ci.yml)
 
 ![detections on a street scene](https://raw.githubusercontent.com/leeyunjai82/rtdetr/main/docs/assets/demo.jpg)
