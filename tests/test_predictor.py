@@ -87,3 +87,36 @@ def test_a_real_ir_round_trips_from_pixels_to_detections(tiny_ir):
     assert det[:, 0].max() <= 90 and det[:, 3].max() <= 120
     assert set(speed) == {"preprocess", "inference", "postprocess"}
 
+
+
+@needs_ov
+@needs_torch
+def test_one_predictor_can_be_shared_between_threads(tiny_ir):
+    """CompiledModel's own infer request is shared; a second caller used to get
+    "Infer Request is busy". Each thread now has a request of its own."""
+    import threading
+
+    from rtdetr.predictor import OVPredictor
+
+    predictor = OVPredictor(tiny_ir, device="CPU", precision="f32")
+    rng = np.random.default_rng(0)
+    images = [rng.integers(0, 255, (48, 64, 3), np.uint8) for _ in range(4)]
+    expected = [predictor(img, conf=0.0)[0] for img in images]
+
+    failures: list[str] = []
+
+    def hammer(k: int) -> None:
+        for _ in range(20):
+            try:
+                det = predictor(images[k], conf=0.0)[0]
+                if det.shape != expected[k].shape or not np.allclose(det, expected[k], atol=1e-4):
+                    failures.append(f"thread {k}: answer changed under load")
+            except Exception as exc:  # noqa: BLE001 - the point is that nothing raises
+                failures.append(f"thread {k}: {exc}")
+
+    threads = [threading.Thread(target=hammer, args=(k,)) for k in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert failures == []

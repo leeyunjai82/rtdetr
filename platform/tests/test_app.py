@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import importlib
 import io
+import json
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -521,7 +523,7 @@ def test_a_model_file_can_be_brought_in_from_outside(studio):
         data={"name": "from-a-colleague", "classes": "can, bottle"},
         files={"file": ("best.pt", b"weights", "application/octet-stream")},
     )
-    assert response.status_code == 200 and response.json()["needs_bin"] is False
+    assert response.status_code == 200 and response.json()["path"].endswith("best.pt")
     assert client.get("/api/models").json()["models"][0]["classes"] == ["can", "bottle"]
 
     bad = client.post(
@@ -632,3 +634,43 @@ def test_the_worker_does_not_shadow_the_thread_machinery(studio):
 
     module.worker.stop()
     assert module.worker._stopping.is_set()
+
+
+def test_an_ir_uploads_as_a_pair_and_the_bin_takes_the_xml_stem(studio):
+    """An OpenVINO IR is .xml + .bin under one stem; half of it is useless."""
+    client, module = studio
+    alone = client.post(
+        "/api/models/upload",
+        data={"name": "half"},
+        files=[("files", ("net.xml", b"<net/>", "text/xml"))],
+    )
+    assert alone.status_code == 400 and ".bin" in alone.json()["error"]
+
+    pair = client.post(
+        "/api/models/upload",
+        data={"name": "line v2", "classes": "can,bottle"},
+        files=[
+            ("files", ("best.xml", b"<net/>", "text/xml")),
+            ("files", ("weights-export.bin", b"\x00\x01", "application/octet-stream")),
+        ],
+    )
+    assert pair.status_code == 200
+    path = Path(pair.json()["path"])
+    assert path.name == "best.xml" and path.with_suffix(".bin").read_bytes() == b"\x00\x01"
+    row = module.db.one("SELECT * FROM models WHERE id = ?", (pair.json()["id"],))
+    assert row["kind"] == "openvino" and json.loads(row["classes"]) == ["can", "bottle"]
+    assert module._resolve_model("line v2") == str(path)
+
+
+def test_a_class_that_labels_still_use_cannot_be_dropped(studio):
+    client, _ = studio
+    upload(client, {
+        "images/a.jpg": image_bytes(),
+        "labels/a.txt": b"2 .5 .5 .2 .2\n",       # class index 2 is in use
+        "data.yaml": b"names: {0: can, 1: bottle, 2: cap}\n",
+    })
+    refused = client.post("/api/datasets/1/classes", json={"names": ["can", "bottle"]})
+    assert refused.status_code == 400 and "class 2" in refused.json()["error"]
+
+    renamed = client.post("/api/datasets/1/classes", json={"names": ["can", "bottle", "lid"]})
+    assert renamed.status_code == 200 and renamed.json()["names"][2] == "lid"

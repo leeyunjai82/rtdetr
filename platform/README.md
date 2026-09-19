@@ -55,8 +55,8 @@ python platform/run.py                 # http://127.0.0.1:8080
 8. **Take it away** — `best.pt`, the OpenVINO IR as a zip (exported when a run
    finishes), `results.csv`. *모델로 등록* gives the run a name (the IR if it has
    one, otherwise the weights) and it then appears wherever a model is chosen —
-   auto-labelling, batch inference, the webcam. A `.pt`, `.onnx` or IR from
-   elsewhere can be uploaded into the same list.
+   auto-labelling, batch inference, the webcam. A `.pt`, `.onnx` or IR (its
+   `.xml` and `.bin` picked together) from elsewhere goes into the same list.
 
 ![labelling](../docs/assets/labeling.jpg)
 
@@ -97,7 +97,7 @@ The pages are only clients of these, so a script can do anything the UI does:
 | `POST /api/datasets/{id}/classes` | rename or add classes; data.yaml follows |
 | `GET /api/models` | the registry, plus the names that download themselves |
 | `POST /api/models` | `{job_id, name, note}` — register a finished run |
-| `POST /api/models/upload` | multipart: `name`, `file` (.pt/.onnx/.xml), `classes` |
+| `POST /api/models/upload` | multipart: `name`, `files` (a .pt or .onnx, or an IR's .xml + .bin together), `classes` |
 | `DELETE /api/models/{id}` | forget it (files stay) |
 | `POST /api/predict` | multipart: `model`, `conf`, and one of `dataset_id`, `path`, `video` |
 | `POST /api/preview` | multipart: `model`, `conf`, `image` → annotated JPEG, one frame |

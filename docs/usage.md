@@ -34,6 +34,10 @@ for r in model.predict(0, stream=True, show=True):  # webcam window, q or Esc qu
     pass                                           # (a generator only runs when iterated)
 ```
 
+One `RTDETR` can be shared between threads — a capture thread and a worker,
+say — each gets its own inference request underneath, so calls neither block
+nor collide.
+
 A webcam loop you can copy, with an FPS counter and optional tracking, lives in
 [`examples/webcam.py`](examples/webcam.py):
 

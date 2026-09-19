@@ -244,6 +244,7 @@ function inside(b, p) {
 }
 
 function push() { history.push(JSON.stringify(boxes)); if (history.length > 50) history.shift(); }
+function clamp(v, lo, hi) { return Math.min(Math.max(v, lo), hi); }
 
 canvas.addEventListener("pointerdown", (e) => {
   if (e.button === 1 || spaceDown) {            // pan instead of drawing
@@ -281,11 +282,12 @@ canvas.addEventListener("pointermove", (e) => {
     return;
   }
   const p = at(e);
+  p.x = clamp(p.x, 0, canvas.width); p.y = clamp(p.y, 0, canvas.height);   // never past the image
   if (action.kind === "new") { action.x1 = p.x; action.y1 = p.y; }
   else if (action.kind === "move") {
     const b = boxes[action.box], s = action.start;
-    b.cx = s.cx + (p.x - action.from.x) / canvas.width;
-    b.cy = s.cy + (p.y - action.from.y) / canvas.height;
+    b.cx = clamp(s.cx + (p.x - action.from.x) / canvas.width, b.w / 2, 1 - b.w / 2);
+    b.cy = clamp(s.cy + (p.y - action.from.y) / canvas.height, b.h / 2, 1 - b.h / 2);
     dirty = true;
   } else if (action.kind === "resize") {
     const b = boxes[action.box];
@@ -333,7 +335,7 @@ async function save() {
   dirty = false;
   await api(`/api/datasets/${DATASET}/labels/${index}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ boxes }) });
+    body: JSON.stringify({ boxes }), keepalive: true });   // outlives a closing tab
   dataset.files[index].labelled = true;
   renderFiles();
 }

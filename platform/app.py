@@ -256,7 +256,8 @@ def dataset_stats(dataset_id: int):
     boxes = tiny = 0
     unlabelled: list[str] = []
     empty: list[str] = []
-    for image in list_images(images_root):
+    images = list_images(images_root)
+    for image in images:
         label = label_path(image, images_root, labels_root)
         if not label.exists():
             unlabelled.append(str(image.relative_to(images_root)))
@@ -273,7 +274,7 @@ def dataset_stats(dataset_id: int):
             if row["w"] * row["h"] < 0.001:  # under 0.1% of the frame
                 tiny += 1
     return {
-        "images": len(list_images(images_root)),
+        "images": len(images),
         "boxes": boxes,
         "per_class": [{"name": n, "boxes": per_class.get(i, 0)} for i, n in enumerate(names)],
         "unknown_class_boxes": unknown_class,
@@ -378,6 +379,13 @@ def set_classes(dataset_id: int, payload: dict):
     names = [str(n).strip() for n in payload.get("names", []) if str(n).strip()]
     if not names:
         raise HTTPException(400, "give at least one class name")
+    highest = _highest_class_in_use(dataset)
+    if highest is not None and len(names) <= highest:
+        raise HTTPException(
+            400,
+            f"labels already use class {highest}; keep at least {highest + 1} names "
+            f"or relabel those boxes first",
+        )
     db.update_dataset(dataset_id, classes=json.dumps(names, ensure_ascii=False))
     _write_data_yaml(Path(dataset["path"]), Path(dataset["images_dir"]), names)
     return {"names": names}
@@ -420,17 +428,38 @@ def register_model(payload: dict):
 
 
 @app.post("/api/models/upload")
-async def upload_model(name: str = Form(...), file: UploadFile = None, classes: str = Form("")):
-    """Bring a model in from outside — a .pt from a colleague, an IR from a mirror."""
-    if file is None:
+async def upload_model(
+    name: str = Form(...),
+    files: list[UploadFile] = None,
+    file: UploadFile = None,
+    classes: str = Form(""),
+):
+    """Bring a model in from outside — a .pt from a colleague, or an IR as .xml + .bin.
+
+    An OpenVINO IR is two files that must sit together under one stem, so
+    they are taken in one upload and the .bin is named after the .xml.
+    """
+    uploads = [u for u in [*(files or []), file] if u is not None and u.filename]
+    if not uploads:
         raise HTTPException(400, "no file uploaded")
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in (".pt", ".xml", ".onnx"):
-        raise HTTPException(400, "expected a .pt, .xml or .onnx file")
+    by_suffix = {Path(u.filename).suffix.lower(): u for u in uploads}
+    suffix = next((s for s in (".pt", ".onnx", ".xml") if s in by_suffix), None)
+    if suffix is None:
+        raise HTTPException(400, "expected a .pt, a .onnx, or an IR's .xml and .bin")
+    if suffix == ".xml" and ".bin" not in by_suffix:
+        raise HTTPException(
+            400, "an OpenVINO IR is two files — pick the .xml and its .bin together"
+        )
+
     folder = DATA / "models" / f"{int(time.time())}_{_slug(name)}"
     folder.mkdir(parents=True)
-    path = folder / Path(file.filename).name
-    path.write_bytes(await file.read())
+    main = by_suffix[suffix]
+    path = folder / Path(main.filename).name
+    for upload in uploads:
+        target = folder / Path(upload.filename).name
+        if upload is by_suffix.get(".bin"):
+            target = path.with_suffix(".bin")  # what read_model looks for beside the .xml
+        target.write_bytes(await upload.read())
     model_id = db.add_model(
         name=name,
         path=str(path),
@@ -438,7 +467,7 @@ async def upload_model(name: str = Form(...), file: UploadFile = None, classes: 
         classes=[c.strip() for c in classes.split(",") if c.strip()],
         note="업로드",
     )
-    return {"id": model_id, "path": str(path), "needs_bin": suffix == ".xml"}
+    return {"id": model_id, "path": str(path)}
 
 
 @app.delete("/api/models/{model_id}")
@@ -884,6 +913,17 @@ def _register(name: str, root: Path, names: list[str] | None = None) -> dict:
         "labelled": labelled,
         "classes": class_names,
     }
+
+
+def _highest_class_in_use(dataset: dict) -> int | None:
+    """The largest class index any label file refers to, or None when unlabelled."""
+    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    highest = None
+    for image in list_images(images_root):
+        for row in read_labels(label_path(image, images_root, labels_root)):
+            if highest is None or row["cls"] > highest:
+                highest = row["cls"]
+    return highest
 
 
 def _ensure_split(dataset: dict, val_ratio: float) -> str | None:

@@ -182,7 +182,7 @@
     <div class="card">
       <div id="models" class="dim">아직 등록된 모델이 없습니다.</div>
       <div class="row" style="margin-top:10px">
-        <input id="model-file" type="file" accept=".pt,.xml,.onnx" style="flex:1;min-width:150px">
+        <input id="model-file" type="file" accept=".pt,.xml,.bin,.onnx,.txt" multiple title="IR은 .xml과 .bin을 함께 고르세요" style="flex:1;min-width:150px">
         <input id="model-name" placeholder="이름" style="width:110px">
         <button id="model-upload">업로드</button>
       </div>
@@ -658,13 +658,15 @@ $("cam-stop").onclick = () => {
 };
 
 $("model-upload").onclick = async () => {
-  const file = $("model-file").files[0];
-  if (!file) return;
+  const files = [...$("model-file").files];
+  if (!files.length) return;
+  const main = files.find((f) => /\.(pt|onnx|xml)$/i.test(f.name)) || files[0];
   const form = new FormData();
-  form.append("file", file);
-  form.append("name", $("model-name").value || file.name);
-  try { const res = await api("/api/models/upload", { method: "POST", body: form });
-    $("run-msg").textContent = res.needs_bin ? ".bin 파일도 같은 폴더에 두세요" : "등록됨";
+  files.forEach((f) => form.append("files", f));       // an IR is .xml + .bin together
+  form.append("name", $("model-name").value || main.name.replace(/\.[^.]+$/, ""));
+  try { await api("/api/models/upload", { method: "POST", body: form });
+    $("run-msg").textContent = "등록됨"; $("run-msg").className = "msg";
+    $("model-file").value = "";
     await refresh(); }
   catch (e) { $("run-msg").textContent = e.message; $("run-msg").className = "msg err"; }
 };

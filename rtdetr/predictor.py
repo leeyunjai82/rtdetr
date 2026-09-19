@@ -10,6 +10,7 @@ applies a sigmoid when the tensor is clearly still logits.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -72,6 +73,9 @@ class OVPredictor:
         config = {"INFERENCE_PRECISION_HINT": precision} if precision else {}
         self.compiled = core.compile_model(model, device, config)
         self.input = self.compiled.input(0)
+        # CompiledModel.__call__ reuses one InferRequest, so a second thread
+        # calling it gets "Infer Request is busy". One request per thread.
+        self._local = threading.local()
         self.names = names if names else read_names(self.model_path)
         self.imgsz = imgsz or self._input_size()
 
@@ -93,8 +97,15 @@ class OVPredictor:
 
     def infer(self, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Returns ``(boxes (Q,4) cxcywh 0..1, scores (Q,K))`` for one image."""
-        outputs = self.compiled(tensor)
-        arrays = [np.asarray(outputs[out]) for out in self.compiled.outputs]
+        request = getattr(self._local, "request", None)
+        if request is None:
+            request = self._local.request = self.compiled.create_infer_request()
+        request.infer({0: tensor})
+        # copy: the tensor data is the request's own buffer, overwritten next call
+        arrays = [
+            np.array(request.get_output_tensor(i).data)
+            for i in range(len(self.compiled.outputs))
+        ]
         boxes = next((a for a in arrays if a.shape[-1] == 4), None)
         scores = next((a for a in arrays if a is not boxes), None)
         if boxes is None or scores is None:
