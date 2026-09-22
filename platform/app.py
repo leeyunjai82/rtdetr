@@ -208,8 +208,12 @@ def get_labels(dataset_id: int, index: int):
 
 @app.post("/api/datasets/{dataset_id}/labels/{index}")
 def save_labels(dataset_id: int, index: int, payload: dict):
-    write_labels(_label_file(dataset_id, index), payload.get("boxes", []))
-    worker.refresh_counts(dataset_id)
+    """Write one image's boxes. The labelled count moves by one, not by a rescan."""
+    label = _label_file(dataset_id, index)
+    first_time = not label.exists()
+    write_labels(label, payload.get("boxes", []))
+    if first_time:
+        db.execute("UPDATE datasets SET labelled = labelled + 1 WHERE id = ?", (dataset_id,))
     return {"saved": True}
 
 

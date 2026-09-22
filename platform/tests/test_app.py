@@ -674,3 +674,20 @@ def test_a_class_that_labels_still_use_cannot_be_dropped(studio):
 
     renamed = client.post("/api/datasets/1/classes", json={"names": ["can", "bottle", "lid"]})
     assert renamed.status_code == 200 and renamed.json()["names"][2] == "lid"
+
+
+def test_saving_a_label_moves_the_count_by_one_without_a_rescan(studio, monkeypatch):
+    """One save is one file; it must not walk the whole dataset again."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "images/b.jpg": image_bytes(70)})
+    assert client.get("/api/datasets/1").json()["labelled"] == 0
+
+    walks = []
+    monkeypatch.setattr(module.worker, "refresh_counts", lambda *a, **k: walks.append(a))
+    box = [{"cls": 0, "cx": 0.5, "cy": 0.5, "w": 0.2, "h": 0.2}]
+    client.post("/api/datasets/1/labels/0", json={"boxes": box})
+    assert client.get("/api/datasets/1").json()["labelled"] == 1
+    client.post("/api/datasets/1/labels/0", json={"boxes": box + box})   # same image again
+    client.post("/api/datasets/1/labels/1", json={"boxes": []})          # empty label counts
+    assert client.get("/api/datasets/1").json()["labelled"] == 2
+    assert walks == []
