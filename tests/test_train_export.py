@@ -237,6 +237,24 @@ def test_a_callback_that_stops_the_run_keeps_the_epoch_it_just_saw(dataset, tmp_
 
 
 @needs_torch
+def test_a_long_epoch_reports_where_it_is(dataset, tmp_path, monkeypatch):
+    """Progress inside an epoch, then a word before validation — with loader
+    workers running, which is how a GPU box trains."""
+    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    heard = []
+    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    model.train(
+        data=str(dataset), project=str(tmp_path), epochs=2, imgsz=64, batch=2, workers=2,
+        device="cpu", amp=False, freeze="backbone", on_progress=heard.append,
+    )
+    train = [h for h in heard if h["phase"] == "train"]
+    val = [h for h in heard if h["phase"] == "val"]
+    assert {h["epoch"] for h in train} == {1, 2} and [h["epoch"] for h in val] == [1, 2]
+    last = [h for h in train if h["epoch"] == 1][-1]
+    assert last["step"] == last["steps"] and last["epochs"] == 2 and last["seconds"] >= 0
+
+
+@needs_torch
 def test_pretrained_false_never_reaches_for_the_mirror(dataset, tmp_path, monkeypatch):
     from rtdetr import downloads
 

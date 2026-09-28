@@ -64,6 +64,13 @@ def freeze_modules(net, freeze):
     return modules
 
 
+def _one_thread_per_worker(_worker_id: int) -> None:
+    import cv2
+
+    cv2.setNumThreads(0)
+    torch.set_num_threads(1)
+
+
 class Trainer:
     def __init__(
         self,
@@ -86,11 +93,13 @@ class Trainer:
         seed=0,
         freeze=None,
         on_epoch_end=None,
+        on_progress=None,
     ):
         seed_everything(seed)
         self.net = net
         self.frozen = freeze_modules(net, freeze)
         self.on_epoch_end = on_epoch_end
+        self.on_progress = on_progress
         self.data_yaml = data
         self.cfg = load_data_yaml(data)
         self.epochs, self.imgsz, self.batch = epochs, imgsz, batch
@@ -177,6 +186,11 @@ class Trainer:
             num_workers=self.workers,
             collate_fn=DetDataset.collate,
             pin_memory=self.device.type == "cuda",
+            # workers live for the whole run instead of being forked again for
+            # every epoch, and each decodes on one thread: N workers each using
+            # every core would fight over the CPU that feeds the GPU
+            persistent_workers=self.workers > 0,
+            worker_init_fn=_one_thread_per_worker if self.workers > 0 else None,
         )
         net = self.net.to(self.device)
         since_improved = 0
@@ -198,7 +212,7 @@ class Trainer:
             net.train()
             for module in self.frozen:  # frozen batch norms must not keep adapting
                 module.eval()
-            t0, running = time.time(), 0.0
+            t0, running, reported = time.time(), 0.0, 0.0
             for step, (imgs, targets) in enumerate(dl):
                 self._set_lr(epoch, step, len(dl))
                 imgs = imgs.to(self.device, non_blocking=True)
@@ -215,6 +229,14 @@ class Trainer:
                 self.scaler.step(self.opt)
                 self.scaler.update()
                 running += float(loss.detach())
+                if self.on_progress is not None and (
+                    time.time() - reported >= 1.0 or step + 1 == len(dl)
+                ):
+                    reported = time.time()  # about once a second, not every batch
+                    self.on_progress({
+                        "phase": "train", "epoch": epoch + 1, "epochs": self.epochs,
+                        "step": step + 1, "steps": len(dl), "seconds": reported - t0,
+                    })
 
             avg = running / max(len(dl), 1)
             msg = (
@@ -225,6 +247,11 @@ class Trainer:
 
             metric = None
             if val_fn is not None:
+                if self.on_progress is not None:
+                    self.on_progress({
+                        "phase": "val", "epoch": epoch + 1, "epochs": self.epochs,
+                        "seconds": time.time() - t0,
+                    })
                 metric = val_fn(net)
                 msg += f"  mAP50-95 {metric:.4f}"
             print("[rtdetr] " + msg)

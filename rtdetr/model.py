@@ -322,6 +322,7 @@ class RTDETR:
         amp: bool = True,
         freeze: Any = None,
         on_epoch_end: Any = None,
+        on_progress: Any = None,
         **kwargs: Any,
     ) -> Path:
         """Train on a data.yaml dataset. Returns the path of ``best.pt``.
@@ -329,6 +330,10 @@ class RTDETR:
         ``freeze="backbone"`` trains about twice as fast on CPU and helps when
         the dataset is small. ``on_epoch_end`` is called with a dict of the
         epoch's numbers — the same row that lands in ``results.csv``.
+        ``on_progress`` hears about once a second inside an epoch —
+        ``{"phase": "train", "epoch", "epochs", "step", "steps", "seconds"}`` —
+        and once more with ``"phase": "val"`` before validation starts, so a
+        long epoch is not a silent one.
         """
         _import_torch()
         from .data.dataset import load_data_yaml
@@ -363,6 +368,7 @@ class RTDETR:
             amp=amp,
             freeze=freeze,
             on_epoch_end=on_epoch_end,
+            on_progress=on_progress,
             **kwargs,
         )
         val_fn = None

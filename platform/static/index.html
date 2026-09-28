@@ -1,6 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>rtdetr platform</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314161a'/%3E%3Crect x='6.5' y='11' width='19' height='15' rx='2' fill='none' stroke='%234da3ff' stroke-width='2.6'/%3E%3Crect x='6.5' y='5.5' width='11' height='6.5' rx='1.6' fill='%234da3ff'/%3E%3Ccircle cx='16' cy='18.5' r='2.4' fill='%234da3ff'/%3E%3C/svg%3E">
 <style>
   :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; --ok:#3ecf8e; --bad:#ff6b6b; }
   * { box-sizing:border-box; }
@@ -209,6 +210,7 @@
         <input id="try-conf" type="number" value="0.25" step="0.05" min="0" max="1" style="width:80px" title="conf">
         <button id="try">이 모델로 추론</button>
       </div>
+      <div class="bar" id="detail-bar" hidden><i></i></div>
       <div class="msg" id="detail-msg"></div>
       <img id="preview" hidden>
       <div id="report" hidden>
@@ -236,11 +238,19 @@ const api = async (path, options) => {
 const fmt = (v, digits = 3) => (v === null || v === undefined || v === "" ? "—" : Number(v).toFixed(digits));
 const short = (name) => String(name).split(/[\\/]/).pop();
 
+let gpu = null, running = null;
+
 async function refresh() {
   const [state, datasets, jobs] = await Promise.all([
     api("/api/status"), api("/api/datasets"), api("/api/jobs")]);
   $("status").textContent =
-    `데이터셋 ${state.datasets} · 대기 ${state.queued}` + (state.running_job ? ` · 실행 중 #${state.running_job}` : "");
+    `데이터셋 ${state.datasets} · 대기 ${state.queued}` + (state.running_job ? ` · 실행 중 #${state.running_job}` : "")
+    + (state.gpu ? ` · GPU ${state.gpu.name}` : " · GPU 없음 (CPU 학습)");
+  running = state.running_job;
+  if (state.gpu && !gpu) {                 // a GPU wants batches a CPU could not hold
+    gpu = state.gpu;
+    if ($("job-batch").value === "4") $("job-batch").value = "16";
+  }
 
   $("datasets").innerHTML = datasets.map((d) => `
     <div class="card"><div class="row"><b>${d.name}</b><span class="grow"></span>
@@ -338,8 +348,14 @@ function render(job) {
   $("chart-title").hidden = !curve;
   $("epochs").innerHTML = rows.slice().reverse().map((r) =>
     `<tr><td>${r.epoch}</td><td>${fmt(r.loss)}</td><td>${fmt(r.map50_95)}</td><td>${fmt(r.seconds, 1)}</td></tr>`).join("");
-  $("detail-msg").textContent = job.detail || "";
+  const waiting = job.status === "queued"
+    ? (running && running !== job.id ? `대기 중 — #${running}이(가) 끝나면 시작합니다` : "곧 시작합니다")
+    : "";
+  $("detail-msg").textContent = job.detail || waiting;
   $("detail-msg").className = "msg" + (job.status === "failed" ? " err" : "");
+  const live = ["running", "exporting"].includes(job.status);
+  $("detail-bar").hidden = !live;
+  $("detail-bar").firstElementChild.style.width = `${Math.round((job.progress || 0) * 100)}%`;
   $("cancel").disabled = !["queued", "running"].includes(job.status);
   ["weights", "openvino", "results", "log", "predictions", "video"].forEach((kind, i) => {
     $(["dl-weights", "dl-ir", "dl-csv", "dl-log", "dl-pred", "dl-video"][i])
@@ -451,7 +467,7 @@ async function showStats(datasetId) {
   const rows = s.per_class.map((c) => `<tr><td>${c.name}</td><td>${c.boxes}</td></tr>`).join("");
   const warn = [];
   if (s.unlabelled.length) warn.push(`라벨 없음 ${s.unlabelled.length}장`);
-  if (s.empty_labels.length) warn.push(`빈 라벨 ${s.empty_labels.length}장`);
+  if (s.empty_labels.length) warn.push(`빈 라벨(배경) ${s.empty_labels.length}장`);
   if (s.tiny_boxes) warn.push(`아주 작은 상자 ${s.tiny_boxes}개`);
   if (s.unknown_class_boxes) warn.push(`클래스 범위 밖 ${s.unknown_class_boxes}개`);
   panel.innerHTML = `<table>${rows}<tr><td><b>상자 합계</b></td><td><b>${s.boxes}</b></td></tr></table>`
@@ -496,6 +512,12 @@ async function autolabelAll(datasetId) {
 
 $("job-start").onclick = async () => {
   $("job-msg").textContent = ""; $("job-msg").className = "msg";
+  const datasetId = Number($("job-dataset").value);
+  const jobs = await api("/api/jobs");
+  const same = jobs.find((j) => j.kind === "train" && j.dataset_id === datasetId
+                         && ["queued", "running", "exporting"].includes(j.status));
+  if (same && !confirm(`이 데이터셋은 #${same.id}이(가) 이미 ${same.status === "queued" ? "대기" : "학습"} 중입니다.\n하나 더 넣을까요?`)) return;
+  $("job-start").disabled = true;               // one click, one run
   try {
     const res = await api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -503,8 +525,10 @@ $("job-start").onclick = async () => {
         epochs: Number($("job-epochs").value), imgsz: Number($("job-imgsz").value),
         batch: Number($("job-batch").value), freeze: $("job-freeze").value,
         val_ratio: Number($("job-val").value), device: $("job-device").value })});
+    $("job-msg").textContent = `#${res.id} 대기열에 추가됨`;
     await select(res.id);
   } catch (e) { $("job-msg").textContent = e.message; $("job-msg").className = "msg err"; }
+  finally { $("job-start").disabled = false; }
 };
 
 document.querySelectorAll("#presets button").forEach((b) => {
@@ -515,7 +539,8 @@ document.querySelectorAll("#presets button").forEach((b) => {
                 balanced: { imgsz: 640, epochs: 50, batch: 4, freeze: "backbone" },
                 accurate: { imgsz: 640, epochs: 150, batch: 2, freeze: "" } }[b.dataset.preset];
     $("job-imgsz").value = p.imgsz; $("job-epochs").value = p.epochs;
-    $("job-batch").value = p.batch; $("job-freeze").value = p.freeze;
+    // the CPU batches, times four on a GPU — 16 GB+ holds them at 640
+    $("job-batch").value = gpu ? p.batch * 4 : p.batch; $("job-freeze").value = p.freeze;
   };
 });
 

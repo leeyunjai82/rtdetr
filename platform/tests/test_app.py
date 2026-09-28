@@ -833,3 +833,45 @@ def test_an_uploaded_copy_trains_on_itself_not_on_the_folder_it_came_from(studio
     root = module.Path(client.get("/api/datasets/1").json()["path"])
     ds = DetDataset(root / "data.yaml", "train", imgsz=64, augment=False)
     assert ds.files[0].is_relative_to(root) and len(ds._load_labels(ds.files[0])) == 1
+
+
+def test_the_file_list_tells_boxes_from_background_frames(studio):
+    """An empty label is a background frame; it must not look like one with boxes."""
+    client, _ = studio
+    upload(client, {
+        "images/a.jpg": image_bytes(),
+        "images/b.jpg": image_bytes(60),
+        "images/c.jpg": image_bytes(90),
+        "labels/a.txt": b"0 .5 .5 .2 .2\n1 .3 .3 .1 .1\n",
+        "labels/b.txt": b"",
+    })
+    files = {f["name"]: f for f in client.get("/api/datasets/1").json()["files"]}
+    assert (files["a.jpg"]["labelled"], files["a.jpg"]["boxes"]) == (True, 2)
+    assert (files["b.jpg"]["labelled"], files["b.jpg"]["boxes"]) == (True, 0)
+    assert (files["c.jpg"]["labelled"], files["c.jpg"]["boxes"]) == (False, 0)
+
+
+def test_the_stream_carries_the_progress_text(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    module.db.update_job(job, status="done", progress=1.0, detail="에폭 1/1 · 검증 중")
+    body = client.get(f"/api/jobs/{job}/stream").text
+    events = [json.loads(line[6:]) for line in body.splitlines() if line.startswith("data: ")]
+    assert events[0]["detail"] == "에폭 1/1 · 검증 중" and events[-1]["type"] == "end"
+
+
+def test_status_says_whether_there_is_a_gpu(studio):
+    client, _ = studio
+    gpu = client.get("/api/status").json()["gpu"]
+    assert gpu is None or {"name", "memory_gb"} <= set(gpu)
+
+
+def test_loader_workers_and_time_left_read_sensibly(monkeypatch):
+    import worker
+
+    monkeypatch.setenv("RTDETR_WORKERS", "0")
+    assert worker._loader_workers() == 0
+    monkeypatch.delenv("RTDETR_WORKERS")
+    assert 1 <= worker._loader_workers() <= 8
+    assert [worker._duration(s) for s in (42, 125, 3725)] == ["42초", "2분", "1시간 2분"]

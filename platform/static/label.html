@@ -1,6 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>라벨링 — rtdetr</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314161a'/%3E%3Crect x='6.5' y='11' width='19' height='15' rx='2' fill='none' stroke='%234da3ff' stroke-width='2.6'/%3E%3Crect x='6.5' y='5.5' width='11' height='6.5' rx='1.6' fill='%234da3ff'/%3E%3Ccircle cx='16' cy='18.5' r='2.4' fill='%234da3ff'/%3E%3C/svg%3E">
 <style>
   :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; }
   * { box-sizing:border-box; }
@@ -26,6 +27,7 @@
   .file[aria-current="true"] { background:#1d2836; color:var(--ink); }
   .file .dot { width:7px; height:7px; border-radius:50%; background:#39404d; margin-top:7px; flex:none; }
   .file.done .dot { background:#3ecf8e; }
+  .file.empty .dot { background:none; box-shadow:inset 0 0 0 1.5px #3ecf8e; }  /* labelled: nothing in it */
   .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   main { flex:1; display:flex; flex-direction:column; min-width:0; }
   header { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); }
@@ -97,7 +99,10 @@ async function boot() {
   dataset = await api(`/api/datasets/${DATASET}`);
   document.title = `${dataset.name} — 라벨링`;
   renderClasses(); renderFiles();
-  await load(0);
+  // open on a picture with boxes: exports often lead with background frames,
+  // and an empty first page reads as labels that failed to load
+  const first = dataset.files.findIndex((f) => f.boxes > 0);
+  await load(Math.max(first, 0));
   document.addEventListener("keydown", onKey);
 }
 
@@ -136,7 +141,8 @@ function renderFiles() {
   dataset.files.forEach((f, i) => {
     if (onlyUnlabelled && f.labelled && i !== index) return;
     const row = document.createElement("div");
-    row.className = "file" + (f.labelled ? " done" : "");
+    row.className = "file" + (f.boxes > 0 ? " done" : f.labelled ? " empty" : "");
+    row.title = f.boxes > 0 ? `상자 ${f.boxes}개` : f.labelled ? "빈 라벨 (배경 이미지)" : "라벨 없음";
     row.setAttribute("aria-current", i === index);
     row.innerHTML = `<span class="dot"></span><span>${f.name}</span>`;
     row.onclick = () => load(i);
@@ -337,6 +343,7 @@ async function save() {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ boxes }), keepalive: true });   // outlives a closing tab
   dataset.files[index].labelled = true;
+  dataset.files[index].boxes = boxes.length;
   renderFiles();
 }
 

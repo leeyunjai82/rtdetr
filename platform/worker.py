@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import shutil
 import tempfile
 import threading
@@ -18,6 +19,27 @@ import traceback
 from pathlib import Path
 
 from labeling import label_path, list_images, predict_boxes, write_labels
+
+
+def _loader_workers() -> int:
+    """Processes decoding images for training — half the cores, at most eight.
+
+    With none, a GPU waits on one thread reading JPEGs: 30% busy on a 7,000
+    image set. $RTDETR_WORKERS overrides it (0 for in-process loading).
+    """
+    override = os.environ.get("RTDETR_WORKERS")
+    if override is not None and override.strip().isdigit():
+        return int(override)
+    return max(1, min(8, (os.cpu_count() or 2) // 2))
+
+
+def _duration(seconds: float) -> str:
+    seconds = max(int(seconds), 0)
+    if seconds >= 3600:
+        return f"{seconds // 3600}시간 {seconds % 3600 // 60}분"
+    if seconds >= 60:
+        return f"{seconds // 60}분"
+    return f"{seconds}초"
 
 
 class Cancelled(Exception):
@@ -109,11 +131,38 @@ class Worker(threading.Thread):
         self.db.update_job(job_id, status="running", started=time.time(), detail=None, progress=0)
         run_name = f"job{job['resume_of'] or job_id}"
 
+        last_epoch_seconds: list[float] = []
+
         def on_epoch_end(row: dict) -> None:
             if job_id in self.cancelled:
                 raise Cancelled()
             self.db.add_epoch(job_id, row)
+            last_epoch_seconds[:] = [row["seconds"]]
             self.db.update_job(job_id, progress=row["epoch"] / max(job["epochs"], 1))
+
+        def on_progress(p: dict) -> None:
+            """Inside an epoch: where it is and how long is left, about once a second.
+
+            A 7,000-image epoch is minutes long; without this the page showed
+            nothing until the first one ended, which read as a run that never
+            started. Cancelling is honoured here too, not only between epochs.
+            """
+            if job_id in self.cancelled:
+                raise Cancelled()
+            epoch, epochs = p["epoch"], p["epochs"]
+            if p["phase"] == "val":
+                self.db.update_job(job_id, detail=f"에폭 {epoch}/{epochs} · 검증 중")
+                return
+            step, steps = p["step"], p["steps"]
+            per_step = p["seconds"] / max(step, 1)
+            per_epoch = last_epoch_seconds[0] if last_epoch_seconds else per_step * steps
+            left = (steps - step) * per_step + (epochs - epoch) * per_epoch
+            self.db.update_job(
+                job_id,
+                progress=(epoch - 1 + step / steps) / max(epochs, 1),
+                detail=f"에폭 {epoch}/{epochs} · 배치 {step}/{steps}"
+                       f" · 남은 시간 약 {_duration(left)}",
+            )
 
         model = RTDETR(job["model"], verbose=False)
         # The trainer picks its own run directory and skips one that already
@@ -121,7 +170,9 @@ class Worker(threading.Thread):
         handle, temporary = tempfile.mkstemp(prefix=f"job{job_id}_", suffix=".log")
         log = Path(temporary)
         try:
-            with open(handle, "w", encoding="utf-8") as stream, contextlib.redirect_stdout(stream):
+            # line-buffered: `tail -f` shows each epoch as it ends, not every 8 KB
+            with open(handle, "w", encoding="utf-8", buffering=1) as stream, \
+                    contextlib.redirect_stdout(stream):
                 best = model.train(
                     data=str(Path(dataset["path"]) / "data.yaml"),
                     epochs=job["epochs"],
@@ -132,8 +183,9 @@ class Worker(threading.Thread):
                     project=str(self.runs_dir),
                     name=run_name,
                     resume=bool(job["resume_of"]),
-                    workers=0,
+                    workers=_loader_workers(),
                     on_epoch_end=on_epoch_end,
+                    on_progress=on_progress,
                 )
         except Exception:
             self.db.update_job(job_id, detail=_tail(log))  # what it said before it died

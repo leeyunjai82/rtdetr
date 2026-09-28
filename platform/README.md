@@ -42,8 +42,12 @@ python platform/run.py                 # http://127.0.0.1:8080
    Correcting boxes is far quicker than drawing them, and once you have a
    `best.pt` you can point the auto-labeller at it.
 5. **Train** — a preset (빠름 / 균형 / 정확) or your own model, epochs, image size,
-   batch, backbone freezing and device. Jobs queue and run one at a time; the
-   loss and mAP curve updates per epoch; *중지* stops at the next epoch boundary;
+   batch, backbone freezing and device. The header names the GPU training will
+   use, and on one the presets batch four times larger. Jobs queue and run one
+   at a time; inside an epoch the job shows its batch, what is left and when it
+   is validating, and the loss and mAP curve updates per epoch; images are
+   decoded by loader processes (half the cores, at most eight —
+   `RTDETR_WORKERS` overrides); *중지* stops within a batch;
    *이어서 학습* continues a finished run with more epochs in the same directory;
    every run keeps a `train.log`, and a failure carries the end of it.
 6. **See what it learned** — *평가* scores the run on its validation split and

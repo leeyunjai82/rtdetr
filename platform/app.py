@@ -14,6 +14,7 @@ them.
 
 from __future__ import annotations
 
+import functools
 import io
 import json
 import os
@@ -237,14 +238,25 @@ def get_dataset(dataset_id: int):
     images_root = Path(dataset["images_dir"])
     images = list_images(images_root)
     dataset["classes"] = json.loads(dataset["classes"])
-    dataset["files"] = [
-        {
-            "name": str(p.relative_to(images_root)),
-            "labelled": label_path(p).exists(),
-        }
-        for p in images
-    ]
+    dataset["files"] = [_file_entry(p, images_root) for p in images]
     return dataset
+
+
+def _file_entry(image: Path, images_root: Path) -> dict:
+    """Name, whether a label exists, and how many boxes it holds.
+
+    An empty label is a deliberate answer — a background frame with nothing in
+    it — and must look different from one with boxes. Counting lines, not
+    parsing them: a 7,000-image set lists in well under a second.
+    """
+    label = label_path(image)
+    try:
+        with open(label, encoding="utf-8") as handle:
+            boxes = sum(1 for line in handle if line.split())
+        labelled = True
+    except FileNotFoundError:
+        boxes, labelled = 0, False
+    return {"name": str(image.relative_to(images_root)), "labelled": labelled, "boxes": boxes}
 
 
 @app.get("/api/datasets/{dataset_id}/image/{index}")
@@ -703,7 +715,7 @@ def stream_job(job_id: int):
     """Server-sent events: progress as it happens, then a final status."""
 
     def events():
-        sent, last_progress = 0, -1.0
+        sent, last = 0, None
         while True:
             job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
             if job is None:
@@ -716,9 +728,12 @@ def stream_job(job_id: int):
             for row in rows:
                 sent = row["epoch"]
                 yield f"data: {json.dumps({'type': 'epoch', **row})}\n\n"
-            if job["progress"] != last_progress:
-                last_progress = job["progress"]
-                yield f"data: {json.dumps({'type': 'progress', 'value': last_progress})}\n\n"
+            state = (job["progress"], job["detail"], job["status"])
+            if state != last:  # the text moves inside an epoch even when progress does not
+                last = state
+                event = {"type": "progress", "value": job["progress"],
+                         "detail": job["detail"], "status": job["status"]}
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
             if job["status"] in ("done", "failed", "cancelled"):
                 yield f"data: {json.dumps({'type': 'end', 'status': job['status']})}\n\n"
                 return
@@ -827,10 +842,24 @@ async def preview(model: str = Form(...), conf: float = Form(0.35), image: Uploa
 @app.get("/api/status")
 def status():
     return {
+        "gpu": _gpu(),
         "running_job": worker.current,
         "queued": len(db.query("SELECT id FROM jobs WHERE status = 'queued'")),
         "datasets": len(db.query("SELECT id FROM datasets")),
     }
+
+
+@functools.lru_cache(maxsize=1)
+def _gpu() -> dict | None:
+    """The CUDA card training will use, if any — asked once, then remembered."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    props = torch.cuda.get_device_properties(0)
+    return {"name": props.name, "memory_gb": round(props.total_memory / 2**30)}
 
 
 @app.exception_handler(HTTPException)
