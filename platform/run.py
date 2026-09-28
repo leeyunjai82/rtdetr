@@ -46,6 +46,27 @@ def _serve_https(application, uvicorn, args, local: str, path: str) -> None:
           f"the browser warns once about the certificate)")
 
 
+#: The oldest rtdetr this platform works with. Checked against the code that is
+#: actually imported — an editable install's metadata can lag behind a git pull.
+RTDETR_AT_LEAST = "0.6.8"
+
+
+def _check_rtdetr() -> None:
+    try:
+        import rtdetr
+    except ImportError:
+        raise SystemExit('rtdetr is not installed: pip install "rtdetr[train]" '
+                         '(or, in a clone of the repository, pip install -e ".[train]")') from None
+    have = tuple(int(x) for x in rtdetr.__version__.split(".")[:3])
+    need = tuple(int(x) for x in RTDETR_AT_LEAST.split("."))
+    if have < need:
+        raise SystemExit(
+            f"the platform needs rtdetr >= {RTDETR_AT_LEAST}, found {rtdetr.__version__} at "
+            f"{Path(rtdetr.__file__).parent}.\n"
+            f'  pip install -U "rtdetr[train]"      # or, in a clone: pip install -e ".[train]"'
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("mode", nargs="?", default="serve", choices=("serve", "label"))
@@ -67,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.data:
         os.environ["RTDETR_PLATFORM_HOME"] = str(Path(args.data).expanduser())
 
+    _check_rtdetr()
     import app as application
     import uvicorn
 

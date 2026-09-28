@@ -255,6 +255,31 @@ def test_a_long_epoch_reports_where_it_is(dataset, tmp_path, monkeypatch):
 
 
 @needs_torch
+def test_a_resumed_optimizer_lives_on_the_training_device(dataset, tmp_path, monkeypatch):
+    """Resuming on a GPU failed on its first step with "cuda:0 and cpu": the
+    optimizer state was loaded while the network was still on the CPU. The
+    "meta" device stands in for the GPU this machine may not have."""
+    from rtdetr.nn.rtdetr_net import RTDETRNet
+    from rtdetr.trainer import Trainer
+
+    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    RTDETR("rtdetr-r18", verbose=False, pretrained=False).train(
+        data=str(dataset), project=str(tmp_path), name="run", epochs=1, imgsz=64, batch=2,
+        workers=0, device="cpu", val=False, amp=False,
+    )
+    net = RTDETRNet("r18", num_classes=1, pretrained_backbone=False)
+    trainer = Trainer(net, str(dataset), epochs=2, imgsz=64, batch=2, device="meta",
+                      project=str(tmp_path), name="run", resume=True, amp=False, workers=0)
+    assert trainer.start_epoch == 1
+    for group in trainer.opt.param_groups:
+        for param in group["params"]:
+            assert param.device.type == "meta"
+            for key, value in trainer.opt.state.get(param, {}).items():
+                if key != "step" and hasattr(value, "device"):
+                    assert value.device == param.device, key
+
+
+@needs_torch
 def test_pretrained_false_never_reaches_for_the_mirror(dataset, tmp_path, monkeypatch):
     from rtdetr import downloads
 

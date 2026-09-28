@@ -115,6 +115,11 @@ class Trainer:
         self.save_dir.mkdir(parents=True, exist_ok=True)
         (self.save_dir / "weights").mkdir(exist_ok=True)
 
+        # on the device before the optimizer exists: loading a resumed optimizer
+        # state puts each tensor beside its parameter, and a parameter still on
+        # the CPU left Adam's moments there — "cuda:0 and cpu" on the first step
+        self.net = net = net.to(self.device)
+
         backbone_params, other_params = [], []
         for n, p in net.named_parameters():
             if not p.requires_grad:

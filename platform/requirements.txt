@@ -1,4 +1,6 @@
-rtdetr[train]>=0.6.7
+# unpinned on purpose: a pin made pip swap a clone's `pip install -e .` for the
+# PyPI release; run.py checks the version it actually imports instead
+rtdetr[train]
 fastapi>=0.110
 uvicorn[standard]>=0.27
 python-multipart>=0.0.9

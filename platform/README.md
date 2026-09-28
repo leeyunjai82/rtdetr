@@ -5,7 +5,7 @@ on one machine. It is a separate application that uses the `rtdetr` package; the
 package itself stays a library with a CLI and no web dependencies.
 
 ```bash
-pip install -r platform/requirements.txt
+pip install -r platform/requirements.txt   # in a clone, also: pip install -e ".[train]"
 python platform/run.py                 # http://<this machine>:8080, from any machine
 ```
 
