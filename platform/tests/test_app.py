@@ -944,3 +944,24 @@ def test_a_certificate_is_made_once_and_reused(tmp_path):
     names = parsed.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
     assert "localhost" in names.get_values_for_type(x509.DNSName)
     assert oct(key.stat().st_mode)[-3:] == "600"
+
+
+def test_auto_labelling_drafts_with_the_datasets_own_run(studio):
+    """A COCO model knows nothing called Paper; once a dataset is trained on,
+    that run is what pre-labels it unless someone picks otherwise."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes()})
+    assert module._default_model(1) == "rtdetr-r18"
+
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1})
+    assert job.status_code == 400                      # unlabelled: nothing to train yet
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    run_id = client.post("/api/jobs", json={"dataset_id": 2, "epochs": 1}).json()["id"]
+    run = module.RUNS / f"job{run_id}"
+    (run / "weights").mkdir(parents=True)
+    (run / "weights" / "best.pt").write_bytes(b"w")
+    module.db.update_job(run_id, status="done", run_dir=str(run))
+
+    queued = client.post("/api/datasets/2/autolabel", json={}).json()["id"]
+    assert client.get(f"/api/jobs/{queued}").json()["model"] == str(run / "weights" / "best.pt")
+    assert client.get(f"/api/jobs/{queued}").json()["dataset"] == "set"

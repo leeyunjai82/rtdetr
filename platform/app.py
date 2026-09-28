@@ -99,7 +99,7 @@ async def upload_dataset(name: str = Form(...), archive: UploadFile = None):
     """
     if archive is None:
         raise HTTPException(400, "no archive uploaded")
-    target = DATASETS / f"{int(time.time())}_{_slug(name)}"
+    target = _fresh_dir(DATASETS, name)
     target.mkdir(parents=True)
     scratch = target / ".upload.zip"
     try:
@@ -303,7 +303,7 @@ def autolabel_one(dataset_id: int, index: int, payload: dict):
     images = list_images(Path(dataset["images_dir"]))
     if not 0 <= index < len(images):
         raise HTTPException(404, "no such image")
-    model_name = _resolve_model(payload.get("model") or "rtdetr-r18")
+    model_name = _resolve_model(payload.get("model") or _default_model(dataset_id))
     try:
         model = _model(model_name)
         boxes = predict_boxes(
@@ -321,7 +321,7 @@ def autolabel_all(dataset_id: int, payload: dict):
     job_id = db.add_job(
         kind="autolabel",
         dataset_id=dataset_id,
-        model=_resolve_model(payload.get("model") or "rtdetr-r18"),
+        model=_resolve_model(payload.get("model") or _default_model(dataset_id)),
         conf=float(payload.get("conf", 0.35)),
     )
     return {"id": job_id}
@@ -533,7 +533,7 @@ async def upload_model(
             400, "an OpenVINO IR is two files — pick the .xml and its .bin together"
         )
 
-    folder = DATA / "models" / f"{int(time.time())}_{_slug(name)}"
+    folder = _fresh_dir(DATA / "models", name)
     folder.mkdir(parents=True)
     main = by_suffix[suffix]
     path = folder / Path(main.filename).name
@@ -625,7 +625,11 @@ def list_jobs():
 
 @app.get("/api/jobs/{job_id}")
 def get_job(job_id: int):
-    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    job = db.one(
+        "SELECT j.*, d.name AS dataset FROM jobs j"
+        " LEFT JOIN datasets d ON d.id = j.dataset_id WHERE j.id = ?",
+        (job_id,),
+    )
     if job is None:
         raise HTTPException(404, "no such job")
     job["epochs_done"] = db.query(
@@ -693,6 +697,49 @@ def job_report(job_id: int):
     if not report.exists():
         raise HTTPException(404, "not evaluated yet")
     return json.loads(report.read_text(encoding="utf-8"))
+
+
+@app.get("/api/jobs/{job_id}/predictions")
+def job_predictions(job_id: int, limit: int = 60):
+    """What an inference run found: totals per class, and the first drawn frames.
+
+    Read from the frames on disk while it runs, and from results.json once done.
+    """
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None or job["kind"] != "predict" or not job["run_dir"]:
+        raise HTTPException(404, "no inference results")
+    run_dir = Path(job["run_dir"])
+    results = run_dir / "results.json"
+    if results.exists():
+        records = json.loads(results.read_text(encoding="utf-8"))
+        per_class: dict[str, int] = {}
+        for record in records:
+            for box in record["boxes"]:
+                per_class[box["name"]] = per_class.get(box["name"], 0) + 1
+        files = [{"file": r["file"], "boxes": len(r["boxes"])} for r in records]
+    else:  # still running: whatever has been drawn so far
+        per_class = {}
+        drawn = sorted((run_dir / "images").glob("*.jpg"))
+        files = [{"file": f.name, "boxes": None} for f in drawn]
+    return {
+        "total": len(files),
+        "boxes": sum(per_class.values()),
+        "per_class": dict(sorted(per_class.items(), key=lambda kv: -kv[1])),
+        "files": files[: max(int(limit), 0)],
+    }
+
+
+@app.get("/api/jobs/{job_id}/output/{name}")
+def job_output(job_id: int, name: str):
+    """One drawn frame from an inference run."""
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None or not job["run_dir"]:
+        raise HTTPException(404, "no such job")
+    folder = (Path(job["run_dir"]) / "images").resolve()
+    path = (folder / name).resolve()
+    if not path.is_file() or not path.is_relative_to(folder):
+        raise HTTPException(404, "no such image")
+    return FileResponse(path)
 
 
 @app.get("/api/jobs/{job_id}/eval/{name}")
@@ -926,7 +973,7 @@ def _collection_target(name: str, dataset_id: int | None) -> tuple[Path, dict | 
     if dataset_id:
         dataset = _dataset(dataset_id)
         return Path(dataset["images_dir"]), dataset
-    target = DATASETS / f"{int(time.time())}_{_slug(name)}" / "images"
+    target = _fresh_dir(DATASETS, name) / "images"
     target.mkdir(parents=True)
     return target, None
 
@@ -977,6 +1024,22 @@ def _label_file(dataset_id: int, index: int) -> Path:
     if not 0 <= index < len(images):
         raise HTTPException(404, "no such image")
     return label_path(images[index])
+
+
+def _default_model(dataset_id: int) -> str:
+    """What to pre-label a dataset with when nobody said: its own latest run.
+
+    A COCO model knows 80 everyday classes and nothing called Paper or Rock;
+    once a dataset has been trained on, that run is the one that can draft it.
+    """
+    run = db.one(
+        "SELECT run_dir FROM jobs WHERE dataset_id = ? AND kind = 'train' AND status = 'done'"
+        " AND run_dir IS NOT NULL ORDER BY id DESC LIMIT 1",
+        (dataset_id,),
+    )
+    if run and (Path(run["run_dir"]) / "weights" / "best.pt").exists():
+        return str(Path(run["run_dir"]) / "weights" / "best.pt")
+    return "rtdetr-r18"
 
 
 def _resolve_model(name: str) -> str:
@@ -1140,7 +1203,7 @@ def _combine(sources: list[dict], name: str) -> dict:
             if class_name not in names:
                 names.append(class_name)
 
-    target = DATASETS / f"{int(time.time())}_{_slug(name)}"
+    target = _fresh_dir(DATASETS, name)
     (target / "images").mkdir(parents=True)
     (target / "labels").mkdir(parents=True)
     copied = 0
@@ -1180,6 +1243,19 @@ def _write_data_yaml(root: Path, images_root: Path, names: list[str]) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def _fresh_dir(parent: Path, name: str) -> Path:
+    """``<time>_<name>`` under ``parent``, never one that already exists.
+
+    Two uploads with the same name inside one second used to land on the
+    same folder and fail with FileExistsError.
+    """
+    base = f"{int(time.time())}_{_slug(name)}"
+    candidate, n = parent / base, 2
+    while candidate.exists():
+        candidate, n = parent / f"{base}_{n}", n + 1
+    return candidate
 
 
 def _slug(name: str) -> str:

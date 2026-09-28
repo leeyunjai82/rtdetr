@@ -33,6 +33,18 @@ def _loader_workers() -> int:
     return max(1, min(8, (os.cpu_count() or 2) // 2))
 
 
+def _time_left(elapsed: float, done: int, remaining: int, per_item_extra: int = 0) -> str:
+    """"남은 시간 약 N분", or "남은 시간 계산 중" until enough is done to say.
+
+    The first items carry start-up — a model compiling, loader processes
+    spawning — so an estimate from them is wildly high: "32 minutes" for a run
+    that took 22 seconds. Wait for a few before promising anything.
+    """
+    if done < 3 or elapsed <= 0:
+        return "남은 시간 계산 중"
+    return f"남은 시간 약 {_duration(elapsed / done * (remaining + per_item_extra))}"
+
+
 def _duration(seconds: float) -> str:
     seconds = max(int(seconds), 0)
     if seconds >= 3600:
@@ -154,14 +166,17 @@ class Worker(threading.Thread):
                 self.db.update_job(job_id, detail=f"에폭 {epoch}/{epochs} · 검증 중")
                 return
             step, steps = p["step"], p["steps"]
-            per_step = p["seconds"] / max(step, 1)
-            per_epoch = last_epoch_seconds[0] if last_epoch_seconds else per_step * steps
-            left = (steps - step) * per_step + (epochs - epoch) * per_epoch
+            if last_epoch_seconds:   # a whole epoch measured: the honest unit
+                per_step = p["seconds"] / max(step, 1)
+                left = (steps - step) * per_step + (epochs - epoch) * last_epoch_seconds[0]
+                eta = f"남은 시간 약 {_duration(left)}"
+            else:                    # first epoch: loader start-up skews the first steps
+                eta = _time_left(p["seconds"], step, steps - step, per_item_extra=(
+                    (epochs - epoch) * steps))
             self.db.update_job(
                 job_id,
                 progress=(epoch - 1 + step / steps) / max(epochs, 1),
-                detail=f"에폭 {epoch}/{epochs} · 배치 {step}/{steps}"
-                       f" · 남은 시간 약 {_duration(left)}",
+                detail=f"에폭 {epoch}/{epochs} · 배치 {step}/{steps} · {eta}",
             )
 
         model = RTDETR(job["model"], verbose=False)
@@ -357,13 +372,17 @@ class Worker(threading.Thread):
         job_id = job["id"]
         out = self.runs_dir / f"job{job_id}"
         (out / "images").mkdir(parents=True, exist_ok=True)
-        self.db.update_job(job_id, status="running", started=time.time(), detail=None, progress=0)
+        # run_dir from the start, so the page can show frames as they are drawn
+        self.db.update_job(job_id, status="running", started=time.time(), progress=0,
+                           run_dir=str(out), detail="모델 불러오는 중…")
 
         model = RTDETR(job["model"], verbose=False)
         conf = job["conf"] or 0.25
         loader = SourceLoader(job["source"], vid_stride=1)
         total = max(len(loader), 1)
         records, found, video = [], 0, None
+        per_class: dict[str, int] = {}
+        first_done, reported = None, 0.0   # the first frame carries the model warm-up
         try:
             for i, frame in enumerate(loader, start=1):
                 if job_id in self.cancelled:
@@ -371,6 +390,9 @@ class Worker(threading.Thread):
                 result = model.predict(frame.img, conf=conf, verbose=False)[0]
                 painted = result.plot()
                 found += len(result.boxes)
+                for c in result.boxes.cls:
+                    name_ = result.name_of(c)
+                    per_class[name_] = per_class.get(name_, 0) + 1
                 name = f"{i:05d}_{Path(frame.path).stem}.jpg"
                 cv2.imwrite(str(out / "images" / name), painted)
                 if frame.kind != "image":
@@ -384,9 +406,19 @@ class Worker(threading.Thread):
                         )
                     video.write(painted)
                 records.append({"file": name, "source": frame.path, "boxes": result.summary()})
-                # a video is one source with many frames, so count frames there
-                done = frame.frame / frame.frames if frame.frames else i / total
-                self.db.update_job(job_id, progress=min(done, 0.99))
+                now = time.time()
+                if first_done is None:
+                    first_done = (now, i)
+                if now - reported >= 1.0:          # words, not just a moving bar
+                    reported = now
+                    # a video is one source with many frames, so count frames there
+                    unit, at, of = ("프레임", frame.frame, frame.frames) if frame.frames \
+                        else ("이미지", i, total)
+                    self.db.update_job(
+                        job_id, progress=min(at / max(of, 1), 0.99),
+                        detail=f"{unit} {at}/{of} · 상자 {found}개 · "
+                               + _time_left(now - first_done[0], i - first_done[1], of - at),
+                    )
         finally:
             if video is not None:
                 video.release()
@@ -394,12 +426,14 @@ class Worker(threading.Thread):
         (out / "results.json").write_text(
             json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        ranked = sorted(per_class.items(), key=lambda kv: -kv[1])
+        by_class = ", ".join(f"{n} {c}" for n, c in ranked[:4]) + (" …" if len(ranked) > 4 else "")
         self.db.update_job(
             job_id,
             status="done",
             run_dir=str(out),
             progress=1.0,
-            detail=f"{len(records)}장 · 상자 {found}개",
+            detail=f"{len(records)}장 · 상자 {found}개" + (f" ({by_class})" if ranked else ""),
             finished=time.time(),
         )
 

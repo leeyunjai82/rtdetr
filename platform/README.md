@@ -60,9 +60,13 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    its class colour, next to per-class AP. A single mAP says whether to keep
    going; this says what to fix.
 7. **Run it on everything else** — *추론* takes a dataset, a folder path on this
-   machine, or an uploaded video, and queues it like a training job: progress
-   while it works, then a zip of the drawn frames (with `results.json` next to
-   them) and, for a video, `annotated.mp4`. *웹캠* opens the browser's camera and
+   machine, or an uploaded video, and queues it like a training job. While it
+   works the job says how far it is ("이미지 54/300 · 상자 5개 · 남은 시간 약
+   43초") and shows frames as they are drawn; when done, the boxes per class and
+   the first 60 drawn frames are right there, with a zip of all of them (and
+   `results.json`) and, for a video, `annotated.mp4` to download. The model
+   picker lists your finished runs first — no need to register one to use it —
+   and auto-labelling drafts with the dataset's own latest run when it has one. *웹캠* opens the browser's camera and
    posts a frame every 400 ms, so you see the model on live video even when the
    server is somewhere else.
 8. **Take it away** — `best.pt`, the OpenVINO IR as a zip (exported when a run

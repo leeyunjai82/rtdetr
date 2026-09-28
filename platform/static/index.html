@@ -5,6 +5,7 @@
 <style>
   :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; --ok:#3ecf8e; --bad:#ff6b6b; }
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }   /* .row's flex must not beat hidden */
   body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
   header { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
   header b { font-size:15px; letter-spacing:.02em; }
@@ -58,6 +59,15 @@
   .shot .cap span:last-child { margin-left:auto; }
   .miss { color:var(--bad); }
   #cam, #cam-out { width:100%; border-radius:8px; margin-top:8px; display:block; }
+  #jobs { max-height:42vh; overflow:auto; }   /* the open job stays in reach as the list grows */
+  .detail { border-color:var(--accent); }
+  .detail h2 { margin-top:16px; }
+  .detail #detail-title { font-size:15px; }
+  .legend { text-transform:none; letter-spacing:0; margin-left:10px; }
+  .legend i { display:inline-block; width:10px; height:3px; margin:0 4px 3px 10px; vertical-align:middle; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { font-size:12.5px; padding:2px 9px; border-radius:99px; background:#232833; }
+  #detail-close { padding:2px 9px; }
   img#preview { max-width:100%; border-radius:9px; border:1px solid var(--line); margin-top:10px; }
 </style>
 
@@ -149,6 +159,50 @@
   <div class="col">
     <h2>작업</h2>
     <div id="jobs"></div>
+    <div id="detail" class="card detail" hidden>
+      <div class="row">
+        <b id="detail-title"></b><span class="tag" id="detail-tag"></span>
+        <span class="dim" id="detail-sub"></span><span class="grow"></span>
+        <button id="detail-close" title="닫기">✕</button>
+      </div>
+      <div class="bar" id="detail-bar" hidden><i></i></div>
+      <div class="msg" id="detail-msg"></div>
+      <h2 id="chart-title">학습 곡선</h2>
+      <canvas id="chart"></canvas>
+      <div class="row" style="margin-top:10px">
+        <button id="cancel">중지</button>
+        <button id="evaluate">평가</button>
+        <button id="resume">이어서 학습</button>
+        <button id="dl-weights">best.pt</button>
+        <button id="dl-ir">OpenVINO IR</button>
+        <button id="dl-csv">results.csv</button>
+        <button id="dl-log">로그</button>
+        <button id="dl-pred">결과 zip</button>
+        <button id="dl-video">영상</button>
+        <button id="register">모델로 등록</button>
+        <button id="delete-job" title="이 작업과 결과 파일을 지웁니다">삭제</button>
+      </div>
+      <div class="row" id="try-row" style="margin-top:8px">
+        <span class="dim">이 모델로 시험:</span>
+        <input id="try-file" type="file" accept="image/*" style="width:auto;flex:1;min-width:180px">
+        <input id="try-conf" type="number" value="0.25" step="0.05" min="0" max="1" style="width:80px" title="conf">
+        <button id="try">이 모델로 추론</button>
+      </div>
+      <img id="preview" hidden>
+      <div id="pred" hidden>
+        <div class="row" id="pred-summary"></div>
+        <div class="gallery" id="pred-gallery"></div>
+        <div class="dim" id="pred-more"></div>
+      </div>
+      <div id="report" hidden>
+        <h2>평가</h2>
+        <div class="card" id="report-summary"></div>
+        <div class="gallery" id="gallery"></div>
+      </div>
+      <h2 id="epochs-title">에폭</h2>
+      <table id="epochs-table"><thead><tr><th>#</th><th>loss</th><th>mAP50-95</th><th>초</th></tr></thead>
+        <tbody id="epochs"></tbody></table>
+    </div>
     <h2>추론</h2>
     <div class="card">
       <div class="two">
@@ -189,40 +243,6 @@
       </div>
     </div>
 
-    <div id="detail" hidden>
-      <h2 id="chart-title">진행 상황</h2>
-      <canvas id="chart"></canvas>
-      <div class="row" style="margin-top:10px">
-        <button id="cancel">중지</button>
-        <button id="evaluate">평가</button>
-        <button id="resume">이어서 학습</button>
-        <button id="dl-weights">best.pt</button>
-        <button id="dl-ir">OpenVINO IR</button>
-        <button id="dl-csv">results.csv</button>
-        <button id="dl-log">로그</button>
-        <button id="dl-pred">결과 zip</button>
-        <button id="dl-video">영상</button>
-        <button id="register">모델로 등록</button>
-        <button id="delete-job" title="이 작업과 결과 파일을 지웁니다">삭제</button>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <span class="dim">이 모델로 시험:</span>
-        <input id="try-file" type="file" accept="image/*" style="width:auto;flex:1;min-width:180px">
-        <input id="try-conf" type="number" value="0.25" step="0.05" min="0" max="1" style="width:80px" title="conf">
-        <button id="try">이 모델로 추론</button>
-      </div>
-      <div class="bar" id="detail-bar" hidden><i></i></div>
-      <div class="msg" id="detail-msg"></div>
-      <img id="preview" hidden>
-      <div id="report" hidden>
-        <h2>평가</h2>
-        <div class="card" id="report-summary"></div>
-        <div class="gallery" id="gallery"></div>
-      </div>
-      <h2>에폭</h2>
-      <table><thead><tr><th>#</th><th>loss</th><th>mAP50-95</th><th>초</th></tr></thead>
-        <tbody id="epochs"></tbody></table>
-    </div>
   </div>
 </div>
 
@@ -239,7 +259,7 @@ const api = async (path, options) => {
 const fmt = (v, digits = 3) => (v === null || v === undefined || v === "" ? "—" : Number(v).toFixed(digits));
 const short = (name) => String(name).split(/[\\/]/).pop();
 
-let gpu = null, running = null;
+let gpu = null, running = null, runPicked = false, listedAt = 0, listedStatus = null;
 
 async function refresh() {
   const [state, datasets, jobs] = await Promise.all([
@@ -290,12 +310,20 @@ async function refresh() {
   $("ds-target").value = keep;
 
   const registry = await api("/api/models");
-  const choices = registry.builtin.map((n) => `<option value="${n}">${n}</option>`).join("")
-    + registry.models.map((m) => `<option value="${m.id}">${m.name} (등록됨)</option>`).join("");
-  for (const id of ["job-model", "run-model"]) {
+  // a finished run is usable straight away — no need to register it first
+  const trained = jobs.filter((j) => j.kind === "train" && j.status === "done" && j.run_dir)
+    .map((j) => `<option value="${j.run_dir}/weights/best.pt">#${j.id} 학습 결과 · ${j.dataset}`
+      + `${j.best_map != null ? ` (mAP ${fmt(j.best_map)})` : ""}</option>`).join("");
+  const mine = trained ? `<optgroup label="내 학습 결과">${trained}</optgroup>` : "";
+  const named = registry.models.length ? `<optgroup label="등록된 모델">`
+    + registry.models.map((m) => `<option value="${m.id}">${m.name}</option>`).join("") + `</optgroup>` : "";
+  const coco = `<optgroup label="COCO 사전학습 (80 클래스)">`
+    + registry.builtin.map((n) => `<option value="${n}">${n}</option>`).join("") + `</optgroup>`;
+  // training starts from COCO; using a model starts from what you trained
+  for (const [id, html] of [["job-model", coco + named + mine], ["run-model", mine + named + coco]]) {
     const keep = $(id).value;
-    $(id).innerHTML = choices;
-    if (keep) $(id).value = keep;
+    $(id).innerHTML = html;
+    if (keep && (id !== "run-model" || runPicked)) $(id).value = keep;
   }
   $("run-dataset").innerHTML = options;
   $("models").innerHTML = registry.models.length
@@ -309,14 +337,15 @@ async function refresh() {
 
   $("jobs").innerHTML = jobs.map((j) => `
     <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
-      <div class="row"><b>#${j.id} ${{ autolabel: "자동 라벨", evaluate: "평가", predict: "추론" }[j.kind] || "학습"}</b>
+      <div class="row"><b>#${j.id} ${KIND[j.kind] || j.kind}</b>
         <span class="dim" title="${j.model}">${short(j.model)} · ${j.dataset || (j.source ? short(j.source) : "—")}</span>
         <span class="grow"></span>
-        <span class="tag ${j.status}">${j.status}</span></div>
+        <span class="tag ${j.status}">${STATUS[j.status] || j.status}</span></div>
       <div class="row dim">${j.kind !== "train"
           ? `conf ${fmt(j.conf, 2)}${j.resume_of ? ` · #${j.resume_of}` : ""}`
           : `에폭 ${j.epochs} · ${j.imgsz}px · batch ${j.batch}${j.freeze ? " · 백본 고정" : ""}`}
-        ${j.best_map != null ? ` · mAP50-95 ${fmt(j.best_map)}` : ""}</div>
+        ${j.best_map != null ? ` · mAP50-95 ${fmt(j.best_map)}` : ""}
+        ${j.started && j.finished ? ` · ${duration(j.finished - j.started)}` : ""}</div>
       ${["running", "exporting"].includes(j.status) ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div>` : ""}
       ${j.detail ? `<div class="row msg ${j.status === "failed" ? "err" : ""}">${j.detail}</div>` : ""}
     </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
@@ -324,31 +353,48 @@ async function refresh() {
     el.onclick = () => select(Number(el.dataset.job)));
 }
 
-async function select(id) {
+async function select(id, { scroll = true } = {}) {
+  const fresh = current !== id;
   current = id;
   $("detail").hidden = false;
-  $("preview").hidden = true;
+  if (fresh) { $("preview").hidden = true; predShown = { id: null, at: 0 }; }
   await refresh();
   const job = await api(`/api/jobs/${id}`);
   render(job);
+  // started from a form further down: bring the job into view
+  if (scroll && fresh) $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
   if (stream) stream.close();
   if (["queued", "running", "exporting"].includes(job.status)) {
     stream = new EventSource(`/api/jobs/${id}/stream`);
     stream.onmessage = async (e) => {
       const msg = JSON.parse(e.data);
-      if (msg.type === "end") { stream.close(); await select(id); }
-      else render(await api(`/api/jobs/${id}`));
+      if (msg.type === "end") { stream.close(); await select(id, { scroll: false }); return; }
+      render(await api(`/api/jobs/${id}`));
+      // the list above must not say "대기" for a job the view says is running:
+      // at once when the status moves, every few seconds for progress
+      if (msg.status !== listedStatus || Date.now() - listedAt > 3000) {
+        listedStatus = msg.status; listedAt = Date.now(); refresh();
+      }
     };
   }
 }
 
+const KIND = { train: "학습", autolabel: "자동 라벨", evaluate: "평가", predict: "추론" };
+const STATUS = { queued: "대기", running: "실행 중", exporting: "내보내는 중", done: "완료",
+                 failed: "실패", cancelled: "중지됨" };
+
 function render(job) {
   const rows = job.epochs_done;
-  const curve = job.kind === "train";
-  $("chart").hidden = !curve;
-  $("chart-title").hidden = !curve;
-  $("epochs").innerHTML = rows.slice().reverse().map((r) =>
-    `<tr><td>${r.epoch}</td><td>${fmt(r.loss)}</td><td>${fmt(r.map50_95)}</td><td>${fmt(r.seconds, 1)}</td></tr>`).join("");
+  const train = job.kind === "train";
+  const active = ["queued", "running", "exporting"].includes(job.status);
+  const has = (a) => job.artifacts.includes(a);
+
+  $("detail-title").textContent = `#${job.id} ${KIND[job.kind] || job.kind}`;
+  $("detail-tag").textContent = STATUS[job.status] || job.status;
+  $("detail-tag").className = `tag ${job.status}`;
+  const took = job.started && job.finished ? ` · ${duration(job.finished - job.started)} 걸림` : "";
+  $("detail-sub").textContent = `${short(job.model)} · ${job.dataset || (job.source ? short(job.source) : "")}${took}`;
+
   const waiting = job.status === "queued"
     ? (running && running !== job.id ? `대기 중 — #${running}이(가) 끝나면 시작합니다` : "곧 시작합니다")
     : "";
@@ -357,18 +403,59 @@ function render(job) {
   const live = ["running", "exporting"].includes(job.status);
   $("detail-bar").hidden = !live;
   $("detail-bar").firstElementChild.style.width = `${Math.round((job.progress || 0) * 100)}%`;
-  $("cancel").disabled = !["queued", "running"].includes(job.status);
-  $("delete-job").disabled = ["running", "exporting"].includes(job.status);
-  ["weights", "openvino", "results", "log", "predictions", "video"].forEach((kind, i) => {
-    $(["dl-weights", "dl-ir", "dl-csv", "dl-log", "dl-pred", "dl-video"][i])
-      .disabled = !job.artifacts.includes(kind);
-  });
-  $("register").disabled = !job.artifacts.includes("weights");
-  $("try").disabled = !job.artifacts.includes("weights");
-  $("evaluate").disabled = !job.artifacts.includes("weights") || job.kind !== "train";
-  $("resume").disabled = job.kind !== "train" || ["queued", "running", "exporting"].includes(job.status);
-  chart(rows, job.epochs);
+
+  // only the buttons this job can use: a greyed row of eleven says nothing
+  const show = {
+    cancel: ["queued", "running"].includes(job.status),
+    evaluate: train && has("weights"),
+    resume: train && !active && job.status !== "queued",
+    "dl-weights": has("weights"), "dl-ir": has("openvino"), "dl-csv": has("results"),
+    "dl-log": has("log"), "dl-pred": has("predictions"), "dl-video": has("video"),
+    register: train && has("weights"),
+    "delete-job": !["running", "exporting"].includes(job.status),
+  };
+  Object.entries(show).forEach(([id, on]) => { $(id).hidden = !on; });
+  $("try-row").hidden = !(train && has("weights"));
+
+  $("chart").hidden = $("chart-title").hidden = !train;
+  $("epochs-title").hidden = $("epochs-table").hidden = !train || !rows.length;
+  $("epochs").innerHTML = rows.slice().reverse().map((r) =>
+    `<tr><td>${r.epoch}</td><td>${fmt(r.loss)}</td><td>${fmt(r.map50_95)}</td><td>${fmt(r.seconds, 1)}</td></tr>`).join("");
+  if (train) chart(rows, job.epochs);
   loadReport(job);
+  loadPredictions(job);
+}
+
+let predShown = { id: null, at: 0 };
+
+async function loadPredictions(job) {
+  const panel = $("pred");
+  if (job.kind !== "predict" || !job.run_dir) { panel.hidden = true; return; }
+  // while it runs, redraw the gallery every few seconds rather than every event
+  const finished = !["queued", "running"].includes(job.status);
+  if (!finished && predShown.id === job.id && Date.now() - predShown.at < 4000) return;
+  predShown = { id: job.id, at: Date.now() };
+  let r;
+  try { r = await api(`/api/jobs/${job.id}/predictions?limit=60`); } catch { panel.hidden = true; return; }
+  const chips = Object.entries(r.per_class).map(([n, c]) => `<span class="chip">${n} ${c}</span>`).join("");
+  $("pred-summary").innerHTML = finished
+    ? `<b>${r.total}장 · 상자 ${r.boxes}개</b><span class="chips">${chips}</span>`
+    : `<span class="dim">지금까지 그려진 결과 ${r.total}장</span>`;
+  $("pred-gallery").innerHTML = r.files.map((f) => `
+    <div class="shot">
+      <img src="/api/jobs/${job.id}/output/${encodeURIComponent(f.file)}" loading="lazy" onclick="window.open(this.src)">
+      <div class="cap"><span>${f.file.replace(/^\d+_/, "")}</span>
+        <span class="${f.boxes === 0 ? "miss" : ""}">${f.boxes == null ? "" : `상자 ${f.boxes}`}</span></div>
+    </div>`).join("");
+  $("pred-more").textContent = r.total > r.files.length
+    ? `처음 ${r.files.length}장만 보여줍니다 — 전부는 "결과 zip"으로 받으세요` : "";
+  panel.hidden = !r.files.length;
+}
+
+function duration(seconds) {
+  const s = Math.max(Math.round(seconds), 0);
+  return s >= 3600 ? `${Math.floor(s / 3600)}시간 ${Math.floor(s % 3600 / 60)}분`
+       : s >= 60 ? `${Math.floor(s / 60)}분 ${s % 60}초` : `${s}초`;
 }
 
 function chart(rows, total) {
@@ -507,7 +594,8 @@ async function autolabelAll(datasetId) {
   try {
     const res = await api(`/api/datasets/${datasetId}/autolabel`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: $("job-model").value, conf: 0.35 }) });
+      // no model: the server drafts with this dataset's latest run, else COCO
+      body: JSON.stringify({ conf: 0.35 }) });
     await select(res.id);
   } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
 }
@@ -593,6 +681,11 @@ $("register").onclick = async () => {
   await refresh();
 };
 
+$("detail-close").onclick = () => {
+  if (stream) stream.close();
+  current = null; $("detail").hidden = true; refresh();
+};
+
 $("delete-job").onclick = async () => {
   if (!confirm(`#${current} 작업과 그 결과 파일(가중치, IR, 로그)을 지웁니다.`)) return;
   try {
@@ -632,6 +725,8 @@ document.querySelectorAll("#run-tabs button").forEach((b) => {
     $("run-start").hidden = runTab === "webcam";
   };
 });
+
+$("run-model").onchange = () => { runPicked = true; };
 
 $("run-start").onclick = async () => {
   const say = (t, bad) => { $("run-msg").textContent = t; $("run-msg").className = "msg" + (bad ? " err" : ""); };
