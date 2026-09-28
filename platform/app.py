@@ -694,6 +694,44 @@ def eval_image(job_id: int, name: str):
     return FileResponse(path)
 
 
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: int):
+    """Forget a job and the files it produced — unless something still needs them.
+
+    A running job must be stopped first. A training run's folder is shared with
+    the runs that resumed it and the evaluations of it, and a registered model
+    may point into it: while any of those exist, the job stays.
+    """
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None:
+        raise HTTPException(404, "no such job")
+    if job["status"] in ("running", "exporting"):
+        raise HTTPException(400, "it is still running — stop it first")
+    run_dir = Path(job["run_dir"]) if job["run_dir"] else None
+    owns_dir = run_dir is not None and job["kind"] in ("train", "predict")
+    if owns_dir:
+        sharing = db.query(
+            "SELECT id FROM jobs WHERE id != ? AND (run_dir = ? OR resume_of = ?)",
+            (job_id, str(run_dir), job_id),
+        )
+        if sharing:
+            ids = ", ".join(f"#{row['id']}" for row in sharing)
+            raise HTTPException(400, f"{ids} use this run's files — delete those first")
+        for model in db.query("SELECT name, path FROM models"):
+            if Path(model["path"]).resolve().is_relative_to(run_dir.resolve()):
+                raise HTTPException(
+                    400, f"registered model '{model['name']}' uses this run — remove it first"
+                )
+    removed = False
+    if owns_dir and run_dir.resolve().is_relative_to(RUNS.resolve()) and run_dir.is_dir():
+        shutil.rmtree(run_dir, ignore_errors=True)   # only ever inside the platform's runs/
+        removed = True
+    (RUNS / f"job{job_id}-failed.log").unlink(missing_ok=True)
+    db.execute("DELETE FROM epochs WHERE job_id = ?", (job_id,))
+    db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    return {"deleted": True, "files_removed": removed}
+
+
 @app.post("/api/jobs/{job_id}/cancel")
 def cancel_job(job_id: int):
     job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))

@@ -31,7 +31,10 @@ python platform/run.py                 # http://127.0.0.1:8080
    for boxes too small to place at fit-to-window. <kbd>C</kbd> copies the
    previous image's boxes — a fixed camera repeats itself. Classes can be added
    from the sidebar and show how many boxes each has, and the file list can hide
-   what is already labelled.
+   what is already labelled. A dataset spread over folders (`train/images`,
+   `valid/images`, …) can be browsed one folder at a time, and ←/→ stay in it;
+   background frames — a label with no boxes — are marked apart from pictures
+   that have boxes.
 3. **Keep the set honest** — *통계* counts boxes per class and flags what usually
    bites: images with no label, labels with no boxes, specks under 0.1% of the
    frame. *복제* takes a snapshot before a risky relabel, *병합* combines sets and
@@ -50,6 +53,8 @@ python platform/run.py                 # http://127.0.0.1:8080
    `RTDETR_WORKERS` overrides); *중지* stops within a batch;
    *이어서 학습* continues a finished run with more epochs in the same directory;
    every run keeps a `train.log`, and a failure carries the end of it.
+   *삭제* removes a finished job with its weights, IR and log — refused while a
+   resumed run, an evaluation or a registered model still uses those files.
 6. **See what it learned** — *평가* scores the run on its validation split and
    draws every one of those frames with the truth in green and the prediction in
    its class colour, next to per-class AP. A single mAP says whether to keep
@@ -113,6 +118,7 @@ The pages are only clients of these, so a script can do anything the UI does:
 | `GET /api/jobs` · `GET /api/jobs/{id}` | the second includes per-epoch rows |
 | `GET /api/jobs/{id}/stream` | server-sent events: progress, then a status |
 | `POST /api/jobs/{id}/cancel` | |
+| `DELETE /api/jobs/{id}` | the job and its files, unless something still uses them |
 | `POST /api/jobs/{id}/resume` | `{add_epochs}` — continue a finished run |
 | `POST /api/jobs/{id}/evaluate` | `{conf}` — queue a scoring pass with pictures |
 | `GET /api/jobs/{id}/report` · `/eval/{name}` | the numbers, and the pictures |

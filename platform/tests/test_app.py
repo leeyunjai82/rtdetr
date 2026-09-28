@@ -875,3 +875,41 @@ def test_loader_workers_and_time_left_read_sensibly(monkeypatch):
     monkeypatch.delenv("RTDETR_WORKERS")
     assert 1 <= worker._loader_workers() <= 8
     assert [worker._duration(s) for s in (42, 125, 3725)] == ["42초", "2분", "1시간 2분"]
+
+
+def test_a_finished_run_can_be_deleted_with_its_files(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    run = module.RUNS / f"job{job}"
+    (run / "weights").mkdir(parents=True)
+    (run / "weights" / "best.pt").write_bytes(b"w")
+    module.db.update_job(job, status="done", run_dir=str(run))
+    module.db.add_epoch(job, {"epoch": 1, "loss": 1.0, "map50_95": 0.1, "seconds": 1})
+
+    assert client.delete(f"/api/jobs/{job}").json() == {"deleted": True, "files_removed": True}
+    assert not run.exists() and client.get(f"/api/jobs/{job}").status_code == 404
+    assert module.db.query("SELECT * FROM epochs WHERE job_id = ?", (job,)) == []
+
+
+def test_a_run_something_still_needs_is_kept(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    run = module.RUNS / f"job{job}"
+    (run / "weights").mkdir(parents=True)
+    (run / "weights" / "best.pt").write_bytes(b"w")
+
+    module.db.update_job(job, status="running", run_dir=str(run))
+    assert "stop it first" in client.delete(f"/api/jobs/{job}").json()["error"]
+
+    module.db.update_job(job, status="done")
+    evaluation = client.post(f"/api/jobs/{job}/evaluate", json={}).json()["id"]
+    assert f"#{evaluation}" in client.delete(f"/api/jobs/{job}").json()["error"]
+    assert client.delete(f"/api/jobs/{evaluation}").json()["files_removed"] is False
+    assert run.exists()                          # an evaluation never takes the run with it
+
+    client.post("/api/models", json={"job_id": job, "name": "v1"})
+    assert "'v1'" in client.delete(f"/api/jobs/{job}").json()["error"]
+    client.delete("/api/models/1")
+    assert client.delete(f"/api/jobs/{job}").json()["files_removed"] is True

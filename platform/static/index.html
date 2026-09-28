@@ -203,6 +203,7 @@
         <button id="dl-pred">결과 zip</button>
         <button id="dl-video">영상</button>
         <button id="register">모델로 등록</button>
+        <button id="delete-job" title="이 작업과 결과 파일을 지웁니다">삭제</button>
       </div>
       <div class="row" style="margin-top:8px">
         <span class="dim">이 모델로 시험:</span>
@@ -357,6 +358,7 @@ function render(job) {
   $("detail-bar").hidden = !live;
   $("detail-bar").firstElementChild.style.width = `${Math.round((job.progress || 0) * 100)}%`;
   $("cancel").disabled = !["queued", "running"].includes(job.status);
+  $("delete-job").disabled = ["running", "exporting"].includes(job.status);
   ["weights", "openvino", "results", "log", "predictions", "video"].forEach((kind, i) => {
     $(["dl-weights", "dl-ir", "dl-csv", "dl-log", "dl-pred", "dl-video"][i])
       .disabled = !job.artifacts.includes(kind);
@@ -589,6 +591,16 @@ $("register").onclick = async () => {
   await api("/api/models", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ job_id: current, name }) });
   await refresh();
+};
+
+$("delete-job").onclick = async () => {
+  if (!confirm(`#${current} 작업과 그 결과 파일(가중치, IR, 로그)을 지웁니다.`)) return;
+  try {
+    await api(`/api/jobs/${current}`, { method: "DELETE" });
+    if (stream) stream.close();
+    current = null; $("detail").hidden = true;
+    await refresh();
+  } catch (e) { $("detail-msg").textContent = e.message; $("detail-msg").className = "msg err"; }
 };
 
 $("cancel").onclick = async () => { await api(`/api/jobs/${current}/cancel`, { method: "POST" }); await select(current); };
