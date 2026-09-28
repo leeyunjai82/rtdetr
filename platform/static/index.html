@@ -96,7 +96,7 @@
         </div>
       </div>
       <div data-panel="zip" hidden>
-        <label>zip (images/ + labels/, data.yaml 있으면 함께)</label>
+        <label>zip — YOLO 형식 내보내기(Roboflow 등) 그대로, 또는 images/ + labels/</label>
         <input id="ds-file" type="file" accept=".zip">
       </div>
       <div data-panel="folder" hidden>
@@ -435,7 +435,8 @@ $("ds-upload").onclick = async () => {
       res = await api(endpoint, { method: "POST", body: form });
     }
     const added = res.added ? `${res.added}장 추가 · ` : "";
-    say(`${added}이미지 ${res.images} · 라벨 ${res.labelled}`);
+    const classes = res.classes?.length ? ` · 클래스 ${res.classes.join(", ")}` : "";
+    say(`${added}이미지 ${res.images} · 라벨 ${res.labelled}${classes}`);
     await refresh();
   } catch (e) { say(e.message, true); }
 };

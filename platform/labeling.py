@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from rtdetr.data.labels import label_path as _shared_label_path
+from rtdetr.data.labels import label_row_to_box
+
 IMG_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
 
@@ -17,19 +20,20 @@ def list_images(root: Path) -> list[Path]:
     return sorted(p for p in Path(root).rglob("*") if p.suffix.lower() in IMG_SUFFIXES)
 
 
+def label_path(image: Path) -> Path:
+    """Where the trainer will read this image's boxes — the only place to write them.
+
+    One rule, shared with the trainer (``rtdetr.data.labels``): the last
+    ``images`` folder becomes ``labels``, and with none the label sits beside
+    the image. Two rules used to exist here, and a folder not called ``images``
+    got its labels written where training never looked.
+    """
+    return Path(_shared_label_path(Path(image)))
+
+
 def labels_beside(images_root: Path) -> Path:
-    """``…/images/train`` -> ``…/labels/train``; otherwise a labels/ next door."""
-    parts = list(Path(images_root).parts)
-    for i in range(len(parts) - 1, -1, -1):
-        if parts[i] == "images":
-            parts[i] = "labels"
-            return Path(*parts)
-    return Path(images_root).parent / "labels"
-
-
-def label_path(image: Path, images_root: Path, labels_root: Path) -> Path:
-    """``images/train/a.jpg`` -> ``labels/train/a.txt`` (mirroring the tree)."""
-    return (Path(labels_root) / Path(image).relative_to(images_root)).with_suffix(".txt")
+    """The folder labels for images directly in ``images_root`` land in."""
+    return label_path(Path(images_root) / "x.jpg").parent
 
 
 def read_labels(path: Path) -> list[dict]:
@@ -38,9 +42,9 @@ def read_labels(path: Path) -> list[dict]:
         return []
     boxes = []
     for line in path.read_text(encoding="utf-8").splitlines():
-        parts = line.split()
-        if len(parts) >= 5:
-            cls, cx, cy, w, h = (float(v) for v in parts[:5])
+        row = label_row_to_box(line.split())       # boxes, and polygons as their boxes
+        if row is not None:
+            cls, cx, cy, w, h = row
             boxes.append({"cls": int(cls), "cx": cx, "cy": cy, "w": w, "h": h})
     return boxes
 

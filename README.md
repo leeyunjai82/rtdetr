@@ -80,7 +80,9 @@ names: {0: can, 1: bottle}
 ```
 
 Labels are one `.txt` per image, `cls cx cy w h` normalised — the layout every
-labelling tool already exports. `freeze="backbone"` trains roughly twice as fast
+labelling tool already exports. A YOLO-format download (Roboflow's included)
+trains as it comes; [training.md](https://github.com/leeyunjai82/rtdetr/blob/main/docs/training.md#datasets-from-elsewhere)
+lists the variations it accepts. `freeze="backbone"` trains roughly twice as fast
 on a small set, and `resume=True` picks a killed run back up.
 
 ## Label, train and watch it in a browser

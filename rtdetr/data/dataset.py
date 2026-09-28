@@ -19,21 +19,30 @@ import torch
 import yaml
 from torch.utils.data import Dataset
 
+from .labels import label_path, label_row_to_box
+
 IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 
 def load_data_yaml(path):
     with open(path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
-    root = Path(cfg.get("path", Path(path).parent))
+    yaml_dir = Path(path).resolve().parent
+    root = Path(cfg.get("path") or yaml_dir)
     if not root.is_absolute():
-        root = Path(path).parent / root
+        root = yaml_dir / root
+    if not root.exists():
+        # a dataset downloaded from elsewhere often keeps its author's path
+        # (/content/datasets/..., a Windows home folder); the yaml's own folder
+        # is the only root that can be right on this machine
+        root = yaml_dir
     names = cfg["names"]
     if isinstance(names, list):
         names = {i: n for i, n in enumerate(names)}
     names = {int(k): str(v) for k, v in names.items()}
     return {
         "root": root,
+        "yaml_dir": yaml_dir,
         "train": cfg.get("train"),
         "val": cfg.get("val"),
         "names": names,
@@ -41,8 +50,34 @@ def load_data_yaml(path):
     }
 
 
-def _list_images(root: Path, spec: str):
-    p = (root / spec) if not Path(spec).is_absolute() else Path(spec)
+def _locate(root: Path, yaml_dir: Path, spec: str) -> Path:
+    """Where a train/val entry points, trying the ways data.yaml files are written.
+
+    Relative to ``path:`` first; then to the yaml itself; then with leading
+    ``../`` dropped — exports that sit beside their splits still write
+    ``train: ../train/images``.
+    """
+    spec_path = Path(spec)
+    if spec_path.is_absolute():
+        return spec_path
+    tried = [root / spec_path, yaml_dir / spec_path]
+    stripped = Path(*[part for part in spec_path.parts if part != ".."] or ["."])
+    tried.append(yaml_dir / stripped)
+    for candidate in tried:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        f"train/val entry {spec!r} not found; tried "
+        + ", ".join(str(c) for c in dict.fromkeys(tried))
+    )
+
+
+def _list_images(root: Path, spec, yaml_dir: Path | None = None):
+    """Images for one split: a folder, a .txt list, or a list of either."""
+    if isinstance(spec, (list, tuple)):
+        files = [f for s in spec for f in _list_images(root, s, yaml_dir)]
+        return list(dict.fromkeys(files))
+    p = _locate(root, yaml_dir or root, str(spec))
     if p.is_dir():
         return sorted(f for f in p.rglob("*") if f.suffix.lower() in IMG_EXT)
     if p.suffix == ".txt":
@@ -57,13 +92,7 @@ def _list_images(root: Path, spec: str):
     raise FileNotFoundError(f"train/val entry not found: {p}")
 
 
-def _label_path(img: Path) -> Path:
-    parts = list(img.parts)
-    for i in range(len(parts) - 1, -1, -1):
-        if parts[i] == "images":
-            parts[i] = "labels"
-            return Path(*parts).with_suffix(".txt")
-    return img.with_suffix(".txt")
+_label_path = label_path  # older name, kept for callers
 
 
 class DetDataset(Dataset):
@@ -72,7 +101,12 @@ class DetDataset(Dataset):
         self.names, self.nc = cfg["names"], cfg["nc"]
         self.imgsz = imgsz
         self.augment = augment and split == "train"
-        self.files = _list_images(cfg["root"], cfg[split])
+        if cfg[split] is None:
+            raise ValueError(
+                f"{data_yaml} has no '{split}:' entry. Add one — it may point at the "
+                f"training images, but then mAP only measures memorisation."
+            )
+        self.files = _list_images(cfg["root"], cfg[split], cfg["yaml_dir"])
         if not self.files:
             raise FileNotFoundError(f"no images for split '{split}'")
 
@@ -85,9 +119,9 @@ class DetDataset(Dataset):
             return np.zeros((0, 5), np.float32)
         rows = []
         for line in lp.read_text().splitlines():
-            v = line.split()
-            if len(v) >= 5:
-                rows.append([float(x) for x in v[:5]])
+            row = label_row_to_box(line.split())
+            if row is not None:
+                rows.append(row)
         return np.asarray(rows, np.float32) if rows else np.zeros((0, 5), np.float32)
 
     def __getitem__(self, i):

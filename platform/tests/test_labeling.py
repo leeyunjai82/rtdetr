@@ -32,14 +32,27 @@ def test_coordinates_are_clamped_into_the_image(tmp_path):
 
 
 def test_label_files_mirror_the_image_tree(tmp_path):
-    image = tmp_path / "images" / "train" / "a.jpg"
-    out = label_path(image, tmp_path / "images", tmp_path / "labels")
-    assert out == tmp_path / "labels" / "train" / "a.txt"
+    standard = label_path(tmp_path / "images" / "train" / "a.jpg")
+    assert standard == tmp_path / "labels" / "train" / "a.txt"
+    # a split per folder, as labelling services export it
+    per_split = label_path(tmp_path / "train" / "images" / "a.jpg")
+    assert per_split == tmp_path / "train" / "labels" / "a.txt"
 
 
-def test_labels_land_next_to_images_the_way_the_trainer_expects(tmp_path):
+def test_labels_land_exactly_where_the_trainer_reads_them(tmp_path):
+    """One rule for both sides. A folder not called images keeps its labels
+    beside the pictures, inside the folder — never in a labels/ shared with
+    whatever sits next to it."""
+    from rtdetr.data.labels import label_path as trainer_rule
+
+    for image in (
+        tmp_path / "images" / "train" / "a.jpg",
+        tmp_path / "train" / "images" / "a.jpg",
+        tmp_path / "photos" / "a.jpg",
+    ):
+        assert label_path(image) == trainer_rule(image)
     assert labels_beside(tmp_path / "images" / "train") == tmp_path / "labels" / "train"
-    assert labels_beside(tmp_path / "photos") == tmp_path / "labels"
+    assert labels_beside(tmp_path / "photos") == tmp_path / "photos"
 
 
 def test_only_images_are_listed(tmp_path):

@@ -162,12 +162,12 @@ class Worker(threading.Thread):
 
         job_id = job["id"]
         dataset = self.db.one("SELECT * FROM datasets WHERE id = ?", (job["dataset_id"],))
-        images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+        images_root = Path(dataset["images_dir"])
         names = json.loads(dataset["classes"])
         images = [
             image
             for image in list_images(images_root)
-            if not label_path(image, images_root, labels_root).exists()
+            if not label_path(image).exists()
         ]
         self.db.update_job(job_id, status="running", started=time.time(), detail=None, progress=0)
         if not images:
@@ -183,7 +183,7 @@ class Worker(threading.Thread):
             if job_id in self.cancelled:
                 raise Cancelled()
             boxes = predict_boxes(model, image, names, conf=job["conf"] or 0.35)
-            write_labels(label_path(image, images_root, labels_root), boxes)
+            write_labels(label_path(image), boxes)
             written += bool(boxes)
             self.db.update_job(job_id, progress=i / len(images))
         self.db.update_job(
@@ -359,9 +359,9 @@ class Worker(threading.Thread):
         caller looked at. Saving one label does not come through here at all.
         """
         dataset = self.db.one("SELECT * FROM datasets WHERE id = ?", (dataset_id,))
-        images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+        images_root = Path(dataset["images_dir"])
         images = list_images(images_root)
-        labelled = sum(label_path(i, images_root, labels_root).exists() for i in images)
+        labelled = sum(label_path(i).exists() for i in images)
         self.db.update_dataset(dataset_id, images=len(images), labelled=labelled)
 
     def _export(self, model, run_dir: Path, job_id: int) -> str | None:

@@ -691,3 +691,124 @@ def test_saving_a_label_moves_the_count_by_one_without_a_rescan(studio, monkeypa
     client.post("/api/datasets/1/labels/1", json={"boxes": []})          # empty label counts
     assert client.get("/api/datasets/1").json()["labelled"] == 2
     assert walks == []
+
+
+def test_a_dataset_split_into_train_and_val_folders_registers(studio):
+    """The standard layout — images/train + images/val — used to crash registration:
+    the common folder was taken to be images/train, and val images fell outside it."""
+    client, module = studio
+    response = upload(client, {
+        "images/train/a.jpg": image_bytes(),
+        "images/train/b.jpg": image_bytes(50),
+        "images/val/c.jpg": image_bytes(90),
+        "labels/train/a.txt": b"0 .5 .5 .2 .2\n",
+        "labels/train/b.txt": b"1 .5 .5 .2 .2\n",
+        "labels/val/c.txt": b"0 .5 .5 .2 .2\n",
+        "data.yaml": b"train: images/train\nval: images/val\nnames: [square, circle]\n",
+    })
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["images"] == 3 and body["labelled"] == 3 and body["classes"] == ["square", "circle"]
+
+    listing = client.get("/api/datasets/1").json()
+    names = sorted(f["name"] for f in listing["files"])
+    assert names == ["train/a.jpg", "train/b.jpg", "val/c.jpg"]
+    assert module.Path(listing["labels_dir"]).name == "labels"
+    # the dataset brought its own split, so queuing a run must not rewrite it
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()
+    assert client.get(f"/api/jobs/{job['id']}").json()["detail"] is None
+
+
+def roboflow_zip(wrap: str = "") -> bytes:
+    """What a YOLO export from a labelling service looks like, polygons and all."""
+    files = {
+        "README.roboflow.txt": b"exported for testing\n",
+        "data.yaml": b"train: ../train/images\nval: ../valid/images\ntest: ../test/images\n"
+                     b"nc: 2\nnames: ['can', 'bottle']\n",
+        "train/images/a.jpg": image_bytes(),
+        "train/images/b.jpg": image_bytes(60),
+        "train/labels/a.txt": b"0 .5 .5 .2 .2\n",
+        "train/labels/b.txt": b"1 0.2 0.3 0.6 0.3 0.4 0.7\n",   # a polygon
+        "valid/images/c.jpg": image_bytes(80),
+        "valid/labels/c.txt": b"1 .5 .5 .3 .3\n",
+        "test/images/d.jpg": image_bytes(100),
+    }
+    return make_zip({f"{wrap}{name}": data for name, data in files.items()})
+
+
+@pytest.mark.parametrize("wrap", ["", "cans.v3i.yolov8/"])
+def test_a_labelling_service_export_uploads_and_is_ready_to_train(studio, wrap):
+    client, module = studio
+    response = client.post(
+        "/api/datasets",
+        data={"name": "cans"},
+        files={"archive": ("cans.zip", roboflow_zip(wrap), "application/zip")},
+    )
+    assert response.status_code == 200, response.json()
+    body = response.json()
+    assert body["classes"] == ["can", "bottle"]
+    assert body["images"] == 4 and body["labelled"] == 3       # test/ has no labels
+
+    # the polygon shows up in the labelling tool as its bounding box
+    files = [f["name"] for f in client.get("/api/datasets/1").json()["files"]]
+    polygon = client.get(f"/api/datasets/1/labels/{files.index('train/images/b.jpg')}").json()
+    assert polygon["boxes"][0]["cx"] == pytest.approx(0.4)
+
+    # queuing a run keeps the export's own train/valid split untouched
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()
+    assert client.get(f"/api/jobs/{job['id']}").json()["detail"] is None
+
+    # and the trainer reads exactly those two splits, labels included
+    pytest.importorskip("torch")
+    from rtdetr.data.dataset import DetDataset
+
+    root = module.Path(client.get("/api/datasets/1").json()["path"])
+    train = DetDataset(root / "data.yaml", "train", imgsz=64, augment=False)
+    val = DetDataset(root / "data.yaml", "val", imgsz=64, augment=False)
+    assert sorted(f.name for f in train.files) == ["a.jpg", "b.jpg"]
+    assert [f.name for f in val.files] == ["c.jpg"]
+    assert len(val._load_labels(val.files[0])) == 1
+
+
+def test_sibling_folders_keep_their_labels_apart(studio, tmp_path):
+    """Registered side by side, two folders used to share one ../labels/ and
+    overwrite each other — while training looked for neither."""
+    import cv2
+
+    client, _ = studio
+    for folder in ("shots_a", "shots_b"):
+        (tmp_path / folder).mkdir()
+        cv2.imwrite(str(tmp_path / folder / "0000.jpg"), np.full((20, 20, 3), 50, np.uint8))
+        client.post("/api/datasets/local", json={"path": str(tmp_path / folder), "names": ["can"]})
+
+    one = [{"cls": 0, "cx": 0.5, "cy": 0.5, "w": 0.2, "h": 0.2}]
+    client.post("/api/datasets/1/labels/0", json={"boxes": one})
+    client.post("/api/datasets/2/labels/0", json={"boxes": one * 2})
+    assert len(client.get("/api/datasets/1/labels/0").json()["boxes"]) == 1
+    assert (tmp_path / "shots_a" / "0000.txt").exists()      # where the trainer reads it
+    assert not (tmp_path / "labels").exists()                 # nothing outside the folder
+
+
+def test_an_export_comes_back_with_its_layout_labels_and_split(studio):
+    client, _ = studio
+    client.post(
+        "/api/datasets",
+        data={"name": "cans"},
+        files={"archive": ("cans.zip", roboflow_zip(), "application/zip")},
+    )
+    exported = client.get("/api/datasets/1/export").content
+    with zipfile.ZipFile(io.BytesIO(exported)) as zf:
+        names = set(zf.namelist())
+        cfg = zf.read("data.yaml").decode()
+        val_list = zf.read("val.txt").decode().split()
+    assert "images/train/labels/a.txt" in names and "images/valid/labels/c.txt" in names
+    assert "train: train.txt" in cfg and val_list == ["images/valid/images/c.jpg"]
+
+    again = client.post(
+        "/api/datasets",
+        data={"name": "again"},
+        files={"archive": ("again.zip", exported, "application/zip")},
+    ).json()
+    assert again["images"] == 4 and again["labelled"] == 3 and again["classes"] == ["can", "bottle"]
+    job = client.post("/api/jobs", json={"dataset_id": again["id"], "epochs": 1}).json()
+    assert client.get(f"/api/jobs/{job['id']}").json()["detail"] is None   # split survived

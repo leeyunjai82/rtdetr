@@ -17,9 +17,13 @@ python platform/run.py                 # http://127.0.0.1:8080
 
 1. **Collect** — four ways into a dataset, and all of them can add to one that
    already exists: pick image files, upload a video and sample frames from it
-   (interval and cap are yours), upload a zip (images, plus labels and a
-   data.yaml if you have them), or register a folder already on this machine
-   (`python platform/run.py label --source images/ --names can,bottle`).
+   (interval and cap are yours), upload a zip, or register a folder already on
+   this machine (`python platform/run.py label --source photos/ --names can,bottle`).
+   A YOLO-format export from a labelling service goes in as the zip it
+   downloaded as — Roboflow's *YOLOv8* / *YOLOv11* TXT, say — with its classes,
+   labels and train/valid split kept; *통계* and *라벨링* show it straight away.
+   Labels are stored where training reads them: in `labels/` beside an
+   `images/` folder, otherwise next to each picture, inside the folder.
 2. **Label** — *라벨링* on the dataset card. Drag to draw, drag inside a box to
    move it, drag a corner to resize, <kbd>1</kbd>–<kbd>9</kbd> to set the class,
    <kbd>Del</kbd> to remove, <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo. Saving is

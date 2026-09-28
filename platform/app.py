@@ -20,7 +20,7 @@ import os
 import shutil
 import time
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 from db import Database
@@ -36,6 +36,8 @@ from labeling import (
     write_labels,
 )
 from worker import Worker
+
+from rtdetr.data.labels import label_path as shared_label_path
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get("RTDETR_PLATFORM_HOME", Path.cwd() / "rtdetr-platform")).expanduser()
@@ -74,18 +76,52 @@ def label_page(dataset_id: int) -> str:
 
 @app.post("/api/datasets")
 async def upload_dataset(name: str = Form(...), archive: UploadFile = None):
-    """Take a zip of images (+ labels, + data.yaml if you have one)."""
+    """Take a zip of images (+ labels, + data.yaml if you have one).
+
+    A YOLO export from a labelling service goes in as it is: ``images/train`` +
+    ``labels/train``, or ``train/images`` + ``train/labels`` with a data.yaml
+    saying ``../train/images`` — the trainer resolves both. The zip is written
+    to disk as it arrives rather than held in memory, and a single wrapping
+    folder (or macOS's ``__MACOSX``) is unpacked away.
+    """
     if archive is None:
         raise HTTPException(400, "no archive uploaded")
     target = DATASETS / f"{int(time.time())}_{_slug(name)}"
     target.mkdir(parents=True)
+    scratch = target / ".upload.zip"
     try:
-        with zipfile.ZipFile(io.BytesIO(await archive.read())) as zf:
+        with open(scratch, "wb") as out:
+            while chunk := await archive.read(1 << 20):
+                out.write(chunk)
+        with zipfile.ZipFile(scratch) as zf:
             _safe_extract(zf, target)
     except zipfile.BadZipFile as exc:
         shutil.rmtree(target, ignore_errors=True)
         raise HTTPException(400, "that file is not a zip") from exc
+    finally:
+        scratch.unlink(missing_ok=True)
+    _unwrap(target)
     return _register(name, target)
+
+
+def _unwrap(target: Path) -> None:
+    """``dataset.zip/dataset/data.yaml`` -> ``data.yaml`` at the top, where training reads it.
+
+    Only then: a zip holding just ``images/`` is a dataset, not a wrapper.
+    """
+    shutil.rmtree(target / "__MACOSX", ignore_errors=True)
+    entries = [e for e in target.iterdir() if not e.name.startswith(".")]
+    if (
+        len(entries) != 1
+        or not entries[0].is_dir()
+        or (target / "data.yaml").exists()
+        or not (entries[0] / "data.yaml").exists()
+    ):
+        return
+    holder = entries[0].rename(target / ".unwrap")   # its children may share its name
+    for child in holder.iterdir():
+        shutil.move(str(child), target / child.name)
+    holder.rmdir()
 
 
 @app.post("/api/datasets/images")
@@ -179,13 +215,13 @@ def list_datasets():
 @app.get("/api/datasets/{dataset_id}")
 def get_dataset(dataset_id: int):
     dataset = _dataset(dataset_id)
-    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    images_root = Path(dataset["images_dir"])
     images = list_images(images_root)
     dataset["classes"] = json.loads(dataset["classes"])
     dataset["files"] = [
         {
             "name": str(p.relative_to(images_root)),
-            "labelled": label_path(p, images_root, labels_root).exists(),
+            "labelled": label_path(p).exists(),
         }
         for p in images
     ]
@@ -252,7 +288,7 @@ def autolabel_all(dataset_id: int, payload: dict):
 def dataset_stats(dataset_id: int):
     """What is actually in there — the numbers you check before training."""
     dataset = _dataset(dataset_id)
-    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    images_root = Path(dataset["images_dir"])
     names = json.loads(dataset["classes"])
 
     per_class = dict.fromkeys(range(len(names)), 0)
@@ -262,7 +298,7 @@ def dataset_stats(dataset_id: int):
     empty: list[str] = []
     images = list_images(images_root)
     for image in images:
-        label = label_path(image, images_root, labels_root)
+        label = label_path(image)
         if not label.exists():
             unlabelled.append(str(image.relative_to(images_root)))
             continue
@@ -296,7 +332,7 @@ def delete_image(dataset_id: int, index: int):
     images = list_images(images_root)
     if not 0 <= index < len(images):
         raise HTTPException(404, "no such image")
-    label = label_path(images[index], images_root, Path(dataset["labels_dir"]))
+    label = label_path(images[index])
     images[index].unlink(missing_ok=True)
     label.unlink(missing_ok=True)
     worker.refresh_counts(dataset_id)
@@ -325,27 +361,26 @@ def merge_datasets(payload: dict):
 def export_dataset(dataset_id: int):
     """The whole dataset as a zip: images, labels, data.yaml — ready to re-import."""
     dataset = _dataset(dataset_id)
-    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    images_root = Path(dataset["images_dir"])
+    arcname = {}  # image on disk -> where it goes in the zip
+    for image in list_images(images_root):
+        arcname[image.resolve()] = PurePosixPath("images", *image.relative_to(images_root).parts)
+    cfg = {"train": "images", "val": "images"}
+    splits = _split_lists(dataset, arcname)
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for image in list_images(images_root):
-            relative = image.relative_to(images_root)
-            zf.write(image, f"images/{relative}")
-            label = label_path(image, images_root, labels_root)
+        for image, arc in arcname.items():
+            zf.write(image, str(arc))
+            label = label_path(image)
             if label.exists():
-                zf.write(label, f"labels/{relative.with_suffix('.txt')}")
-        zf.writestr(
-            "data.yaml",
-            yaml.safe_dump(
-                {
-                    "train": "images",
-                    "val": "images",
-                    "names": dict(enumerate(json.loads(dataset["classes"]))),
-                },
-                sort_keys=False,
-                allow_unicode=True,
-            ),
-        )
+                # the same rule applied to the zip's own paths, so the trainer
+                # finds every label after unpacking, whatever the layout was
+                zf.write(label, str(shared_label_path(arc)))
+        for split, arcs in splits.items():     # keep the dataset's own split
+            zf.writestr(f"{split}.txt", "\n".join(arcs) + "\n")
+            cfg[split] = f"{split}.txt"
+        cfg["names"] = dict(enumerate(json.loads(dataset["classes"])))
+        zf.writestr("data.yaml", yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
     buffer.seek(0)
     name = _slug(dataset["name"])
     return StreamingResponse(
@@ -842,7 +877,7 @@ def _label_file(dataset_id: int, index: int) -> Path:
     images = list_images(images_root)
     if not 0 <= index < len(images):
         raise HTTPException(404, "no such image")
-    return label_path(images[index], images_root, Path(dataset["labels_dir"]))
+    return label_path(images[index])
 
 
 def _resolve_model(name: str) -> str:
@@ -878,7 +913,7 @@ def _register(name: str, root: Path, names: list[str] | None = None) -> dict:
     labelled = 0
     seen: set[int] = set()
     for image in images:
-        label = label_path(image, images_root, labels_root)
+        label = label_path(image)
         if not label.exists():
             continue
         labelled += 1
@@ -921,10 +956,10 @@ def _register(name: str, root: Path, names: list[str] | None = None) -> dict:
 
 def _highest_class_in_use(dataset: dict) -> int | None:
     """The largest class index any label file refers to, or None when unlabelled."""
-    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    images_root = Path(dataset["images_dir"])
     highest = None
     for image in list_images(images_root):
-        for row in read_labels(label_path(image, images_root, labels_root)):
+        for row in read_labels(label_path(image)):
             if highest is None or row["cls"] > highest:
                 highest = row["cls"]
     return highest
@@ -939,7 +974,7 @@ def _ensure_split(dataset: dict, val_ratio: float) -> str | None:
     at the two lists.
     """
     root = Path(dataset["path"])
-    images_root, labels_root = Path(dataset["images_dir"]), Path(dataset["labels_dir"])
+    images_root = Path(dataset["images_dir"])
     cfg = yaml.safe_load((root / "data.yaml").read_text(encoding="utf-8")) or {}
     if cfg.get("train") != cfg.get("val"):
         return None  # the dataset came with its own split; leave it alone
@@ -947,7 +982,7 @@ def _ensure_split(dataset: dict, val_ratio: float) -> str | None:
     images = [
         image
         for image in list_images(images_root)
-        if label_path(image, images_root, labels_root).exists()
+        if label_path(image).exists()
     ]
     if len(images) < 4:
         return f"only {len(images)} labelled images — validating on the same ones"
@@ -964,6 +999,33 @@ def _ensure_split(dataset: dict, val_ratio: float) -> str | None:
         yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8"
     )
     return f"{len(train)} train / {len(val)} val images"
+
+
+def _split_lists(dataset: dict, arcname: dict[Path, PurePosixPath]) -> dict[str, list[str]]:
+    """train/val as lists of zip paths, when the dataset's data.yaml defines them.
+
+    Whatever form the split takes on disk — folders, ``../`` paths, lists of
+    absolute paths written for this machine — it leaves as relative paths
+    inside the zip. Nothing, rather than a wrong split, when it cannot be read.
+    """
+    from rtdetr.data.dataset import _list_images, load_data_yaml
+
+    yaml_file = Path(dataset["path"]) / "data.yaml"
+    if not yaml_file.exists():
+        return {}
+    try:
+        cfg = load_data_yaml(yaml_file)
+        out = {}
+        for split in ("train", "val"):
+            if cfg[split] is None:
+                return {}
+            files = _list_images(cfg["root"], cfg[split], cfg["yaml_dir"])
+            out[split] = [str(arcname[f.resolve()]) for f in files if f.resolve() in arcname]
+    except (OSError, ValueError, KeyError):
+        return {}
+    if not out["train"] or not out["val"] or out["train"] == out["val"]:
+        return {}
+    return out
 
 
 def _combine(sources: list[dict], name: str) -> dict:
@@ -984,7 +1046,7 @@ def _combine(sources: list[dict], name: str) -> dict:
     (target / "labels").mkdir(parents=True)
     copied = 0
     for source in sources:
-        images_root, labels_root = Path(source["images_dir"]), Path(source["labels_dir"])
+        images_root = Path(source["images_dir"])
         remap = {i: names.index(n) for i, n in enumerate(json.loads(source["classes"]))}
         prefix = _slug(source["name"])
         for image in list_images(images_root):
@@ -992,7 +1054,7 @@ def _combine(sources: list[dict], name: str) -> dict:
             destination = _unique(target / "images" / stem)
             shutil.copy2(image, destination)
             copied += 1
-            label = label_path(image, images_root, labels_root)
+            label = label_path(image)
             if not label.exists():
                 continue
             rows = [dict(row, cls=remap.get(row["cls"], row["cls"])) for row in read_labels(label)]
@@ -1036,10 +1098,8 @@ def _safe_extract(zf: zipfile.ZipFile, target: Path) -> None:
 
 
 def _common_parent(paths: list[Path]) -> Path:
-    parents = {p.parent for p in paths}
-    if len(parents) == 1:
-        return parents.pop()
-    return Path(*Path(paths[0]).parts[: min(len(p.parts) for p in paths) - 1])
+    """The deepest folder holding every image: ``images/`` for images/train + images/val."""
+    return Path(os.path.commonpath([str(p.parent) for p in paths]))
 
 
 def _artifacts(job: dict) -> list[str]:

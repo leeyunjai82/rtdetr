@@ -33,6 +33,34 @@ out picks a GPU when there is one. CPU training is slow but real: on 4 cores,
 r18 at 640 runs about 1 image/s — 500 images × 50 epochs is a few hours, and
 fine-tuning from the COCO weights is what makes that enough.
 
+## Datasets from elsewhere
+
+Any YOLO-format dataset trains as it is — the `.txt` layout above is what
+labelling tools export. Downloaded datasets vary in the details, and these all
+load without editing:
+
+| in the download | what happens |
+| --- | --- |
+| `images/train` + `labels/train` | the standard layout |
+| `train/images` + `train/labels`, yaml says `train: ../train/images` | a split per folder, as Roboflow exports it (pick a *YOLOv8* / *YOLOv11* TXT format) |
+| `path:` naming someone else's machine (`/content/datasets/…`) | falls back to the folder the yaml is in |
+| `train: [images/day, images/night]` | several folders make one split |
+| polygon rows (`cls x1 y1 x2 y2 x3 y3 …`) | each becomes its bounding box |
+| a sixth value on a box row | read as a confidence and ignored |
+
+A label sits where the last `images` folder in the image's path becomes
+`labels`, or beside the image when there is none — one rule, used by training,
+the platform and its exports alike. A dataset with no `val:` is refused with a
+message rather than validated on its training images.
+
+```bash
+unzip shapes.v1i.yolov11.zip -d shapes
+rtdetr train model=rtdetr-r18 data=shapes/data.yaml epochs=50 device=0
+```
+
+In the [platform](../platform/README.md), the same zip goes in through
+*수집 → zip* without unpacking.
+
 ## Starting point
 
 `RTDETR("rtdetr-r18")` warm-starts from the mirror's COCO weights. For a domain
