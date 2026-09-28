@@ -24,7 +24,7 @@ def main() -> int:
     parser.add_argument("--model", default="rtdetr-r18", help="name, .pt, or .xml")
     parser.add_argument("--source", default="0", help="camera index, video file, or stream url")
     parser.add_argument("--conf", type=float, default=0.5)
-    parser.add_argument("--device", default="AUTO", help="OpenVINO device: AUTO, CPU, GPU")
+    parser.add_argument("--device", default="AUTO", help="OpenVINO device: AUTO, CPU, GPU, NPU")
     parser.add_argument("--track", action="store_true", help="keep an id on each box")
     parser.add_argument("--save", action="store_true", help="also write runs/detect/predict*/")
     args = parser.parse_args()

@@ -22,7 +22,7 @@ Anything you can point it at:
 | list | `model(["a.jpg", "b.jpg"])` |
 
 ```python
-model = RTDETR("rtdetr-r18", device="GPU")     # AUTO, CPU, GPU
+model = RTDETR("rtdetr-r18", device="NPU")     # AUTO, CPU, GPU, NPU
 model = RTDETR("rtdetr-r18", precision="f32")  # exact, ~3x slower on CPU
 
 for r in model.predict("clip.mp4", conf=0.4, stream=True):   # generator, O(1) memory
