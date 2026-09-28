@@ -27,7 +27,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("mode", nargs="?", default="serve", choices=("serve", "label"))
     parser.add_argument("--source", help="label mode: folder of images to open")
     parser.add_argument("--names", help="label mode: comma-separated class names")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--host", default="0.0.0.0",
+        help="0.0.0.0 (default) answers on every address; 127.0.0.1 keeps it to this machine",
+    )
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--data", help="where datasets, runs and the database live")
     parser.add_argument("--no-browser", action="store_true")
@@ -39,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     import app as application
     import uvicorn
 
-    url = f"http://{args.host}:{args.port}"
+    # 0.0.0.0 is where the server listens, not an address a browser can open
+    local = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
+    url = f"http://{local}:{args.port}"
     path = "/"
     if args.mode == "label":
         if not args.source:
@@ -55,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
         path = f"/label/{dataset['id']}"
         print(f"[platform] {dataset['images']} images, {dataset['labelled']} already labelled")
 
-    print(f"[platform] {url}{path}")
+    where = "  (other machines: this one's IP)" if local != args.host else ""
+    print(f"[platform] {url}{path}{where}")
     if not args.no_browser:
         threading.Thread(target=lambda: webbrowser.open(url + path), daemon=True).start()
     uvicorn.run(application.app, host=args.host, port=args.port, log_level="warning")

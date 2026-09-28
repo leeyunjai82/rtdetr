@@ -654,6 +654,13 @@ $("run-start").onclick = async () => {
 // --- webcam preview: frames go to the server, annotated frames come back ---
 let camStream = null, camTimer = null;
 $("cam-start").onclick = async () => {
+  if (!window.isSecureContext || !navigator.mediaDevices) {
+    // browsers only hand a camera to https:// or localhost pages
+    $("cam-msg").textContent = "브라우저는 https 또는 localhost 주소에서만 카메라를 허용합니다. "
+      + "이 PC에서 http://localhost:" + (location.port || 80) + " 로 열거나, "
+      + "ssh -L " + (location.port || 80) + ":127.0.0.1:" + (location.port || 80) + " 로 포워딩해 localhost로 여세요.";
+    return;
+  }
   try { camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 } }); }
   catch (e) { $("cam-msg").textContent = "카메라를 열 수 없습니다: " + e.message; return; }
   const video = $("cam");

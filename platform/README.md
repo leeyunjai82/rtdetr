@@ -6,7 +6,7 @@ package itself stays a library with a CLI and no web dependencies.
 
 ```bash
 pip install -r platform/requirements.txt
-python platform/run.py                 # http://127.0.0.1:8080
+python platform/run.py                 # http://<this machine>:8080, from any machine
 ```
 
 ![the platform](../docs/assets/platform.jpg)
@@ -143,8 +143,11 @@ Other limits worth knowing:
   the same layout, so you can label there and train here.
 * Training runs in this process, so restarting the server ends a run. Jobs left
   behind are marked failed on the next start rather than spinning forever.
-* It binds `127.0.0.1` by default and has no authentication. Behind `--host
-  0.0.0.0` it is open to whoever can reach the port.
+* It listens on every address (`0.0.0.0`) by default, so other machines can
+  open it — and it has no login: anyone who can reach the port can use it.
+  `--host 127.0.0.1` keeps it to this machine. Browsers only allow the webcam
+  preview on `https://` or `localhost`, so over plain `http://` from another
+  machine that one tab needs an SSH forward (`ssh -L 8080:127.0.0.1:8080 …`).
 
 ## Tests
 

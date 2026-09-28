@@ -94,7 +94,7 @@ nothing leaving it.
 
 ```bash
 pip install -r platform/requirements.txt
-python platform/run.py          # http://127.0.0.1:8080
+python platform/run.py          # http://<this machine>:8080
 ```
 
 ![the platform](https://raw.githubusercontent.com/leeyunjai82/rtdetr/main/docs/assets/platform.jpg)
