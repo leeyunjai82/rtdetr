@@ -19,6 +19,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import threading
 import time
 import zipfile
@@ -944,6 +945,56 @@ def status():
         "running_job": worker.current,
         "queued": len(db.query("SELECT id FROM jobs WHERE status = 'queued'")),
         "datasets": len(db.query("SELECT id FROM datasets")),
+    }
+
+
+@app.get("/api/gpu")
+def gpu_now():
+    """Utilisation, memory, temperature and power of each NVIDIA GPU, right now.
+
+    From nvidia-smi, which comes with the driver — no extra package. None when
+    there is no NVIDIA GPU or no driver; the page then shows nothing.
+    """
+    return {"gpus": _gpu_now()}
+
+
+_GPU_FIELDS = ("index", "name", "utilization.gpu", "memory.used", "memory.total",
+               "temperature.gpu", "power.draw", "power.limit")
+_gpu_cache: dict = {"at": 0.0, "value": None}
+
+
+def _gpu_now() -> list[dict] | None:
+    # several tabs poll this; one nvidia-smi a second is plenty
+    if time.time() - _gpu_cache["at"] < 1.0:
+        return _gpu_cache["value"]
+    value = None
+    smi = shutil.which("nvidia-smi")
+    if smi:
+        try:
+            out = subprocess.run(
+                [smi, f"--query-gpu={','.join(_GPU_FIELDS)}", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=3, check=True,
+            ).stdout
+            value = [_gpu_row(line) for line in out.strip().splitlines() if line.strip()]
+        except (OSError, subprocess.SubprocessError, ValueError):
+            value = None
+    _gpu_cache.update(at=time.time(), value=value)
+    return value
+
+
+def _gpu_row(line: str) -> dict:
+    cells = [c.strip() for c in line.split(",")]
+    number = lambda s: float(s) if s not in ("", "[N/A]", "N/A", "[Not Supported]") else None  # noqa: E731
+    row = dict(zip(_GPU_FIELDS, cells, strict=True))
+    return {
+        "index": int(row["index"]),
+        "name": row["name"],
+        "util": number(row["utilization.gpu"]),
+        "mem_used_mb": number(row["memory.used"]),
+        "mem_total_mb": number(row["memory.total"]),
+        "temp_c": number(row["temperature.gpu"]),
+        "power_w": number(row["power.draw"]),
+        "power_limit_w": number(row["power.limit"]),
     }
 
 

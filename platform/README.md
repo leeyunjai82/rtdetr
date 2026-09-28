@@ -45,8 +45,11 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    Correcting boxes is far quicker than drawing them, and once you have a
    `best.pt` you can point the auto-labeller at it.
 5. **Train** — a preset (빠름 / 균형 / 정확) or your own model, epochs, image size,
-   batch, backbone freezing and device. The header names the GPU training will
-   use, and on one the presets batch four times larger. Jobs queue and run one
+   batch, backbone freezing and device. The header shows each NVIDIA GPU live —
+   utilisation, memory, temperature, power, read from `nvidia-smi` every two
+   seconds — and warns when the driver sees a GPU that PyTorch cannot use (a CPU
+   build of torch), since training would then run on the CPU. On a GPU the
+   presets batch four times larger. Jobs queue and run one
    at a time; inside an epoch the job shows its batch, what is left and when it
    is validating, and the loss and mAP curve updates per epoch; images are
    decoded by loader processes (half the cores, at most eight —
@@ -120,6 +123,7 @@ The pages are only clients of these, so a script can do anything the UI does:
 | `POST /api/preview` | multipart: `model`, `conf`, `image` → annotated JPEG, one frame |
 | `POST /api/jobs` | `{dataset_id, model, epochs, imgsz, batch, freeze, device}` |
 | `GET /api/jobs` · `GET /api/jobs/{id}` | the second includes per-epoch rows |
+| `GET /api/gpu` | utilisation, memory, temperature and power per GPU, from nvidia-smi |
 | `GET /api/jobs/{id}/stream` | server-sent events: progress, then a status |
 | `POST /api/jobs/{id}/cancel` | |
 | `DELETE /api/jobs/{id}` | the job and its files, unless something still uses them |

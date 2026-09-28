@@ -6,11 +6,14 @@
   :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; --ok:#3ecf8e; --bad:#ff6b6b; }
   * { box-sizing:border-box; }
   [hidden] { display:none !important; }   /* .row's flex must not beat hidden */
-  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
-  header { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
+         display:flex; flex-direction:column; height:100vh; }
+  header { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header > *, .gpu > * { white-space:nowrap; }   /* wrap between items, never inside one */
+  .gpu { flex-wrap:wrap; row-gap:4px; }
   header b { font-size:15px; letter-spacing:.02em; }
   header .dim { color:var(--dim); font-size:13px; }
-  .wrap { display:grid; grid-template-columns:340px 1fr; gap:0; height:calc(100vh - 53px); }
+  .wrap { display:grid; grid-template-columns:340px 1fr; gap:0; flex:1; min-height:0; }
   .col { overflow:auto; padding:16px 18px; }
   .col + .col { border-left:1px solid var(--line); }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); margin:22px 0 10px; }
@@ -61,6 +64,11 @@
   #cam, #cam-out { width:100%; border-radius:8px; margin-top:8px; display:block; }
   #jobs { max-height:42vh; overflow:auto; }   /* the open job stays in reach as the list grows */
   .detail { border-color:var(--accent); }
+  .gpu { display:flex; gap:12px; align-items:center; font-size:12.5px; color:var(--dim); margin-left:6px; }
+  .gpu b { color:var(--ink); font-weight:600; }
+  .meter { display:inline-block; width:64px; height:6px; border-radius:99px; background:#232833; overflow:hidden; vertical-align:middle; margin-left:5px; }
+  .meter i { display:block; height:100%; background:var(--accent); transition:width .6s; }
+  .meter i.hot { background:#ffb648; }
   .detail h2 { margin-top:16px; }
   .detail #detail-title { font-size:15px; }
   .legend { text-transform:none; letter-spacing:0; margin-left:10px; }
@@ -74,8 +82,8 @@
 <header>
   <b>rtdetr platform</b>
   <span class="dim" id="status">…</span>
-  <span class="grow"></span>
-  <span class="dim">데이터셋 카드의 <b>라벨링</b>으로 상자를 그립니다</span>
+  <span id="gpu-live" class="gpu" hidden></span>
+  <span id="gpu-warn" class="warn" hidden title="CUDA 빌드의 torch를 설치하세요 (RTX 50 계열은 cu128 이상)">⚠ PyTorch가 이 GPU를 쓰지 못합니다 — 학습은 CPU로 돕니다</span>
 </header>
 
 <div class="wrap">
@@ -259,14 +267,16 @@ const api = async (path, options) => {
 const fmt = (v, digits = 3) => (v === null || v === undefined || v === "" ? "—" : Number(v).toFixed(digits));
 const short = (name) => String(name).split(/[\\/]/).pop();
 
-let gpu = null, running = null, runPicked = false, listedAt = 0, listedStatus = null;
+let smiSeen = false, gpu = null, running = null, runPicked = false, listedAt = 0, listedStatus = null;
 
 async function refresh() {
   const [state, datasets, jobs] = await Promise.all([
     api("/api/status"), api("/api/datasets"), api("/api/jobs")]);
   $("status").textContent =
     `데이터셋 ${state.datasets} · 대기 ${state.queued}` + (state.running_job ? ` · 실행 중 #${state.running_job}` : "")
-    + (state.gpu ? ` · GPU ${state.gpu.name}` : " · GPU 없음 (CPU 학습)");
+    + (state.gpu ? "" : smiSeen ? "" : " · GPU 없음 (CPU 학습)");
+  // a card the driver sees but PyTorch cannot use: training would quietly run on the CPU
+  $("gpu-warn").hidden = !(smiSeen && !state.gpu);
   running = state.running_job;
   if (state.gpu && !gpu) {                 // a GPU wants batches a CPU could not hold
     gpu = state.gpu;
@@ -818,6 +828,27 @@ $("model-upload").onclick = async () => {
   catch (e) { $("run-msg").textContent = e.message; $("run-msg").className = "msg err"; }
 };
 
-refresh();
+// the GPU at a glance: is the run actually using it, and how full is it
+async function gpuLive() {
+  let r;
+  try { r = await api("/api/gpu"); } catch { return; }
+  const el = $("gpu-live");
+  smiSeen = !!(r.gpus && r.gpus.length);
+  if (!smiSeen) { el.hidden = true; return; }
+  const meter = (pct) => `<span class="meter"><i class="${pct >= 90 ? "hot" : ""}" style="width:${Math.min(pct, 100)}%"></i></span>`;
+  el.innerHTML = r.gpus.map((g) => {
+    const mem = g.mem_total_mb ? (g.mem_used_mb / g.mem_total_mb) * 100 : 0;
+    const gb = (mb) => (mb / 1024).toFixed(1);
+    return `<span title="GPU ${g.index}">${g.name.replace(/^NVIDIA (GeForce )?/, "")}</span>`
+      + `<span>사용률 <b>${g.util ?? "?"}%</b>${meter(g.util || 0)}</span>`
+      + `<span>메모리 <b>${gb(g.mem_used_mb)}</b>/${gb(g.mem_total_mb)} GB${meter(mem)}</span>`
+      + (g.temp_c != null ? `<span>${g.temp_c}°C</span>` : "")
+      + (g.power_w != null ? `<span>${Math.round(g.power_w)}W${g.power_limit_w ? `/${Math.round(g.power_limit_w)}` : ""}</span>` : "");
+  }).join(`<span class="dim">|</span>`);
+  el.hidden = false;
+}
+gpuLive().then(refresh);   // refresh reads what gpuLive saw
+setInterval(gpuLive, 2000);
+
 setInterval(() => { if (!stream || stream.readyState === 2) refresh(); }, 4000);
 </script>

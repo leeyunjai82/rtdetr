@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib
 import io
 import json
+import os
 import zipfile
 from pathlib import Path
 
@@ -965,3 +966,35 @@ def test_auto_labelling_drafts_with_the_datasets_own_run(studio):
     queued = client.post("/api/datasets/2/autolabel", json={}).json()["id"]
     assert client.get(f"/api/jobs/{queued}").json()["model"] == str(run / "weights" / "best.pt")
     assert client.get(f"/api/jobs/{queued}").json()["dataset"] == "set"
+
+
+def _fake_smi(folder, lines):
+    script = folder / "nvidia-smi"
+    body = "\n".join(f"echo '{line}'" for line in lines)
+    script.write_text(f"#!/bin/sh\n{body}\n")
+    script.chmod(0o755)
+    return folder
+
+
+def test_the_gpu_readout_comes_from_nvidia_smi(studio, tmp_path, monkeypatch):
+    client, module = studio
+    _fake_smi(tmp_path, ["0, NVIDIA GeForce RTX 5090, 87, 12345, 32607, 64, 402.51, 575.00"])
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    module._gpu_cache.update(at=0.0)
+    gpu = client.get("/api/gpu").json()["gpus"][0]
+    assert gpu["name"] == "NVIDIA GeForce RTX 5090" and gpu["util"] == 87
+    assert (gpu["mem_used_mb"], gpu["mem_total_mb"], gpu["temp_c"]) == (12345, 32607, 64)
+    assert round(gpu["power_w"]) == 403 and gpu["power_limit_w"] == 575
+
+
+def test_a_card_without_power_readings_and_a_box_without_a_gpu(studio, tmp_path, monkeypatch):
+    client, module = studio
+    _fake_smi(tmp_path, ["0, Some GPU, 5, 100, 8000, 40, [N/A], [N/A]"])
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    module._gpu_cache.update(at=0.0)
+    gpu = client.get("/api/gpu").json()["gpus"][0]
+    assert gpu["power_w"] is None and gpu["util"] == 5
+
+    monkeypatch.setenv("PATH", str(tmp_path / "nowhere"))
+    module._gpu_cache.update(at=0.0)
+    assert client.get("/api/gpu").json() == {"gpus": None}
