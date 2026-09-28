@@ -101,7 +101,26 @@ async def upload_dataset(name: str = Form(...), archive: UploadFile = None):
     finally:
         scratch.unlink(missing_ok=True)
     _unwrap(target)
+    _detach(target)
     return _register(name, target)
+
+
+def _detach(target: Path) -> None:
+    """An uploaded copy reads its own files, not the ones it was zipped from.
+
+    A data.yaml's ``path:`` can name a folder that exists on this machine — the
+    original, when the zip was made here. Training would read that and ignore
+    every label edited in the copy. Without the key, paths resolve from the
+    yaml's own folder.
+    """
+    yaml_file = target / "data.yaml"
+    if not yaml_file.exists():
+        return
+    cfg = yaml.safe_load(yaml_file.read_text(encoding="utf-8")) or {}
+    if isinstance(cfg, dict) and "path" in cfg:
+        cfg.pop("path")
+        yaml_file.write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
+                             encoding="utf-8")
 
 
 def _unwrap(target: Path) -> None:

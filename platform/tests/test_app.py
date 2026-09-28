@@ -812,3 +812,24 @@ def test_an_export_comes_back_with_its_layout_labels_and_split(studio):
     assert again["images"] == 4 and again["labelled"] == 3 and again["classes"] == ["can", "bottle"]
     job = client.post("/api/jobs", json={"dataset_id": again["id"], "epochs": 1}).json()
     assert client.get(f"/api/jobs/{job['id']}").json()["detail"] is None   # split survived
+
+
+def test_an_uploaded_copy_trains_on_itself_not_on_the_folder_it_came_from(studio, tmp_path):
+    """A zip made on this machine carries path: pointing at the original folder."""
+    pytest.importorskip("torch")
+    from rtdetr.data.dataset import DetDataset
+
+    client, module = studio
+    original = tmp_path / "original"
+    (original / "images").mkdir(parents=True)
+    (original / "images" / "a.jpg").write_bytes(image_bytes())
+    archive = make_zip({
+        "images/a.jpg": image_bytes(),
+        "labels/a.txt": b"0 .5 .5 .2 .2\n",
+        "data.yaml": f"path: {original}\ntrain: images\nval: images\nnames: [can]\n".encode(),
+    })
+    client.post("/api/datasets", data={"name": "copy"},
+                files={"archive": ("c.zip", archive, "application/zip")})
+    root = module.Path(client.get("/api/datasets/1").json()["path"])
+    ds = DetDataset(root / "data.yaml", "train", imgsz=64, augment=False)
+    assert ds.files[0].is_relative_to(root) and len(ds._load_labels(ds.files[0])) == 1

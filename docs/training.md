@@ -33,6 +33,9 @@ out picks a GPU when there is one. CPU training is slow but real: on 4 cores,
 r18 at 640 runs about 1 image/s — 500 images × 50 epochs is a few hours, and
 fine-tuning from the COCO weights is what makes that enough.
 
+No dataset yet? `python tools/make_toyset.py toyset` writes 300 labelled images of
+squares and circles — enough to see a run learn, and to try every step below.
+
 ## Datasets from elsewhere
 
 Any YOLO-format dataset trains as it is — the `.txt` layout above is what
