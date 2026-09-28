@@ -913,3 +913,34 @@ def test_a_run_something_still_needs_is_kept(studio):
     assert "'v1'" in client.delete(f"/api/jobs/{job}").json()["error"]
     client.delete("/api/models/1")
     assert client.delete(f"/api/jobs/{job}").json()["files_removed"] is True
+
+
+def test_startup_runs_once_per_process(studio):
+    """HTTP and HTTPS servers both fire startup; the second must not reap the
+    job the worker has just started."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    first = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    module.db.update_job(first, status="running")          # left over from a dead process
+    module._start()
+    assert module.db.one("SELECT status FROM jobs WHERE id = ?", (first,))["status"] == "failed"
+
+    second = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    module.db.update_job(second, status="running")         # the worker's own, just now
+    module._start()
+    module.worker.stop()
+    assert module.db.one("SELECT status FROM jobs WHERE id = ?", (second,))["status"] == "running"
+
+
+def test_a_certificate_is_made_once_and_reused(tmp_path):
+    pytest.importorskip("cryptography")
+    from cryptography import x509
+    from tls import ensure_certificate
+
+    cert, key = ensure_certificate(tmp_path / "tls")
+    stamp = cert.read_bytes()
+    assert ensure_certificate(tmp_path / "tls") == (cert, key) and cert.read_bytes() == stamp
+    parsed = x509.load_pem_x509_certificate(stamp)
+    names = parsed.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    assert "localhost" in names.get_values_for_type(x509.DNSName)
+    assert oct(key.stat().st_mode)[-3:] == "600"

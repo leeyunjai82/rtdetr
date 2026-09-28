@@ -19,6 +19,7 @@ import io
 import json
 import os
 import shutil
+import threading
 import time
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -50,8 +51,19 @@ app = FastAPI(title="rtdetr platform")
 _models: dict[str, object] = {}
 
 
+_started = threading.Lock()
+
+
 @app.on_event("startup")
 def _start() -> None:
+    """Folders, stale jobs, the worker — once per process.
+
+    It runs from every server's startup (HTTP and HTTPS both) and from label
+    mode before them. A second pass would find the job the worker had just
+    started and mark it "interrupted by a restart".
+    """
+    if not _started.acquire(blocking=False):
+        return
     for folder in (DATASETS, RUNS):
         folder.mkdir(parents=True, exist_ok=True)
     reaped = worker.reap_stale()
@@ -881,6 +893,7 @@ async def preview(model: str = Form(...), conf: float = Form(0.35), image: Uploa
 def status():
     return {
         "gpu": _gpu(),
+        "https_port": int(os.environ.get("RTDETR_HTTPS_PORT") or 0) or None,
         "running_job": worker.current,
         "queued": len(db.query("SELECT id FROM jobs WHERE status = 'queued'")),
         "datasets": len(db.query("SELECT id FROM datasets")),

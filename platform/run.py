@@ -22,6 +22,30 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))  # the app's own modules, without shadowing stdlib
 
 
+def _serve_https(application, uvicorn, args, local: str, path: str) -> None:
+    """The same app over HTTPS, beside the HTTP one, for the webcam.
+
+    Runs in a thread: uvicorn only takes over signals on the main thread, so
+    Ctrl+C still stops the process through the HTTP server.
+    """
+    from tls import ensure_certificate
+
+    try:
+        cert, key = ensure_certificate(application.DATA / "tls")
+    except Exception as exc:  # no or broken cryptography: HTTP still works
+        print(f"[platform] HTTPS off ({type(exc).__name__}: {exc}); "
+              f"pip install -U cryptography serves it — the webcam needs it")
+        return
+    os.environ["RTDETR_HTTPS_PORT"] = str(args.https_port)
+    config = uvicorn.Config(
+        application.app, host=args.host, port=args.https_port, log_level="warning",
+        ssl_certfile=str(cert), ssl_keyfile=str(key),
+    )
+    threading.Thread(target=uvicorn.Server(config).run, daemon=True, name="https").start()
+    print(f"[platform] https://{local}:{args.https_port}{path}  (for the webcam; "
+          f"the browser warns once about the certificate)")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("mode", nargs="?", default="serve", choices=("serve", "label"))
@@ -32,6 +56,10 @@ def main(argv: list[str] | None = None) -> int:
         help="0.0.0.0 (default) answers on every address; 127.0.0.1 keeps it to this machine",
     )
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument(
+        "--https-port", type=int, default=8443,
+        help="also serve HTTPS here, which the webcam needs from other machines; 0: off",
+    )
     parser.add_argument("--data", help="where datasets, runs and the database live")
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args(argv)
@@ -62,6 +90,8 @@ def main(argv: list[str] | None = None) -> int:
 
     where = "  (other machines: this one's IP)" if local != args.host else ""
     print(f"[platform] {url}{path}{where}")
+    if args.https_port:
+        _serve_https(application, uvicorn, args, local, path)
     if not args.no_browser:
         threading.Thread(target=lambda: webbrowser.open(url + path), daemon=True).start()
     uvicorn.run(application.app, host=args.host, port=args.port, log_level="warning")

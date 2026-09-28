@@ -146,8 +146,10 @@ Other limits worth knowing:
 * It listens on every address (`0.0.0.0`) by default, so other machines can
   open it — and it has no login: anyone who can reach the port can use it.
   `--host 127.0.0.1` keeps it to this machine. Browsers only allow the webcam
-  preview on `https://` or `localhost`, so over plain `http://` from another
-  machine that one tab needs an SSH forward (`ssh -L 8080:127.0.0.1:8080 …`).
+  on `https://` or `localhost`, so the same app is also served over HTTPS on
+  8443 (`--https-port`, 0 turns it off) with a certificate made on first start
+  and kept in `rtdetr-platform/tls/`. The browser warns about it once; the
+  webcam tab opened over `http://` links to the HTTPS address.
 
 ## Tests
 

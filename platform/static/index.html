@@ -655,10 +655,17 @@ $("run-start").onclick = async () => {
 let camStream = null, camTimer = null;
 $("cam-start").onclick = async () => {
   if (!window.isSecureContext || !navigator.mediaDevices) {
-    // browsers only hand a camera to https:// or localhost pages
-    $("cam-msg").textContent = "브라우저는 https 또는 localhost 주소에서만 카메라를 허용합니다. "
-      + "이 PC에서 http://localhost:" + (location.port || 80) + " 로 열거나, "
-      + "ssh -L " + (location.port || 80) + ":127.0.0.1:" + (location.port || 80) + " 로 포워딩해 localhost로 여세요.";
+    // browsers only hand a camera to https:// or localhost pages; the server
+    // runs an HTTPS twin for exactly this
+    const { https_port } = await api("/api/status");
+    if (https_port) {
+      const secure = `https://${location.hostname}:${https_port}${location.pathname}`;
+      $("cam-msg").innerHTML = `카메라는 https에서만 열립니다 → <a href="${secure}">${secure}</a> 에서 열기`
+        + ` <span class="dim">(처음 한 번 뜨는 인증서 경고에서 '고급 → 계속')</span>`;
+    } else {
+      $("cam-msg").textContent = "브라우저는 https 또는 localhost 주소에서만 카메라를 허용합니다. "
+        + "서버를 --https-port 와 함께 실행하세요.";
+    }
     return;
   }
   try { camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 } }); }
