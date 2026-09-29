@@ -64,6 +64,21 @@ def freeze_modules(net, freeze):
     return modules
 
 
+def _split_counts(ds, num_classes: int) -> dict:
+    """Images, boxes and boxes per class in one split — label files only, no pixels."""
+    per_class = [0] * num_classes
+    boxes = empty = 0
+    for f in ds.files:
+        labels = ds._load_labels(f)
+        boxes += len(labels)
+        empty += len(labels) == 0
+        for c in labels[:, 0].astype(int) if len(labels) else ():
+            if 0 <= c < num_classes:
+                per_class[c] += 1
+    return {"images": len(ds.files), "boxes": boxes, "background_images": empty,
+            "per_class": per_class}
+
+
 def _one_thread_per_worker(_worker_id: int) -> None:
     import cv2
 
@@ -94,8 +109,11 @@ class Trainer:
         freeze=None,
         on_epoch_end=None,
         on_progress=None,
+        origin=None,
     ):
         seed_everything(seed)
+        self.seed, self.freeze, self.origin = seed, freeze, origin
+        self.lr, self.lr_backbone_mult, self.weight_decay = lr, lr_backbone_mult, weight_decay
         self.net = net
         self.frozen = freeze_modules(net, freeze)
         self.on_epoch_end = on_epoch_end
@@ -170,6 +188,95 @@ class Trainer:
         self.best = float(ckpt.get("best", -1.0))
         print(f"[rtdetr] resuming {self.save_dir} at epoch {self.start_epoch + 1}/{self.epochs}")
 
+    # ------------------------------------------------------------- the record
+
+    def _write_setup(self, ds) -> dict:
+        """``run.json``: what this run is, written before the first batch.
+
+        Everything someone reading the result later would ask — where it
+        started, on what data, with which settings, on what machine — so a
+        model card or a report never has to guess.
+        """
+        import platform
+        import sys
+
+        from . import __version__
+
+        previous = self.save_dir / "run.json"
+        old = json.loads(previous.read_text(encoding="utf-8")) if previous.exists() else {}
+        params = sum(p.numel() for p in self.net.parameters())
+        trainable = sum(p.numel() for p in self.net.parameters() if p.requires_grad)
+        freeze = self.freeze if not isinstance(self.freeze, (list, tuple)) else list(self.freeze)
+        setup = {
+            "variant": self.net.variant,
+            "num_classes": self.net.num_classes,
+            "names": self.cfg["names"],
+            # a resumed run started where its first attempt did
+            "start": old.get("start") or self.origin,
+            "imgsz": self.imgsz,
+            "batch": self.batch,
+            "epochs": self.epochs,
+            "patience": self.patience,
+            "seed": self.seed,
+            "workers": self.workers,
+            "freeze": "backbone" if freeze is True else freeze or None,
+            "params": params,
+            "trainable_params": trainable,
+            "optimizer": {
+                "name": "AdamW",
+                "lr": self.lr,
+                "lr_backbone": self.lr * self.lr_backbone_mult,
+                "weight_decay": self.weight_decay,
+                "schedule": "linear warmup, then cosine decay to 1%",
+                "warmup_epochs": self.warmup_epochs,
+                "grad_clip": 0.1,
+            },
+            "amp": self.amp,
+            "augment": ["horizontal flip (p=0.5)", "HSV jitter (hue ±8, sat ±30, value ±30)",
+                        f"resize to {self.imgsz}×{self.imgsz}"],
+            "data": {"train": _split_counts(ds, self.net.num_classes)},
+            "device": str(self.device),
+            "gpu": torch.cuda.get_device_name(self.device) if self.device.type == "cuda" else None,
+            "cpu": platform.processor() or platform.machine(),
+            "versions": {
+                "rtdetr": __version__,
+                "torch": torch.__version__,
+                "cuda": torch.version.cuda if self.device.type == "cuda" else None,
+                "python": sys.version.split()[0],
+            },
+            "started": old.get("started") or time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "resumed_at_epoch": self.start_epoch + 1 if self.start_epoch else None,
+        }
+        try:
+            val = DetDataset(self.data_yaml, "val", self.imgsz, augment=False)
+            setup["data"]["val"] = _split_counts(val, self.net.num_classes)
+        except (ValueError, FileNotFoundError, KeyError):
+            pass                                     # no val split: nothing to count
+        previous.write_text(json.dumps(setup, ensure_ascii=False, indent=2), encoding="utf-8")
+        return setup
+
+    def _outcome(self, setup: dict, started: float, stopped_early: bool) -> dict:
+        """How it went, read back from results.csv so a resumed run counts every epoch."""
+        rows = []
+        path = self.save_dir / "results.csv"
+        if path.exists():
+            with path.open(newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+        scored = [r for r in rows if r.get("map50_95")]
+        best = max(scored, key=lambda r: float(r["map50_95"])) if scored else None
+        last = rows[-1] if rows else {}
+        seconds = sum(float(r.get("seconds") or 0) for r in rows)
+        return {
+            "run": setup,
+            "best_epoch": int(best["epoch"]) if best else None,
+            "stopped_early": stopped_early,
+            "train_seconds": round(seconds, 1),
+            "epoch_seconds": round(seconds / len(rows), 1) if rows else None,
+            "final": {k: float(last[k]) for k in ("loss", "vfl", "l1", "giou") if last.get(k)},
+            "wall_seconds": round(time.time() - started, 1),
+            "finished": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+
     def _set_lr(self, epoch, step, steps_per_epoch):
         t = epoch + step / max(steps_per_epoch, 1)
         if t < self.warmup_epochs:
@@ -211,6 +318,8 @@ class Trainer:
             f"[rtdetr] training on {self.device}, {len(ds)} images, "
             f"{self.epochs} epochs -> {self.save_dir}"
         )
+        setup = self._write_setup(ds)
+        started, stopped_early = time.time(), False
 
         logs = {"vfl": 0.0, "l1": 0.0, "giou": 0.0}
         for epoch in range(self.start_epoch, self.epochs):
@@ -291,6 +400,7 @@ class Trainer:
                     f"[rtdetr] early stop: no mAP improvement for {self.patience} epochs "
                     f"(best {self.best:.4f})"
                 )
+                stopped_early = True
                 break
 
         best_path = self.save_dir / "weights" / "best.pt"
@@ -302,6 +412,7 @@ class Trainer:
                     "weights": str(best_path),
                     "imgsz": self.imgsz,
                     "names": self.cfg["names"],
+                    **self._outcome(setup, started, stopped_early),
                 },
                 ensure_ascii=False,
                 indent=2,

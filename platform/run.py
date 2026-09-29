@@ -48,7 +48,7 @@ def _serve_https(application, uvicorn, args, local: str, path: str) -> None:
 
 #: The oldest rtdetr this platform works with. Checked against the code that is
 #: actually imported — an editable install's metadata can lag behind a git pull.
-RTDETR_AT_LEAST = "0.6.8"
+RTDETR_AT_LEAST = "0.6.9"
 
 
 def _check_rtdetr() -> None:

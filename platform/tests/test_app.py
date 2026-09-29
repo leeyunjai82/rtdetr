@@ -998,3 +998,93 @@ def test_a_card_without_power_readings_and_a_box_without_a_gpu(studio, tmp_path,
     monkeypatch.setenv("PATH", str(tmp_path / "nowhere"))
     module._gpu_cache.update(at=0.0)
     assert client.get("/api/gpu").json() == {"gpus": None}
+
+
+def test_a_finished_run_says_where_its_model_files_are(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1}).json()["id"]
+    assert client.get(f"/api/jobs/{job}").json()["files"] == {}
+
+    run = module.RUNS / f"job{job}"
+    (run / "weights").mkdir(parents=True)
+    (run / "weights" / "best.pt").write_bytes(b"w")
+    (run / "openvino").mkdir()
+    (run / "openvino" / "best.xml").write_text("<net/>")
+    module.db.update_job(job, status="done", run_dir=str(run))
+
+    files = client.get(f"/api/jobs/{job}").json()["files"]
+    assert files == {"weights": str((run / "weights" / "best.pt").resolve()),
+                     "ir": str((run / "openvino" / "best.xml").resolve())}
+
+
+def _finished_run(client, module):
+    """A training job whose run folder looks like a real one: IR, labels, record."""
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"},
+           name="Rock Paper Scissors")
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 3}).json()["id"]
+    run = module.RUNS / f"job{job}"
+    (run / "weights").mkdir(parents=True)
+    (run / "weights" / "best.pt").write_bytes(b"w")
+    (run / "openvino").mkdir()
+    for name, body in {"best.xml": "<net/>", "best.bin": "b", "labels.txt": "rock\n",
+                       "best.names.json": "{}", "best.onnx": "big"}.items():
+        (run / "openvino" / name).write_text(body)
+    setup = {"variant": "r34", "names": {"0": "rock"}, "start": {"kind": "coco"},
+             "params": 31_000_000, "trainable_params": 20_000_000, "freeze": "backbone",
+             "optimizer": {"name": "AdamW", "lr": 1e-4, "lr_backbone": 1e-5, "weight_decay": 1e-4,
+                           "warmup_epochs": 1, "grad_clip": 0.1},
+             "amp": True, "augment": ["horizontal flip (p=0.5)"], "patience": 50, "seed": 0,
+             "data": {
+                 "train": {"images": 8, "boxes": 12, "background_images": 1, "per_class": [12]},
+                 "val": {"images": 2, "boxes": 3, "background_images": 0, "per_class": [3]}},
+             "device": "cuda:0", "gpu": "NVIDIA GeForce RTX 5090",
+             "versions": {"rtdetr": "0.6.9", "torch": "2.9.0", "cuda": "12.8", "python": "3.12.3"}}
+    (run / "run.json").write_text(json.dumps(setup))
+    (run / "summary.json").write_text(json.dumps({
+        "best_map50_95": 0.762, "epochs_run": 3, "imgsz": 640, "names": {"0": "rock"},
+        "run": setup, "best_epoch": 2, "stopped_early": False, "epoch_seconds": 98.0,
+        "final": {"loss": 4.2, "vfl": 0.3, "l1": 0.1, "giou": 0.2}}))
+    module.db.update_job(job, status="done", run_dir=str(run), started=1000.0, finished=1300.0)
+    for epoch, score in [(1, 0.5), (2, 0.762), (3, 0.75)]:
+        module.db.add_epoch(
+            job, {"epoch": epoch, "loss": 5.0 - epoch, "map50_95": score, "seconds": 98})
+    return job, run
+
+
+def test_a_trained_run_writes_its_own_model_card(studio):
+    client, module = studio
+    job, _ = _finished_run(client, module)
+
+    card = client.get(f"/api/jobs/{job}/modelcard").json()
+    assert card["folder"] == "models/rock-paper-scissors" and "/" in card["repo"]
+    readme = card["readme"]
+    assert readme.startswith("---\nlicense: apache-2.0")
+    for fact in ("RT-DETR r34", "PResNet-34", "**rock**", "**0.762**", "best at epoch 2",
+                 "COCO-pretrained", "8 training images (12 boxes), 2 validation images (3 boxes)",
+                 "| 0 | rock | 12 | 3 |", "RTX 5090", "AdamW", "20.0M of 31.0M", "on (CUDA AMP)",
+                 'allow_patterns="models/rock-paper-scissors/*"',
+                 "models/rock-paper-scissors/best.xml"):
+        assert fact in readme, fact
+    assert "best.onnx" not in readme                      # the upload leaves it behind
+
+    # the running job's panel reads the same record
+    assert client.get(f"/api/jobs/{job}").json()["run"]["gpu"] == "NVIDIA GeForce RTX 5090"
+
+
+def test_the_hugging_face_bundle_is_the_folder_to_upload(studio):
+    client, module = studio
+    job, _ = _finished_run(client, module)
+
+    response = client.get(f"/api/jobs/{job}/download/huggingface",
+                          params={"repo": "me/models", "folder": "models/rps", "pt": True})
+    names = sorted(zipfile.ZipFile(io.BytesIO(response.content)).namelist())
+    assert names == ["rps/README.md", "rps/best.bin", "rps/best.names.json", "rps/best.pt",
+                     "rps/best.xml", "rps/labels.txt"]
+    readme = zipfile.ZipFile(io.BytesIO(response.content)).read("rps/README.md").decode()
+    assert 'snapshot_download("me/models", allow_patterns="models/rps/*")' in readme
+    assert "`best.pt`" in readme and "model.train(" in readme
+
+    # the plain IR download carries the card too
+    ir = zipfile.ZipFile(io.BytesIO(client.get(f"/api/jobs/{job}/download/openvino").content))
+    assert "README.md" in ir.namelist()

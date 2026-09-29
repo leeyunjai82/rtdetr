@@ -58,6 +58,12 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    every run keeps a `train.log`, and a failure carries the end of it.
    *삭제* removes a finished job with its weights, IR and log — refused while a
    resumed run, an evaluation or a registered model still uses those files.
+   *학습 정보* on the job shows what the run was set up with from its first
+   batch — starting weights, train/validation images and boxes per class,
+   trainable parameters, optimizer and schedule, augmentation, device, versions
+   — and, once it ends, the best epoch, time per epoch and final losses. The
+   trainer writes this to `run.json` in the run folder (`summary.json` repeats
+   it with the outcome), so it is there for scripts too.
 6. **See what it learned** — *평가* scores the run on its validation split and
    draws every one of those frames with the truth in green and the prediction in
    its class colour, next to per-class AP. A single mAP says whether to keep
@@ -77,6 +83,16 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    one, otherwise the weights) and it then appears wherever a model is chosen —
    auto-labelling, batch inference, the webcam. A `.pt`, `.onnx` or IR (its
    `.xml` and `.bin` picked together) from elsewhere goes into the same list.
+   *코드에서 쓰기* on a finished run gives Python, command-line and "another
+   PC" snippets with this run's paths filled in, ready to copy.
+9. **Share it** — the *Hugging Face* tab builds the folder to upload: the IR,
+   `labels.txt`, optionally `best.pt`, and a `README.md` model card written
+   from the run itself — classes with their train/val box counts (and AP if
+   you evaluated), mAP, backbone, starting weights, the training settings and
+   hardware, and download-and-run code pointing at the repo and folder you
+   chose (by default the repo your weights come from, `models/<dataset>`).
+   It shows the `hf upload` command to run next. The plain IR zip carries the
+   same card.
 
 ![labelling](../docs/assets/labeling.jpg)
 
@@ -131,6 +147,8 @@ The pages are only clients of these, so a script can do anything the UI does:
 | `POST /api/jobs/{id}/evaluate` | `{conf}` — queue a scoring pass with pictures |
 | `GET /api/jobs/{id}/report` · `/eval/{name}` | the numbers, and the pictures |
 | `GET /api/jobs/{id}/download/{weights,openvino,results,log,predictions,video}` | |
+| `GET /api/jobs/{id}/download/huggingface` | `?repo=&folder=&pt=` — the upload folder, zipped, with its README |
+| `GET /api/jobs/{id}/modelcard` | the README.md that bundle would carry, and where it would go |
 | `POST /api/jobs/{id}/predict` | multipart: `image`, `conf` → annotated JPEG |
 
 ## What it is not

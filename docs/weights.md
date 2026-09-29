@@ -23,6 +23,12 @@ hf auth login                               # a token with write access
 hf upload leeyunjai/rtdetr mirror . --repo-type=model
 ```
 
+The builder also writes the repo's front page, `README.md`, from
+[`tools/hub_README.md`](../tools/hub_README.md). To update only that page:
+`hf upload leeyunjai/rtdetr tools/hub_README.md README.md`. Fine-tuned models go
+under `models/<name>/`, each with its own card — the platform's *Hugging Face*
+tab writes that folder for a finished run.
+
 (`huggingface-cli` is the old name for `hf` and still works if you have it.
 No CLI on PATH? `python -m huggingface_hub.cli.hf upload …` does the same,
 and `HfApi().upload_folder(folder_path="mirror", repo_id=…)` does it from

@@ -210,6 +210,17 @@ def test_training_reports_every_epoch_to_a_callback_and_a_csv(dataset, tmp_path,
     summary = json.loads((run / "summary.json").read_text())
     assert summary["epochs_run"] == 2 and summary["names"] == {"0": "box"}
 
+    # the record a model card is written from: how it was set up, and how it went
+    setup = json.loads((run / "run.json").read_text())
+    assert setup["variant"] == "r18" and setup["start"] == {"kind": "scratch"}
+    assert setup["freeze"] == "backbone" and 0 < setup["trainable_params"] < setup["params"]
+    assert setup["optimizer"]["name"] == "AdamW" and setup["amp"] is False
+    train = setup["data"]["train"]
+    assert train["images"] > 0 and sum(train["per_class"]) == train["boxes"] > 0
+    assert setup["versions"]["torch"] and setup["device"] == "cpu" and setup["gpu"] is None
+    assert summary["run"]["variant"] == "r18" and summary["stopped_early"] is False
+    assert summary["train_seconds"] > 0 and set(summary["final"]) == {"loss", "vfl", "l1", "giou"}
+
 
 @needs_torch
 def test_a_callback_that_stops_the_run_keeps_the_epoch_it_just_saw(dataset, tmp_path, monkeypatch):

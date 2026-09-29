@@ -343,10 +343,19 @@ class RTDETR:
 
         cfg = load_data_yaml(data)
         self.names = cfg["names"]
+        # where the weights came from, for the run's record
+        origin = None
+        if self.net is not None:
+            origin = ({"kind": "checkpoint", "path": str(self.ckpt_path)} if self.ckpt_path
+                      else {"kind": "custom"})
         if self.net is None and self.pretrained and downloads.is_model_name(self.model_name):
             self._try_pretrained_start(cfg["nc"])
+            if self.net is not None:
+                origin = {"kind": "coco", "weights": self.model_name}
         if self.net is None:
             self.net = RTDETRNet(self.variant or "r18", cfg["nc"])
+            loaded = getattr(self.net.backbone, "imagenet_loaded", False)
+            origin = {"kind": "imagenet" if loaded else "scratch"}
         elif self.net.num_classes != cfg["nc"]:
             self.net = self._reheaded_net(cfg["nc"])
 
@@ -369,6 +378,7 @@ class RTDETR:
             freeze=freeze,
             on_epoch_end=on_epoch_end,
             on_progress=on_progress,
+            origin=origin,
             **kwargs,
         )
         val_fn = None

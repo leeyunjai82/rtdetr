@@ -1,262 +1,556 @@
 <!doctype html>
+<html lang="ko">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rtdetr platform</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314161a'/%3E%3Crect x='6.5' y='11' width='19' height='15' rx='2' fill='none' stroke='%234da3ff' stroke-width='2.6'/%3E%3Crect x='6.5' y='5.5' width='11' height='6.5' rx='1.6' fill='%234da3ff'/%3E%3Ccircle cx='16' cy='18.5' r='2.4' fill='%234da3ff'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233b6cf6'/%3E%3Crect x='7' y='10' width='18' height='14' rx='2.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Crect x='7' y='6' width='10' height='5' rx='1.5' fill='white'/%3E%3Ccircle cx='16' cy='17' r='2.2' fill='white'/%3E%3C/svg%3E">
 <style>
-  :root { color-scheme: dark; --bg:#14161a; --panel:#1c2027; --line:#2c323c; --ink:#e6e9ef; --dim:#8b94a3; --accent:#4da3ff; --ok:#3ecf8e; --bad:#ff6b6b; }
+  :root {
+    color-scheme: light;
+    --bg:#f5f6f8; --surface:#ffffff; --sunk:#f0f2f5; --field:#ffffff;
+    --line:#e3e6eb; --line-strong:#cfd4dc; --ink:#171a20; --dim:#5d6675; --faint:#98a1af;
+    --accent:#3b6cf6; --accent-soft:#e9efff; --accent-ink:#ffffff;
+    --ok:#12a168; --ok-soft:#e5f6ee; --bad:#d93f3f; --bad-soft:#fdecec; --warn:#b7791f; --warn-soft:#fdf3e1;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.04);
+    --loss:#f08c3c;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg:#0e1014; --surface:#15181e; --sunk:#1b1f26; --field:#11141a;
+    --line:#242932; --line-strong:#323845; --ink:#e8eaee; --dim:#9098a6; --faint:#626a78;
+    --accent:#5b8cff; --accent-soft:#1a2440; --accent-ink:#ffffff;
+    --ok:#3ccf91; --ok-soft:#12291f; --bad:#f26d6d; --bad-soft:#2d1717; --warn:#f0b44c; --warn-soft:#2c2414;
+    --shadow:none; --loss:#ff9a55;
+  }
   * { box-sizing:border-box; }
-  [hidden] { display:none !important; }   /* .row's flex must not beat hidden */
-  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;
-         display:flex; flex-direction:column; height:100vh; }
-  header { display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
-  header > *, .gpu > * { white-space:nowrap; }   /* wrap between items, never inside one */
-  .gpu { flex-wrap:wrap; row-gap:4px; }
-  header b { font-size:15px; letter-spacing:.02em; }
-  header .dim { color:var(--dim); font-size:13px; }
-  .wrap { display:grid; grid-template-columns:340px 1fr; gap:0; flex:1; min-height:0; }
-  .col { overflow:auto; padding:16px 18px; }
-  .col + .col { border-left:1px solid var(--line); }
-  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); margin:22px 0 10px; }
-  h2:first-child { margin-top:0; }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:12px 14px; margin-bottom:10px; }
-  .card.click { cursor:pointer; }
-  .card.click:hover { border-color:#3c444f; background:#20252e; }
-  .card[aria-current="true"] { border-color:var(--accent); }
+  [hidden] { display:none !important; }   /* a flex/grid rule must not beat hidden */
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--ink); display:flex; flex-direction:column;
+         font:14px/1.55 Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  a { color:var(--accent); }
+  code, pre, .mono { font-family:ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace; }
+
+  /* ---------- top bar ---------- */
+  .top { display:flex; align-items:center; gap:8px 20px; flex-wrap:wrap; padding:0 20px; min-height:56px;
+         background:var(--surface); border-bottom:1px solid var(--line); }
+  .brand { display:flex; align-items:center; gap:9px; font-weight:700; font-size:15px; letter-spacing:-.01em; }
+  .brand svg { width:26px; height:26px; }
+  .brand span { color:var(--faint); font-weight:500; }
+  nav { display:flex; gap:2px; align-self:stretch; }
+  nav button { position:relative; border:0; background:none; color:var(--dim); font:inherit; font-weight:600;
+               padding:0 12px; cursor:pointer; display:flex; align-items:center; gap:7px; }
+  nav button:hover { color:var(--ink); }
+  nav button[aria-current="page"] { color:var(--ink); }
+  nav button[aria-current="page"]::after { content:""; position:absolute; left:10px; right:10px; bottom:-1px;
+               height:2px; border-radius:2px; background:var(--accent); }
+  nav .n { font-size:11.5px; font-weight:600; min-width:20px; padding:0 6px; border-radius:99px;
+           background:var(--sunk); color:var(--dim); line-height:18px; text-align:center; }
+  nav .n.live { background:var(--accent-soft); color:var(--accent); }
+  .top .grow { flex:1; }
+  .gpu { display:flex; align-items:center; gap:14px; font-size:12.5px; color:var(--dim); flex-wrap:wrap; row-gap:2px; }
+  .gpu > span { white-space:nowrap; display:flex; align-items:center; gap:6px; }
+  .gpu b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
+  .gpu .name { color:var(--ink); font-weight:600; }
+  .meter { width:54px; height:5px; border-radius:99px; background:var(--sunk); overflow:hidden; box-shadow:inset 0 0 0 1px var(--line); }
+  .meter i { display:block; height:100%; background:var(--accent); transition:width .6s; }
+  .meter i.hot { background:var(--warn); }
+  #status { font-size:12.5px; color:var(--faint); white-space:nowrap; }
+  .icon-btn { width:32px; height:32px; display:grid; place-items:center; border-radius:8px; border:1px solid var(--line);
+              background:var(--surface); color:var(--dim); cursor:pointer; }
+  .icon-btn:hover { color:var(--ink); background:var(--sunk); }
+  .banner { padding:9px 20px; font-size:13px; background:var(--warn-soft); color:var(--warn); border-bottom:1px solid var(--line); }
+
+  /* ---------- layout ---------- */
+  .layout { flex:1; min-height:0; display:grid; grid-template-columns:minmax(360px, 440px) 1fr; }
+  .pane { overflow:auto; padding:22px 24px 40px; }
+  .pane + .pane { border-left:1px solid var(--line); }
+  .pane-head { display:flex; align-items:flex-end; gap:10px; margin-bottom:14px; flex-wrap:wrap; }
+  .pane-head h1 { font-size:19px; font-weight:700; letter-spacing:-.02em; margin:0; }
+  .pane-head p { margin:2px 0 0; color:var(--dim); font-size:13px; }
+  h3 { font-size:12px; font-weight:700; color:var(--faint); text-transform:uppercase; letter-spacing:.06em; margin:22px 0 10px; display:flex; align-items:center; gap:8px; }
+  h3 .grow { flex:1; }
+
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px; box-shadow:var(--shadow); }
+  .card + .card { margin-top:10px; }
   .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .row > button { flex:none; }
-  .row + .row { margin-top:7px; }
   .grow { flex:1; }
   .dim { color:var(--dim); }
-  .tag { font-size:12px; padding:1px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
-  .tag.running, .tag.exporting { color:var(--accent); border-color:var(--accent); }
-  .tag.done { color:var(--ok); border-color:var(--ok); }
-  .tag.failed, .tag.cancelled { color:var(--bad); border-color:var(--bad); }
-  label { display:block; font-size:12.5px; color:var(--dim); margin:9px 0 3px; }
-  input, select { width:100%; background:#171b22; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 9px; font:inherit; }
-  input[type=file] { padding:6px; }
-  button { background:#252b35; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:7px 12px; font:inherit; cursor:pointer; }
-  button:hover:not(:disabled) { background:#2e3542; }
-  button:disabled { opacity:.45; cursor:default; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#08101c; font-weight:600; }
-  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .tabs { display:flex; gap:6px; margin:12px 0 4px; }
-  .tabs button { padding:5px 10px; font-size:13px; }
-  .tabs button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
-  canvas#chart { width:100%; height:260px; background:var(--panel); border:1px solid var(--line); border-radius:9px; }
-  table { width:100%; border-collapse:collapse; font-size:13px; }
-  th, td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); }
-  th { color:var(--dim); font-weight:500; }
-  .msg { font-size:13px; margin-top:8px; min-height:19px; }
+  .faint { color:var(--faint); }
+  .small { font-size:12.5px; }
+  .stack > * + * { margin-top:12px; }
+
+  /* ---------- controls ---------- */
+  label.f { display:block; font-size:12.5px; font-weight:600; color:var(--dim); margin:0 0 5px; }
+  .field + .field, .grid2 + .field, .field + .grid2 { margin-top:12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .hint { font-size:12px; color:var(--faint); margin-top:5px; }
+  input, select { width:100%; height:36px; background:var(--field); color:var(--ink); border:1px solid var(--line-strong);
+                  border-radius:8px; padding:0 10px; font:inherit; outline:none; transition:border-color .15s, box-shadow .15s; }
+  input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  input[type=checkbox] { width:auto; height:auto; accent-color:var(--accent); }
+  input[type=range] { padding:0; border:0; box-shadow:none; accent-color:var(--accent); height:20px; background:none; }
+  .range { display:flex; align-items:center; gap:10px; height:36px; }
+  .range output { font-variant-numeric:tabular-nums; font-weight:600; min-width:34px; text-align:right; }
+
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; height:34px; padding:0 13px;
+         border-radius:8px; border:1px solid var(--line-strong); background:var(--surface); color:var(--ink);
+         font:inherit; font-size:13.5px; font-weight:600; cursor:pointer; white-space:nowrap; text-decoration:none;
+         transition:background .15s, border-color .15s; }
+  .btn:hover:not(:disabled) { background:var(--sunk); }
+  .btn:disabled { opacity:.45; cursor:default; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
+  .btn.primary:hover:not(:disabled) { filter:brightness(1.07); background:var(--accent); }
+  .btn.ghost { border-color:transparent; background:none; color:var(--dim); }
+  .btn.ghost:hover:not(:disabled) { color:var(--ink); background:var(--sunk); }
+  .btn.danger { color:var(--bad); }
+  .btn.danger:hover:not(:disabled) { background:var(--bad-soft); }
+  .btn.sm { height:28px; padding:0 10px; font-size:12.5px; border-radius:7px; }
+  .btn.block { width:100%; height:40px; }
+
+  .seg { display:inline-flex; padding:3px; gap:2px; background:var(--sunk); border-radius:9px; border:1px solid var(--line); flex-wrap:wrap; }
+  .seg button { border:0; background:none; color:var(--dim); font:inherit; font-size:13px; font-weight:600;
+                padding:5px 11px; border-radius:6px; cursor:pointer; }
+  .seg button:hover { color:var(--ink); }
+  .seg button[aria-pressed="true"] { background:var(--surface); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.12); }
+  .seg.full { display:flex; }
+  .seg.full button { flex:1; }
+
+  /* a file input you can also drop onto: the input covers the box, invisible */
+  .drop { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+          min-height:92px; padding:14px; border:1.5px dashed var(--line-strong); border-radius:10px; background:var(--sunk);
+          color:var(--dim); font-size:13px; text-align:center; transition:border-color .15s, background .15s; }
+  .drop:hover, .drop.over { border-color:var(--accent); background:var(--accent-soft); }
+  .drop input { position:absolute; inset:0; opacity:0; cursor:pointer; height:100%; }
+  .drop b { color:var(--ink); font-weight:600; }
+  .drop.has b { color:var(--accent); }
+  .drop.compact { min-height:0; padding:9px 12px; flex-direction:row; gap:8px; }
+
+  .msg { font-size:13px; min-height:0; color:var(--dim); }
+  .msg:empty { display:none; }
   .msg.err { color:var(--bad); }
-  .bar { height:5px; border-radius:99px; background:#232833; margin-top:9px; overflow:hidden; }
-  .bar i { display:block; height:100%; background:var(--accent); transition:width .3s; }
-  .stats { margin-top:10px; border-top:1px solid var(--line); padding-top:9px; font-size:13px; }
-  .stats table { width:100%; }
-  .stats td { padding:2px 0; border:0; }
-  .stats td:last-child { text-align:right; color:var(--dim); }
-  .warn { color:#ffb648; }
-  .gallery { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:10px; margin-top:10px; }
-  .shot { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .msg.ok { color:var(--ok); }
+  .warn { color:var(--warn); }
+
+  /* ---------- pills, bars, chips ---------- */
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; padding:2px 9px;
+          border-radius:99px; background:var(--sunk); color:var(--dim); white-space:nowrap; }
+  .pill::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .pill.running, .pill.exporting { background:var(--accent-soft); color:var(--accent); }
+  .pill.running::before, .pill.exporting::before { animation:pulse 1.2s ease-in-out infinite; }
+  .pill.done { background:var(--ok-soft); color:var(--ok); }
+  .pill.failed { background:var(--bad-soft); color:var(--bad); }
+  .pill.cancelled { color:var(--faint); }
+  @keyframes pulse { 50% { opacity:.3; } }
+  .bar { height:4px; border-radius:99px; background:var(--sunk); overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); border-radius:99px; transition:width .3s; }
+  .bar.ok i { background:var(--ok); }
+  .chips { display:flex; gap:5px; flex-wrap:wrap; }
+  .chip { font-size:12px; padding:1px 8px; border-radius:6px; background:var(--sunk); color:var(--dim); border:1px solid var(--line); }
+  .chip b { color:var(--ink); font-weight:600; margin-left:3px; }
+
+  /* ---------- dataset cards ---------- */
+  .ds-head { display:flex; align-items:baseline; gap:8px; }
+  .ds-head b { font-size:15px; }
+  .ds-meta { display:flex; gap:14px; margin:6px 0 10px; font-size:12.5px; color:var(--dim); }
+  .ds-meta b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
+  .ds-actions { display:flex; gap:6px; margin-top:12px; align-items:center; flex-wrap:wrap; }
+
+  .menu { position:relative; }
+  .menu > summary { list-style:none; }
+  .menu > summary::-webkit-details-marker { display:none; }
+  .menu-list { position:absolute; right:0; top:calc(100% + 4px); z-index:20; min-width:170px; padding:5px;
+               background:var(--surface); border:1px solid var(--line-strong); border-radius:10px;
+               box-shadow:0 10px 30px rgba(0,0,0,.18); }
+  .menu-list button, .menu-list label { display:flex; align-items:center; gap:8px; width:100%; border:0; background:none;
+               color:var(--ink); font:inherit; font-size:13px; text-align:left; padding:7px 10px; border-radius:6px; cursor:pointer; }
+  .menu-list button:hover, .menu-list label:hover { background:var(--sunk); }
+  .menu-list button.danger { color:var(--bad); }
+  .menu-list hr { border:0; border-top:1px solid var(--line); margin:4px 2px; }
+
+  .stats { margin-top:12px; padding-top:10px; border-top:1px solid var(--line); font-size:13px; }
+  .stats table { width:100%; border-collapse:collapse; }
+  .stats td { padding:3px 0; }
+  .stats td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
+
+  /* ---------- jobs ---------- */
+  .jobs { display:flex; flex-direction:column; gap:6px; }
+  .jobs.capped { max-height:34vh; overflow:auto; padding-right:2px; }
+  .job { display:grid; grid-template-columns:34px 1fr auto; gap:3px 12px; align-items:center; padding:10px 12px;
+         background:var(--surface); border:1px solid var(--line); border-radius:10px; cursor:pointer; }
+  .job:hover { border-color:var(--line-strong); }
+  .job[aria-current="true"] { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  .job .k { grid-row:span 2; width:34px; height:34px; border-radius:9px; display:grid; place-items:center;
+            background:var(--sunk); color:var(--dim); font-size:12px; font-weight:700; }
+  .job .k.train { background:var(--accent-soft); color:var(--accent); }
+  .job .t { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .job .t .dim { font-weight:400; margin-left:6px; }
+  .job .s { font-size:12.5px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .job .s.err { color:var(--bad); white-space:normal; }
+  .job .bar { grid-column:2 / 4; margin-top:4px; }
+
+  .empty { text-align:center; padding:28px 16px; color:var(--dim); border:1px dashed var(--line-strong); border-radius:12px; }
+  .steps { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-top:6px; }
+  .step { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .step i { font-style:normal; display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%;
+            background:var(--accent-soft); color:var(--accent); font-size:12px; font-weight:700; margin-bottom:6px; }
+  .step b { display:block; margin-bottom:2px; }
+  .step span { font-size:12.5px; color:var(--dim); }
+
+  /* ---------- job detail ---------- */
+  .detail { margin-top:16px; padding:0; overflow:hidden; }
+  .detail > section { padding:16px 18px; border-top:1px solid var(--line); }
+  .detail > section:first-child { border-top:0; }
+  .d-title { font-size:16px; font-weight:700; }
+  .toolbar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .kv { display:flex; gap:22px; flex-wrap:wrap; }
+  .kv div { font-size:12px; color:var(--faint); }
+  .kv b { display:block; font-size:18px; color:var(--ink); font-weight:700; font-variant-numeric:tabular-nums; }
+  canvas#chart { width:100%; height:220px; display:block; }
+  .legend { display:flex; gap:14px; font-size:12px; color:var(--dim); text-transform:none; letter-spacing:0; font-weight:500; }
+  .legend i { display:inline-block; width:12px; height:3px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+  table.t { width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+  table.t th, table.t td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  table.t th { color:var(--faint); font-weight:600; font-size:12px; }
+  .gallery { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; margin-top:12px; }
+  .shot { background:var(--sunk); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
   .shot img { width:100%; display:block; cursor:zoom-in; }
-  .shot .cap { padding:5px 8px; font-size:12px; color:var(--dim); display:flex; }
-  .shot .cap span:last-child { margin-left:auto; }
+  .shot .cap { padding:6px 9px; font-size:12px; color:var(--dim); display:flex; gap:8px; }
+  .shot .cap span:first-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .shot .cap span:last-child { margin-left:auto; flex:none; }
   .miss { color:var(--bad); }
-  #cam, #cam-out { width:100%; border-radius:8px; margin-top:8px; display:block; }
-  #jobs { max-height:42vh; overflow:auto; }   /* the open job stays in reach as the list grows */
-  .detail { border-color:var(--accent); }
-  .gpu { display:flex; gap:12px; align-items:center; font-size:12.5px; color:var(--dim); margin-left:6px; }
-  .gpu b { color:var(--ink); font-weight:600; }
-  .meter { display:inline-block; width:64px; height:6px; border-radius:99px; background:#232833; overflow:hidden; vertical-align:middle; margin-left:5px; }
-  .meter i { display:block; height:100%; background:var(--accent); transition:width .6s; }
-  .meter i.hot { background:#ffb648; }
-  .detail h2 { margin-top:16px; }
-  .detail #detail-title { font-size:15px; }
-  .legend { text-transform:none; letter-spacing:0; margin-left:10px; }
-  .legend i { display:inline-block; width:10px; height:3px; margin:0 4px 3px 10px; vertical-align:middle; }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; }
-  .chip { font-size:12.5px; padding:2px 9px; border-radius:99px; background:#232833; }
-  #detail-close { padding:2px 9px; }
-  img#preview { max-width:100%; border-radius:9px; border:1px solid var(--line); margin-top:10px; }
+  img#preview { max-width:100%; border-radius:10px; border:1px solid var(--line); margin-top:12px; display:block; }
+  #cam, #cam-out { width:100%; border-radius:10px; margin-top:12px; display:block; background:#000; }
+
+  .facts { display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:12px 20px; }
+  .facts div { font-size:13px; min-width:0; }
+  .facts span { display:block; font-size:11.5px; font-weight:600; color:var(--faint); margin-bottom:1px; }
+  .code { position:relative; margin-top:10px; }
+  .code pre { margin:0; padding:14px 16px; border-radius:10px; background:#0d1117; color:#d6dde8; font-size:12.5px;
+              line-height:1.65; overflow:auto; border:1px solid var(--line); }
+  .code pre .c { color:#7d8796; }
+  .code pre .s { color:#a5d6a7; }
+  .code pre .k { color:#8fb4ff; }
+  .code .copy { position:absolute; top:8px; right:8px; height:26px; font-size:12px; background:#1d2430; color:#c9d2df;
+                border-color:#2d3645; }
+  .code .copy:hover:not(:disabled) { background:#273042; }
+
+  @media (max-width: 980px) {
+    .layout { grid-template-columns:1fr; }
+    .pane + .pane { border-left:0; border-top:1px solid var(--line); }
+    .pane { overflow:visible; }
+    body { height:auto; }
+  }
+  @media (max-width: 560px) {
+    .pane { padding:18px 16px 32px; }
+    .grid2 { grid-template-columns:1fr; }
+    .top { padding:6px 16px; }
+  }
 </style>
 
-<header>
-  <b>rtdetr platform</b>
-  <span class="dim" id="status">…</span>
-  <span id="gpu-live" class="gpu" hidden></span>
-  <span id="gpu-warn" class="warn" hidden title="CUDA 빌드의 torch를 설치하세요 (RTX 50 계열은 cu128 이상)">⚠ PyTorch가 이 GPU를 쓰지 못합니다 — 학습은 CPU로 돕니다</span>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#3b6cf6"/><rect x="7" y="10" width="18" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2.4"/><rect x="7" y="6" width="10" height="5" rx="1.5" fill="white"/><circle cx="16" cy="17" r="2.2" fill="white"/></svg>
+    rtdetr <span>platform</span>
+  </div>
+  <nav id="nav">
+    <button data-view="data">데이터셋 <span class="n" id="n-data">0</span></button>
+    <button data-view="train">학습</button>
+    <button data-view="infer">추론</button>
+    <button data-view="models">모델 <span class="n" id="n-models">0</span></button>
+  </nav>
+  <span class="grow"></span>
+  <div id="gpu-live" class="gpu" hidden></div>
+  <span id="status"></span>
+  <button class="icon-btn" id="theme" title="밝게 / 어둡게"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
 </header>
+<div class="banner" id="gpu-warn" hidden title="CUDA 빌드의 torch를 설치하세요 (RTX 50 계열은 cu128 이상)">
+  ⚠ PyTorch가 이 GPU를 쓰지 못합니다 — 학습이 CPU로 돕니다. CUDA 빌드의 torch를 설치하세요 (RTX 50 계열은 cu128 이상).
+</div>
 
-<div class="wrap">
-  <div class="col">
-    <h2>수집</h2>
-    <div class="card">
-      <label>이름</label>
-      <input id="ds-name" placeholder="cans-line-1">
-      <label>기존 데이터셋에 추가 (비우면 새로 만듦)</label>
-      <select id="ds-target"><option value="">새 데이터셋</option></select>
+<div class="layout">
+  <!-- ======================= left: the step you are on ======================= -->
+  <div class="pane">
 
-      <div class="tabs" id="ds-tabs">
-        <button data-tab="images" aria-pressed="true">이미지</button>
-        <button data-tab="video">영상</button>
-        <button data-tab="zip">zip</button>
-        <button data-tab="folder">폴더</button>
-      </div>
+    <!-- ---------- datasets ---------- -->
+    <div data-view="data">
+      <div class="pane-head"><div>
+        <h1>데이터셋</h1>
+        <p>이미지·영상·zip·폴더를 올리고, 라벨링한 뒤 학습에 씁니다.</p>
+      </div></div>
 
-      <div data-panel="images">
-        <label>이미지 파일 (여러 장 선택 가능)</label>
-        <input id="ds-images" type="file" accept="image/*" multiple>
-      </div>
-      <div data-panel="video" hidden>
-        <label>영상 파일</label>
-        <input id="ds-video" type="file" accept="video/*">
-        <div class="two">
-          <div><label>프레임 간격</label><input id="ds-every" type="number" value="30" min="1"></div>
-          <div><label>최대 장수</label><input id="ds-max" type="number" value="300" min="1"></div>
+      <div class="card stack">
+        <div class="seg full" id="ds-tabs">
+          <button data-tab="images" aria-pressed="true">이미지</button>
+          <button data-tab="video">영상</button>
+          <button data-tab="zip">zip</button>
+          <button data-tab="folder">폴더</button>
         </div>
-      </div>
-      <div data-panel="zip" hidden>
-        <label>zip — YOLO 형식 내보내기(Roboflow 등) 그대로, 또는 images/ + labels/</label>
-        <input id="ds-file" type="file" accept=".zip">
-      </div>
-      <div data-panel="folder" hidden>
-        <label>이 컴퓨터의 폴더 경로</label>
-        <input id="ds-path" placeholder="/data/line-a/images">
-        <label>클래스 (쉼표로 구분, 비우면 data.yaml 또는 자동)</label>
-        <input id="ds-classes" placeholder="can, bottle">
+
+        <div data-panel="images">
+          <label class="drop"><input id="ds-images" type="file" accept="image/*" multiple>
+            <b data-drop>이미지를 끌어다 놓거나 클릭</b><span>여러 장 한 번에</span></label>
+        </div>
+        <div data-panel="video" hidden>
+          <label class="drop"><input id="ds-video" type="file" accept="video/*">
+            <b data-drop>영상을 끌어다 놓거나 클릭</b><span>일정 간격으로 프레임을 뽑습니다</span></label>
+          <div class="grid2" style="margin-top:12px">
+            <div><label class="f">프레임 간격</label><input id="ds-every" type="number" value="30" min="1"></div>
+            <div><label class="f">최대 장수</label><input id="ds-max" type="number" value="300" min="1"></div>
+          </div>
+        </div>
+        <div data-panel="zip" hidden>
+          <label class="drop"><input id="ds-file" type="file" accept=".zip">
+            <b data-drop>zip을 끌어다 놓거나 클릭</b><span>Roboflow 등 YOLO 형식 그대로, 또는 images/ + labels/</span></label>
+        </div>
+        <div data-panel="folder" hidden>
+          <div class="field"><label class="f">이 서버의 폴더 경로</label><input id="ds-path" placeholder="/data/line-a/images"></div>
+          <div class="field"><label class="f">클래스</label><input id="ds-classes" placeholder="can, bottle">
+            <div class="hint">쉼표로 구분 · 비우면 data.yaml을 읽거나 자동으로 정합니다</div></div>
+        </div>
+
+        <div class="grid2">
+          <div><label class="f">이름</label><input id="ds-name" placeholder="자동"></div>
+          <div><label class="f">넣을 곳</label><select id="ds-target"><option value="">새 데이터셋</option></select></div>
+        </div>
+        <button class="btn primary block" id="ds-upload">데이터 추가</button>
+        <div class="msg" id="ds-msg"></div>
       </div>
 
-      <div class="row" style="margin-top:12px">
-        <button class="primary" id="ds-upload">추가</button>
-        <span class="msg" id="ds-msg"></span>
+      <h3>내 데이터셋 <span class="grow"></span>
+        <button class="btn sm" id="merge" disabled title="카드 메뉴에서 '병합 선택'으로 두 개 이상 고르세요">선택 병합</button></h3>
+      <div id="datasets"></div>
+    </div>
+
+    <!-- ---------- training ---------- -->
+    <div data-view="train" hidden>
+      <div class="pane-head"><div>
+        <h1>학습</h1>
+        <p>COCO 가중치에서 시작해 내 데이터셋에 맞춥니다. 끝나면 OpenVINO IR까지 만들어 둡니다.</p>
+      </div></div>
+
+      <div class="empty" id="train-empty" hidden>
+        라벨이 있는 데이터셋이 아직 없습니다.<br>
+        <button class="btn sm" style="margin-top:10px" data-go="data">데이터셋 추가하기</button>
+      </div>
+
+      <div class="card stack" id="train-form">
+        <div class="field"><label class="f">데이터셋</label><select id="job-dataset"></select></div>
+        <div class="field"><label class="f">목표</label>
+          <div class="seg full" id="presets">
+            <button data-preset="fast">빠르게</button>
+            <button data-preset="balanced" aria-pressed="true">균형</button>
+            <button data-preset="accurate">정확하게</button>
+          </div>
+          <div class="hint" id="preset-hint"></div>
+        </div>
+        <div class="field"><label class="f">시작 모델</label>
+          <select id="job-model"><option>rtdetr-r18</option><option>rtdetr-r34</option><option>rtdetr-r50</option></select>
+          <div class="hint">r18 빠름 · r34 중간 · r50 가장 정확</div></div>
+        <div class="grid2">
+          <div><label class="f">에폭</label><input id="job-epochs" type="number" value="50" min="1"></div>
+          <div><label class="f">배치</label><input id="job-batch" type="number" value="4" min="1"></div>
+        </div>
+        <details id="adv">
+          <summary class="small dim" style="cursor:pointer;font-weight:600">고급 설정</summary>
+          <div class="grid2" style="margin-top:10px">
+            <div><label class="f">입력 크기</label><input id="job-imgsz" type="number" value="640" step="32"></div>
+            <div><label class="f">검증 비율</label><input id="job-val" type="number" value="0.2" step="0.05" min="0.05" max="0.5"></div>
+            <div><label class="f">백본 고정</label>
+              <select id="job-freeze"><option value="backbone">예 (빠름)</option><option value="">아니오</option></select></div>
+            <div><label class="f">장치</label>
+              <select id="job-device"><option value="">자동</option><option value="cpu">CPU</option><option value="0">GPU 0</option></select></div>
+          </div>
+        </details>
+        <button class="btn primary block" id="job-start">학습 시작</button>
+        <div class="msg" id="job-msg"></div>
       </div>
     </div>
 
-    <h2>데이터셋 <button id="merge" style="float:right;font-size:12px;padding:3px 8px" disabled>선택 병합</button></h2>
-    <div id="datasets"></div>
+    <!-- ---------- inference ---------- -->
+    <div data-view="infer" hidden>
+      <div class="pane-head"><div>
+        <h1>추론</h1>
+        <p>모델을 데이터셋·폴더·영상·웹캠에 돌려 결과를 봅니다.</p>
+      </div></div>
 
-    <h2>학습 시작</h2>
-    <div class="card">
-      <label>데이터셋</label>
-      <select id="job-dataset"></select>
-      <div class="tabs" id="presets">
-        <button data-preset="fast">빠름</button>
-        <button data-preset="balanced" aria-pressed="true">균형</button>
-        <button data-preset="accurate">정확</button>
+      <div class="card stack">
+        <div class="field"><label class="f">모델</label><select id="run-model"></select></div>
+        <div class="field"><label class="f">신뢰도 기준 (conf)</label>
+          <div class="range"><input id="run-conf" type="range" min="0.05" max="0.95" step="0.05" value="0.25">
+            <output id="run-conf-out">0.25</output></div>
+          <div class="hint">낮추면 더 많이 찾고, 높이면 확실한 것만 남깁니다</div></div>
+        <div class="field"><label class="f">대상</label>
+          <div class="seg full" id="run-tabs">
+            <button data-run="dataset" aria-pressed="true">데이터셋</button>
+            <button data-run="path">폴더</button>
+            <button data-run="video">영상</button>
+            <button data-run="webcam">웹캠</button>
+          </div></div>
+        <div data-runpanel="dataset"><select id="run-dataset"></select></div>
+        <div data-runpanel="path" hidden><input id="run-path" placeholder="/data/새-촬영분"></div>
+        <div data-runpanel="video" hidden>
+          <label class="drop"><input id="run-video" type="file" accept="video/*">
+            <b data-drop>영상을 끌어다 놓거나 클릭</b><span>결과는 상자를 그린 mp4로 받습니다</span></label>
+        </div>
+        <div data-runpanel="webcam" hidden>
+          <div class="row">
+            <button class="btn primary" id="cam-start">카메라 시작</button>
+            <button class="btn" id="cam-stop" disabled>정지</button>
+          </div>
+          <div class="msg" id="cam-msg" style="margin-top:8px"></div>
+          <video id="cam" playsinline muted hidden></video>
+          <img id="cam-out" hidden alt="">
+        </div>
+        <button class="btn primary block" id="run-start">추론 실행</button>
+        <div class="msg" id="run-msg"></div>
       </div>
-      <div class="two">
-        <div><label>모델</label>
-          <select id="job-model">
-            <option>rtdetr-r18</option><option>rtdetr-r34</option><option>rtdetr-r50</option>
-          </select></div>
-        <div><label>에폭</label><input id="job-epochs" type="number" value="20" min="1"></div>
-        <div><label>입력 크기</label><input id="job-imgsz" type="number" value="640" step="32"></div>
-        <div><label>배치</label><input id="job-batch" type="number" value="4" min="1"></div>
-        <div><label>백본 고정</label>
-          <select id="job-freeze"><option value="backbone">예 (빠름)</option><option value="">아니오</option></select></div>
-        <div><label>검증 비율</label><input id="job-val" type="number" value="0.2" step="0.05" min="0.05" max="0.5"></div>
-        <div><label>장치</label>
-          <select id="job-device"><option value="">자동</option><option value="cpu">CPU</option><option value="0">GPU 0</option></select></div>
+    </div>
+
+    <!-- ---------- models ---------- -->
+    <div data-view="models" hidden>
+      <div class="pane-head"><div>
+        <h1>모델</h1>
+        <p>학습 결과에 이름을 붙여 두면 자동 라벨·추론에서 그 이름으로 고릅니다.</p>
+      </div></div>
+
+      <div id="models"></div>
+
+      <h3>외부 모델 올리기</h3>
+      <div class="card stack">
+        <label class="drop compact"><input id="model-file" type="file" accept=".pt,.xml,.bin,.onnx,.txt" multiple>
+          <b data-drop>.pt · .onnx · IR(.xml + .bin)</b><span>IR은 두 파일을 함께 고르세요</span></label>
+        <div class="row">
+          <input id="model-name" placeholder="이름 (비우면 파일 이름)" style="flex:1;min-width:140px">
+          <button class="btn" id="model-upload">올리기</button>
+        </div>
+        <div class="msg" id="model-msg"></div>
       </div>
-      <div class="row" style="margin-top:12px">
-        <button class="primary" id="job-start">학습 시작</button>
-        <span class="msg" id="job-msg"></span>
+
+      <h3>코드에서 쓰기</h3>
+      <div class="card">
+        <div class="small dim">어느 PC에서든 <code>pip install rtdetr</code> 하나면 됩니다 — 추론에는 PyTorch가 필요 없습니다.
+          학습한 모델의 경로가 채워진 코드는 작업을 열면 나옵니다.</div>
+        <div class="code"><button class="btn copy">복사</button><pre id="code-general"></pre></div>
       </div>
     </div>
   </div>
 
-  <div class="col">
-    <h2>작업</h2>
-    <div id="jobs"></div>
+  <!-- ======================= right: what is running, and what came out ======================= -->
+  <div class="pane">
+    <div class="pane-head">
+      <div class="grow"><h1>작업</h1><p id="jobs-sub">학습·자동 라벨·평가·추론이 여기 차례로 쌓입니다.</p></div>
+      <div class="seg" id="job-filter">
+        <button data-kind="" aria-pressed="true">전체</button>
+        <button data-kind="train">학습</button>
+        <button data-kind="predict">추론</button>
+        <button data-kind="autolabel">자동 라벨</button>
+        <button data-kind="evaluate">평가</button>
+      </div>
+    </div>
+    <div id="jobs" class="jobs"></div>
+
     <div id="detail" class="card detail" hidden>
-      <div class="row">
-        <b id="detail-title"></b><span class="tag" id="detail-tag"></span>
-        <span class="dim" id="detail-sub"></span><span class="grow"></span>
-        <button id="detail-close" title="닫기">✕</button>
-      </div>
-      <div class="bar" id="detail-bar" hidden><i></i></div>
-      <div class="msg" id="detail-msg"></div>
-      <h2 id="chart-title">학습 곡선</h2>
-      <canvas id="chart"></canvas>
-      <div class="row" style="margin-top:10px">
-        <button id="cancel">중지</button>
-        <button id="evaluate">평가</button>
-        <button id="resume">이어서 학습</button>
-        <button id="dl-weights">best.pt</button>
-        <button id="dl-ir">OpenVINO IR</button>
-        <button id="dl-csv">results.csv</button>
-        <button id="dl-log">로그</button>
-        <button id="dl-pred">결과 zip</button>
-        <button id="dl-video">영상</button>
-        <button id="register">모델로 등록</button>
-        <button id="delete-job" title="이 작업과 결과 파일을 지웁니다">삭제</button>
-      </div>
-      <div class="row" id="try-row" style="margin-top:8px">
-        <span class="dim">이 모델로 시험:</span>
-        <input id="try-file" type="file" accept="image/*" style="width:auto;flex:1;min-width:180px">
-        <input id="try-conf" type="number" value="0.25" step="0.05" min="0" max="1" style="width:80px" title="conf">
-        <button id="try">이 모델로 추론</button>
-      </div>
-      <img id="preview" hidden>
-      <div id="pred" hidden>
+      <section>
+        <div class="row">
+          <span class="d-title" id="detail-title"></span><span class="pill" id="detail-tag"></span>
+          <span class="grow"></span>
+          <button class="btn ghost sm" id="detail-close" title="닫기">✕</button>
+        </div>
+        <div class="dim small" id="detail-sub" style="margin-top:2px"></div>
+        <div class="bar" id="detail-bar" style="margin-top:12px" hidden><i></i></div>
+        <div class="msg" id="detail-msg" style="margin-top:8px"></div>
+        <div class="toolbar" style="margin-top:12px">
+          <button class="btn" id="cancel">중지</button>
+          <button class="btn" id="resume">이어서 학습</button>
+          <button class="btn" id="evaluate">평가</button>
+          <button class="btn" id="register">모델로 등록</button>
+          <details class="menu" id="downloads">
+            <summary class="btn">다운로드 ▾</summary>
+            <div class="menu-list">
+              <button id="dl-weights">best.pt <span class="faint">PyTorch</span></button>
+              <button id="dl-ir">OpenVINO IR <span class="faint">zip</span></button>
+              <button id="dl-csv">results.csv</button>
+              <button id="dl-log">로그</button>
+              <button id="dl-pred">결과 이미지 zip</button>
+              <button id="dl-video">결과 영상</button>
+            </div>
+          </details>
+          <span class="grow"></span>
+          <button class="btn ghost danger" id="delete-job" title="이 작업과 결과 파일을 지웁니다">삭제</button>
+        </div>
+      </section>
+
+      <section id="info" hidden>
+        <h3 style="margin-top:0">학습 정보</h3>
+        <div class="facts" id="info-facts"></div>
+        <div id="info-classes" style="margin-top:12px"></div>
+      </section>
+
+      <section id="try-row">
+        <h3 style="margin-top:0">이 모델로 시험해 보기</h3>
+        <div class="row">
+          <label class="drop compact" style="flex:1;min-width:200px"><input id="try-file" type="file" accept="image/*">
+            <b data-drop>이미지 한 장</b><span>끌어다 놓거나 클릭</span></label>
+          <input id="try-conf" type="number" value="0.25" step="0.05" min="0" max="1" style="width:78px" title="conf">
+          <button class="btn primary" id="try">추론</button>
+        </div>
+        <img id="preview" hidden alt="">
+      </section>
+
+      <section id="pred" hidden>
         <div class="row" id="pred-summary"></div>
         <div class="gallery" id="pred-gallery"></div>
-        <div class="dim" id="pred-more"></div>
-      </div>
-      <div id="report" hidden>
-        <h2>평가</h2>
-        <div class="card" id="report-summary"></div>
+        <div class="hint" id="pred-more"></div>
+      </section>
+
+      <section id="report" hidden>
+        <h3 style="margin-top:0">평가 결과</h3>
+        <div id="report-summary"></div>
         <div class="gallery" id="gallery"></div>
-      </div>
-      <h2 id="epochs-title">에폭</h2>
-      <table id="epochs-table"><thead><tr><th>#</th><th>loss</th><th>mAP50-95</th><th>초</th></tr></thead>
-        <tbody id="epochs"></tbody></table>
-    </div>
-    <h2>추론</h2>
-    <div class="card">
-      <div class="two">
-        <div><label>모델</label><select id="run-model"></select></div>
-        <div><label>conf</label><input id="run-conf" type="number" value="0.25" step="0.05" min="0" max="1"></div>
-      </div>
-      <div class="tabs" id="run-tabs">
-        <button data-run="dataset" aria-pressed="true">데이터셋</button>
-        <button data-run="path">폴더 경로</button>
-        <button data-run="video">영상</button>
-        <button data-run="webcam">웹캠</button>
-      </div>
-      <div data-runpanel="dataset"><select id="run-dataset"></select></div>
-      <div data-runpanel="path" hidden><input id="run-path" placeholder="/data/새-촬영분"></div>
-      <div data-runpanel="video" hidden><input id="run-video" type="file" accept="video/*"></div>
-      <div data-runpanel="webcam" hidden>
-        <div class="row">
-          <button id="cam-start">카메라 시작</button>
-          <button id="cam-stop" disabled>정지</button>
-          <span class="dim" id="cam-msg"></span>
+      </section>
+
+      <section id="chart-box">
+        <h3 style="margin-top:0" id="chart-title">학습 곡선 <span class="grow"></span>
+          <span class="legend"><span><i style="background:var(--loss)"></i>loss</span><span><i style="background:var(--ok)"></i>mAP50-95</span></span></h3>
+        <canvas id="chart"></canvas>
+        <details id="epochs-box" style="margin-top:10px">
+          <summary class="small dim" style="cursor:pointer;font-weight:600" id="epochs-title">에폭별 기록</summary>
+          <table class="t" id="epochs-table" style="margin-top:8px"><thead><tr><th>#</th><th>loss</th><th>mAP50-95</th><th>초</th></tr></thead>
+            <tbody id="epochs"></tbody></table>
+        </details>
+      </section>
+
+      <section id="code-box" hidden>
+        <h3 style="margin-top:0">코드에서 쓰기 <span class="grow"></span>
+          <span class="seg" id="code-tabs">
+            <button data-code="python" aria-pressed="true">Python</button>
+            <button data-code="cli">명령줄</button>
+            <button data-code="elsewhere">다른 PC</button>
+            <button data-code="hub">Hugging Face</button>
+          </span></h3>
+        <div id="hub" class="stack" hidden>
+          <div class="grid2">
+            <div><label class="f">저장소</label><input id="hub-repo" placeholder="user/repo"></div>
+            <div><label class="f">저장소 안 폴더</label><input id="hub-folder" placeholder="models/my-model"></div>
+          </div>
+          <label class="small dim" style="display:flex;gap:8px;align-items:center;cursor:pointer">
+            <input type="checkbox" id="hub-pt"> best.pt도 넣기 <span class="faint">— 받은 사람이 이어서 학습할 수 있게 (용량 늘어남)</span></label>
+          <div class="row">
+            <button class="btn primary" id="hub-zip">업로드용 zip 받기</button>
+            <button class="btn" id="hub-readme" aria-pressed="false">README 보기</button>
+            <span class="hint" id="hub-files"></span>
+          </div>
         </div>
-        <video id="cam" playsinline muted hidden></video>
-        <img id="cam-out" hidden>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button class="primary" id="run-start">추론 실행</button>
-        <span class="msg" id="run-msg"></span>
-      </div>
+        <div class="code"><button class="btn copy">복사</button><pre id="code"></pre></div>
+      </section>
     </div>
-
-    <h2>모델</h2>
-    <div class="card">
-      <div id="models" class="dim">아직 등록된 모델이 없습니다.</div>
-      <div class="row" style="margin-top:10px">
-        <input id="model-file" type="file" accept=".pt,.xml,.bin,.onnx,.txt" multiple title="IR은 .xml과 .bin을 함께 고르세요" style="flex:1;min-width:150px">
-        <input id="model-name" placeholder="이름" style="width:110px">
-        <button id="model-upload">업로드</button>
-      </div>
-    </div>
-
   </div>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let current = null, stream = null;
+let current = null, stream = null, currentJob = null;
 
 const api = async (path, options) => {
   const res = await fetch(path, options);
@@ -266,113 +560,369 @@ const api = async (path, options) => {
 };
 const fmt = (v, digits = 3) => (v === null || v === undefined || v === "" ? "—" : Number(v).toFixed(digits));
 const short = (name) => String(name).split(/[\\/]/).pop();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+                set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+const say = (id, text, kind) => { $(id).textContent = text; $(id).className = "msg" + (kind ? " " + kind : ""); };
+
+// ---------------------------------------------------------------- theme
+const theme = store.get("theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+document.documentElement.dataset.theme = theme;
+$("theme").onclick = () => {
+  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next; store.set("theme", next);
+  if (currentJob) render(currentJob);        // the chart draws with the theme's colours
+};
+
+// ---------------------------------------------------------------- views
+function show(view) {
+  document.querySelectorAll("#nav button").forEach((b) =>
+    b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false"));
+  document.querySelectorAll(".pane > [data-view]").forEach((p) => p.hidden = p.dataset.view !== view);
+  store.set("view", view);
+  if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
+}
+document.querySelectorAll("#nav button").forEach((b) => b.onclick = () => show(b.dataset.view));
+document.addEventListener("click", (e) => {
+  const go = e.target.closest("[data-go]");
+  if (go) show(go.dataset.go);
+  // one open menu at a time, and a click elsewhere closes it
+  document.querySelectorAll("details.menu[open]").forEach((m) => { if (!m.contains(e.target)) m.open = false; });
+});
+show(["data", "train", "infer", "models"].includes(location.hash.slice(1)) ? location.hash.slice(1)
+     : store.get("view") || "data");
+
+// file boxes say what was picked
+document.querySelectorAll(".drop input").forEach((input) => {
+  const box = input.closest(".drop"), text = box.querySelector("[data-drop]"), blank = text.textContent;
+  const update = () => {
+    const files = [...input.files];
+    text.textContent = !files.length ? blank : files.length === 1 ? files[0].name : `${files.length}개 파일 · ${files[0].name} 외`;
+    box.classList.toggle("has", files.length > 0);
+  };
+  input.addEventListener("change", update);
+  input.addEventListener("dragenter", () => box.classList.add("over"));
+  ["dragleave", "drop"].forEach((ev) => input.addEventListener(ev, () => box.classList.remove("over")));
+  input.resetDrop = () => { input.value = ""; update(); };
+});
 
 let smiSeen = false, gpu = null, running = null, runPicked = false, listedAt = 0, listedStatus = null;
+let jobFilter = "", allJobs = [];
+
+const KIND = { train: "학습", autolabel: "자동 라벨", evaluate: "평가", predict: "추론" };
+const KIND_ICON = { train: "학습", autolabel: "라벨", evaluate: "평가", predict: "추론" };
+const STATUS = { queued: "대기", running: "실행 중", exporting: "내보내는 중", done: "완료",
+                 failed: "실패", cancelled: "중지됨" };
 
 async function refresh() {
-  const [state, datasets, jobs] = await Promise.all([
-    api("/api/status"), api("/api/datasets"), api("/api/jobs")]);
-  $("status").textContent =
-    `데이터셋 ${state.datasets} · 대기 ${state.queued}` + (state.running_job ? ` · 실행 중 #${state.running_job}` : "")
-    + (state.gpu ? "" : smiSeen ? "" : " · GPU 없음 (CPU 학습)");
-  // a card the driver sees but PyTorch cannot use: training would quietly run on the CPU
-  $("gpu-warn").hidden = !(smiSeen && !state.gpu);
+  const [state, datasets, jobs, registry] = await Promise.all([
+    api("/api/status"), api("/api/datasets"), api("/api/jobs"), api("/api/models")]);
+  allJobs = jobs;
+  const queued = state.queued ? ` · 대기 ${state.queued}` : "";
+  $("status").textContent = (state.running_job ? `#${state.running_job} 실행 중` : "대기 중인 작업 없음") + queued
+    + (state.gpu || smiSeen ? "" : " · CPU 전용");
+  $("gpu-warn").hidden = !(smiSeen && !state.gpu);   // the driver sees a card PyTorch cannot use
   running = state.running_job;
   if (state.gpu && !gpu) {                 // a GPU wants batches a CPU could not hold
     gpu = state.gpu;
     if ($("job-batch").value === "4") $("job-batch").value = "16";
+    presetHint();
   }
+  $("n-data").textContent = datasets.length;
+  $("n-models").textContent = registry.models.length;
 
-  $("datasets").innerHTML = datasets.map((d) => `
-    <div class="card"><div class="row"><b>${d.name}</b><span class="grow"></span>
-      <span class="tag">#${d.id}</span></div>
-      <div class="row dim">이미지 ${d.images} · 라벨 ${d.labelled} · 클래스 ${d.classes.join(", ")}</div>
-      <div class="row" style="margin-top:9px">
-        <button onclick="location.assign('/label/${d.id}')">라벨링</button>
-        <button data-autolabel="${d.id}">전체 자동 라벨</button>
-        <button data-stats="${d.id}">통계</button>
-      </div>
-      <div class="row">
-        <button onclick="location.assign('/api/datasets/${d.id}/export')">내보내기</button>
-        <button data-duplicate="${d.id}">복제</button>
-        <button data-delete="${d.id}">삭제</button>
-        <label class="dim" style="margin-left:auto"><input type="checkbox" data-pick="${d.id}"> 병합 선택</label>
-      </div>
-      <div class="stats" id="stats-${d.id}" hidden></div>
-    </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
-  document.querySelectorAll("[data-autolabel]").forEach((el) =>
-    el.onclick = () => autolabelAll(Number(el.dataset.autolabel)));
-  document.querySelectorAll("[data-delete]").forEach((el) =>
-    el.onclick = () => removeDataset(Number(el.dataset.delete)));
-  document.querySelectorAll("[data-stats]").forEach((el) =>
-    el.onclick = () => showStats(Number(el.dataset.stats)));
-  document.querySelectorAll("[data-duplicate]").forEach((el) =>
-    el.onclick = () => duplicate(Number(el.dataset.duplicate)));
-  document.querySelectorAll("[data-pick]").forEach((el) =>
-    el.onchange = updateMergeButton);
-  updateMergeButton();
-
+  renderDatasets(datasets);
   const options = datasets.map((d) =>
-    `<option value="${d.id}">${d.name} (이미지 ${d.images})</option>`).join("");
-  $("job-dataset").innerHTML = options;
+    `<option value="${d.id}">${esc(d.name)} · 이미지 ${d.images}</option>`).join("");
+  const trainable = datasets.filter((d) => d.labelled > 0);
+  const keepDs = $("job-dataset").value;
+  $("job-dataset").innerHTML = trainable.map((d) =>
+    `<option value="${d.id}">${esc(d.name)} · 라벨 ${d.labelled}/${d.images}</option>`).join("");
+  if (keepDs && trainable.some((d) => String(d.id) === keepDs)) $("job-dataset").value = keepDs;
+  $("train-empty").hidden = trainable.length > 0;
+  $("train-form").hidden = trainable.length === 0;
   const keep = $("ds-target").value;
   $("ds-target").innerHTML = `<option value="">새 데이터셋</option>` + options;
   $("ds-target").value = keep;
+  const keepRun = $("run-dataset").value;
+  $("run-dataset").innerHTML = options;
+  if (keepRun) $("run-dataset").value = keepRun;
 
-  const registry = await api("/api/models");
   // a finished run is usable straight away — no need to register it first
   const trained = jobs.filter((j) => j.kind === "train" && j.status === "done" && j.run_dir)
-    .map((j) => `<option value="${j.run_dir}/weights/best.pt">#${j.id} 학습 결과 · ${j.dataset}`
-      + `${j.best_map != null ? ` (mAP ${fmt(j.best_map)})` : ""}</option>`).join("");
+    .map((j) => `<option value="${esc(j.run_dir)}/weights/best.pt">#${j.id} ${esc(j.dataset || "")}`
+      + `${j.best_map != null ? ` · mAP ${fmt(j.best_map)}` : ""}</option>`).join("");
   const mine = trained ? `<optgroup label="내 학습 결과">${trained}</optgroup>` : "";
   const named = registry.models.length ? `<optgroup label="등록된 모델">`
-    + registry.models.map((m) => `<option value="${m.id}">${m.name}</option>`).join("") + `</optgroup>` : "";
-  const coco = `<optgroup label="COCO 사전학습 (80 클래스)">`
+    + registry.models.map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join("") + `</optgroup>` : "";
+  const coco = `<optgroup label="COCO 사전학습 · 80 클래스">`
     + registry.builtin.map((n) => `<option value="${n}">${n}</option>`).join("") + `</optgroup>`;
   // training starts from COCO; using a model starts from what you trained
   for (const [id, html] of [["job-model", coco + named + mine], ["run-model", mine + named + coco]]) {
-    const keep = $(id).value;
+    const was = $(id).value;
     $(id).innerHTML = html;
-    if (keep && (id !== "run-model" || runPicked)) $(id).value = keep;
+    if (was && (id !== "run-model" || runPicked)) $(id).value = was;
   }
-  $("run-dataset").innerHTML = options;
-  $("models").innerHTML = registry.models.length
-    ? registry.models.map((m) => `<div class="row"><b>${m.name}</b>
-        <span class="dim">${m.kind}${m.classes.length ? " · " + m.classes.join(", ") : ""}</span>
-        <span class="grow"></span><button data-model="${m.id}">삭제</button></div>`).join("")
-    : `<span class="dim">아직 등록된 모델이 없습니다. 학습 결과에서 "모델로 등록"을 누르세요.</span>`;
-  document.querySelectorAll("[data-model]").forEach((el) => el.onclick = async () => {
-    await api(`/api/models/${el.dataset.model}`, { method: "DELETE" }); await refresh();
-  });
+  renderModels(registry.models);
+  renderJobs();
+}
 
-  $("jobs").innerHTML = jobs.map((j) => `
-    <div class="card click" data-job="${j.id}" aria-current="${j.id === current}">
-      <div class="row"><b>#${j.id} ${KIND[j.kind] || j.kind}</b>
-        <span class="dim" title="${j.model}">${short(j.model)} · ${j.dataset || (j.source ? short(j.source) : "—")}</span>
-        <span class="grow"></span>
-        <span class="tag ${j.status}">${STATUS[j.status] || j.status}</span></div>
-      <div class="row dim">${j.kind !== "train"
-          ? `conf ${fmt(j.conf, 2)}${j.resume_of ? ` · #${j.resume_of}` : ""}`
-          : `에폭 ${j.epochs} · ${j.imgsz}px · batch ${j.batch}${j.freeze ? " · 백본 고정" : ""}`}
-        ${j.best_map != null ? ` · mAP50-95 ${fmt(j.best_map)}` : ""}
-        ${j.started && j.finished ? ` · ${duration(j.finished - j.started)}` : ""}</div>
-      ${["running", "exporting"].includes(j.status) ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div>` : ""}
-      ${j.detail ? `<div class="row msg ${j.status === "failed" ? "err" : ""}">${j.detail}</div>` : ""}
-    </div>`).join("") || `<div class="card dim">아직 없습니다.</div>`;
-  document.querySelectorAll("[data-job]").forEach((el) =>
-    el.onclick = () => select(Number(el.dataset.job)));
+// ---------------------------------------------------------------- datasets
+function renderDatasets(datasets) {
+  const picked = new Set(pickedIds());
+  $("datasets").innerHTML = datasets.map((d) => {
+    const pct = d.images ? Math.round(d.labelled / d.images * 100) : 0;
+    return `
+    <div class="card">
+      <div class="ds-head"><b>${esc(d.name)}</b><span class="faint small">#${d.id}</span><span class="grow"></span>
+        <details class="menu"><summary class="btn ghost sm" title="더 보기">⋯</summary>
+          <div class="menu-list">
+            <button data-stats="${d.id}">통계 보기</button>
+            <button data-autolabel="${d.id}">전체 자동 라벨</button>
+            <button data-export="${d.id}">zip으로 내보내기</button>
+            <button data-duplicate="${d.id}">복제</button>
+            <label><input type="checkbox" data-pick="${d.id}" ${picked.has(d.id) ? "checked" : ""}> 병합 선택</label>
+            <hr><button class="danger" data-delete="${d.id}">삭제</button>
+          </div></details></div>
+      <div class="ds-meta"><span>이미지 <b>${d.images}</b></span><span>라벨 <b>${d.labelled}</b></span>
+        <span>클래스 <b>${d.classes.length}</b></span><span class="grow"></span><span>${pct}%</span></div>
+      <div class="bar ${pct === 100 ? "ok" : ""}"><i style="width:${pct}%"></i></div>
+      ${d.classes.length ? `<div class="chips" style="margin-top:10px">${d.classes.slice(0, 12).map((c) =>
+          `<span class="chip">${esc(c)}</span>`).join("")}${d.classes.length > 12 ? `<span class="chip">+${d.classes.length - 12}</span>` : ""}</div>` : ""}
+      <div class="ds-actions">
+        <a class="btn sm" href="/label/${d.id}">라벨링</a>
+        <button class="btn sm" data-train="${d.id}" ${d.labelled ? "" : "disabled title='라벨이 있어야 학습합니다'"}>이 데이터로 학습</button>
+      </div>
+      <div class="stats" id="stats-${d.id}" hidden></div>
+    </div>`;
+  }).join("") || `<div class="empty">아직 데이터셋이 없습니다.<br><span class="small">위에서 이미지나 Roboflow zip을 올리면 시작합니다.</span></div>`;
+  const on = (attr, fn) => document.querySelectorAll(`[data-${attr}]`).forEach((el) =>
+    el.onclick = (e) => { el.closest("details.menu")?.removeAttribute("open"); fn(Number(el.dataset[attr]), e); });
+  on("autolabel", autolabelAll);
+  on("delete", removeDataset);
+  on("stats", showStats);
+  on("duplicate", duplicate);
+  on("export", (id) => location.assign(`/api/datasets/${id}/export`));
+  on("train", (id) => { show("train"); $("job-dataset").value = String(id); });
+  document.querySelectorAll("[data-pick]").forEach((el) => { el.onclick = null; el.onchange = updateMergeButton; });
+  updateMergeButton();
+}
+
+const pickedIds = () => [...document.querySelectorAll("[data-pick]:checked")].map((el) => Number(el.dataset.pick));
+function updateMergeButton() {
+  const n = pickedIds().length;
+  $("merge").disabled = n < 2;
+  $("merge").textContent = n ? `선택 병합 (${n})` : "선택 병합";
+}
+
+let tab = "images";
+document.querySelectorAll("#ds-tabs button").forEach((b) => {
+  b.onclick = () => {
+    tab = b.dataset.tab;
+    document.querySelectorAll("#ds-tabs button").forEach((x) => x.setAttribute("aria-pressed", x.dataset.tab === tab));
+    document.querySelectorAll("[data-panel]").forEach((p) => p.hidden = p.dataset.panel !== tab);
+  };
+});
+
+$("ds-upload").onclick = async () => {
+  const msg = (text, kind) => say("ds-msg", text, kind);
+  const target = $("ds-target").value;
+  const name = $("ds-name").value.trim();
+  const form = new FormData();
+  if (target) form.append("dataset_id", target);
+
+  let endpoint = null, input = null;
+  if (tab === "images") {
+    input = $("ds-images");
+    const files = [...input.files];
+    if (!files.length) return msg("이미지를 고르세요", "err");
+    files.forEach((f) => form.append("files", f));
+    form.append("name", name || "images");
+    endpoint = "/api/datasets/images";
+  } else if (tab === "video") {
+    input = $("ds-video");
+    const file = input.files[0];
+    if (!file) return msg("영상을 고르세요", "err");
+    form.append("video", file);
+    form.append("name", name || file.name.replace(/\.[^.]+$/, ""));
+    form.append("every", $("ds-every").value || "30");
+    form.append("max_frames", $("ds-max").value || "300");
+    endpoint = "/api/datasets/video";
+  } else if (tab === "zip") {
+    input = $("ds-file");
+    const file = input.files[0];
+    if (!file) return msg("zip을 고르세요", "err");
+    form.append("archive", file);
+    form.append("name", name || file.name.replace(/\.zip$/, ""));
+    endpoint = "/api/datasets";
+  }
+
+  msg("올리는 중…");
+  $("ds-upload").disabled = true;
+  try {
+    let res;
+    if (tab === "folder") {
+      const path = $("ds-path").value.trim();
+      if (!path) return msg("폴더 경로를 적으세요", "err");
+      const classes = $("ds-classes").value.split(",").map((c) => c.trim()).filter(Boolean);
+      res = await api("/api/datasets/local", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path, name: name || undefined, names: classes.length ? classes : null }) });
+    } else {
+      res = await api(endpoint, { method: "POST", body: form });
+    }
+    const added = res.added ? `${res.added}장 추가 · ` : "";
+    const classes = res.classes?.length ? ` · 클래스 ${res.classes.join(", ")}` : "";
+    msg(`✓ ${added}이미지 ${res.images} · 라벨 ${res.labelled}${classes}`, "ok");
+    input?.resetDrop();
+    $("ds-name").value = "";
+    await refresh();
+  } catch (e) { msg(e.message, "err"); }
+  finally { $("ds-upload").disabled = false; }
+};
+
+async function showStats(datasetId) {
+  const panel = $(`stats-${datasetId}`);
+  if (!panel.hidden) { panel.hidden = true; return; }
+  const s = await api(`/api/datasets/${datasetId}/stats`);
+  const rows = s.per_class.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.boxes}</td></tr>`).join("");
+  const warn = [];
+  if (s.unlabelled.length) warn.push(`라벨 없음 ${s.unlabelled.length}장`);
+  if (s.empty_labels.length) warn.push(`빈 라벨(배경) ${s.empty_labels.length}장`);
+  if (s.tiny_boxes) warn.push(`아주 작은 상자 ${s.tiny_boxes}개`);
+  if (s.unknown_class_boxes) warn.push(`클래스 범위 밖 ${s.unknown_class_boxes}개`);
+  panel.innerHTML = `<table>${rows}<tr><td><b>상자 합계</b></td><td><b>${s.boxes}</b></td></tr></table>`
+    + (warn.length ? `<div class="warn small" style="margin-top:6px">${warn.join(" · ")}</div>` : "");
+  panel.hidden = false;
+}
+
+async function duplicate(datasetId) {
+  try { await api(`/api/datasets/${datasetId}/duplicate`, { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: "{}" });
+    say("ds-msg", "✓ 복제했습니다", "ok"); await refresh(); }
+  catch (e) { say("ds-msg", e.message, "err"); }
+}
+
+$("merge").onclick = async () => {
+  const ids = pickedIds();
+  const name = prompt("병합된 데이터셋 이름", "merged");
+  if (!name) return;
+  try { const res = await api("/api/datasets/merge", { method: "POST",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, name }) });
+    say("ds-msg", `✓ ${res.added}장 병합 · 클래스 ${res.classes.join(", ")}`, "ok"); await refresh(); }
+  catch (e) { say("ds-msg", e.message, "err"); }
+};
+
+async function removeDataset(datasetId) {
+  if (!confirm(`데이터셋 #${datasetId}과 그 작업 기록을 지웁니다. 계속할까요?`)) return;
+  try {
+    await api(`/api/datasets/${datasetId}`, { method: "DELETE" });
+    closeDetail();
+    await refresh();
+  } catch (e) { say("ds-msg", e.message, "err"); }
+}
+
+async function autolabelAll(datasetId) {
+  try {
+    const res = await api(`/api/datasets/${datasetId}/autolabel`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      // no model: the server drafts with this dataset's latest run, else COCO
+      body: JSON.stringify({ conf: 0.35 }) });
+    await select(res.id);
+  } catch (e) { say("ds-msg", e.message, "err"); }
+}
+
+// ---------------------------------------------------------------- training
+const PRESETS = { fast: { imgsz: 320, epochs: 30, batch: 8, freeze: "backbone" },
+                  balanced: { imgsz: 640, epochs: 50, batch: 4, freeze: "backbone" },
+                  accurate: { imgsz: 640, epochs: 150, batch: 2, freeze: "" } };
+function presetHint() {
+  const b = Number($("job-batch").value), f = $("job-freeze").value ? " · 백본 고정" : "";
+  $("preset-hint").textContent = `${$("job-imgsz").value}px · ${$("job-epochs").value}에폭 · 배치 ${b}${f}`
+    + (gpu ? ` · ${gpu.name}` : " · CPU");
+}
+document.querySelectorAll("#presets button").forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll("#presets button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    const p = PRESETS[b.dataset.preset];
+    $("job-imgsz").value = p.imgsz; $("job-epochs").value = p.epochs;
+    // the CPU batches, times four on a GPU — 16 GB+ holds them at 640
+    $("job-batch").value = gpu ? p.batch * 4 : p.batch; $("job-freeze").value = p.freeze;
+    presetHint();
+  };
+});
+["job-imgsz", "job-epochs", "job-batch", "job-freeze"].forEach((id) => $(id).addEventListener("input", presetHint));
+presetHint();
+
+$("job-start").onclick = async () => {
+  say("job-msg", "");
+  const datasetId = Number($("job-dataset").value);
+  if (!datasetId) return say("job-msg", "데이터셋을 고르세요", "err");
+  const same = allJobs.find((j) => j.kind === "train" && j.dataset_id === datasetId
+                           && ["queued", "running", "exporting"].includes(j.status));
+  if (same && !confirm(`이 데이터셋은 #${same.id}이(가) 이미 ${same.status === "queued" ? "대기" : "학습"} 중입니다.\n하나 더 넣을까요?`)) return;
+  $("job-start").disabled = true;               // one click, one run
+  try {
+    const res = await api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dataset_id: datasetId, model: $("job-model").value,
+        epochs: Number($("job-epochs").value), imgsz: Number($("job-imgsz").value),
+        batch: Number($("job-batch").value), freeze: $("job-freeze").value,
+        val_ratio: Number($("job-val").value), device: $("job-device").value })});
+    say("job-msg", `✓ #${res.id} 대기열에 넣었습니다 — 오른쪽에서 진행을 봅니다`, "ok");
+    await select(res.id);
+  } catch (e) { say("job-msg", e.message, "err"); }
+  finally { $("job-start").disabled = false; }
+};
+
+// ---------------------------------------------------------------- jobs
+document.querySelectorAll("#job-filter button").forEach((b) => b.onclick = () => {
+  jobFilter = b.dataset.kind;
+  document.querySelectorAll("#job-filter button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  renderJobs();
+});
+
+function renderJobs() {
+  const jobs = allJobs.filter((j) => !jobFilter || j.kind === jobFilter);
+  $("jobs").classList.toggle("capped", !$("detail").hidden);
+  if (!allJobs.length) {
+    $("jobs").innerHTML = `<div class="steps">
+      <div class="step"><i>1</i><b>데이터 추가</b><span>이미지·영상·Roboflow zip</span></div>
+      <div class="step"><i>2</i><b>라벨링</b><span>상자 그리기 · 자동 라벨로 초안</span></div>
+      <div class="step"><i>3</i><b>학습</b><span>COCO에서 시작해 몇 분</span></div>
+      <div class="step"><i>4</i><b>추론 · 배포</b><span>웹캠·영상 · OpenVINO IR</span></div></div>`;
+    return;
+  }
+  $("jobs").innerHTML = jobs.map((j) => {
+    const live = ["running", "exporting"].includes(j.status);
+    const meta = j.kind === "train"
+      ? `${short(j.model)} · ${j.epochs}에폭 · ${j.imgsz}px · 배치 ${j.batch}`
+      : `${short(j.model)} · conf ${fmt(j.conf, 2)}`;
+    const extra = [j.best_map != null ? `mAP50-95 ${fmt(j.best_map)}` : "",
+                   j.started && j.finished ? duration(j.finished - j.started) : ""].filter(Boolean).join(" · ");
+    const line = live || j.status === "failed" ? (j.detail || "") : [meta, extra].filter(Boolean).join(" · ");
+    return `
+    <div class="job" data-job="${j.id}" aria-current="${j.id === current}">
+      <div class="k ${j.kind}">${KIND_ICON[j.kind] || j.kind}</div>
+      <div class="t">#${j.id} ${esc(j.dataset || (j.source ? short(j.source) : KIND[j.kind]))}
+        <span class="dim small">${KIND[j.kind] || j.kind}</span></div>
+      <span class="pill ${j.status}">${STATUS[j.status] || j.status}</span>
+      <div class="s ${j.status === "failed" ? "err" : ""}" style="grid-column:2 / 4">${esc(line)}</div>
+      ${live ? `<div class="bar"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div>` : ""}
+    </div>`;
+  }).join("") || `<div class="empty small">이 종류의 작업은 아직 없습니다.</div>`;
+  document.querySelectorAll("[data-job]").forEach((el) => el.onclick = () => select(Number(el.dataset.job)));
 }
 
 async function select(id, { scroll = true } = {}) {
   const fresh = current !== id;
   current = id;
   $("detail").hidden = false;
-  if (fresh) { $("preview").hidden = true; predShown = { id: null, at: 0 }; }
+  if (fresh) { $("preview").hidden = true; predShown = { id: null, at: 0 }; $("downloads").open = false; }
   await refresh();
   const job = await api(`/api/jobs/${id}`);
   render(job);
-  // started from a form further down: bring the job into view
-  if (scroll && fresh) $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  if (scroll && fresh) $("detail").scrollIntoView({ behavior: "smooth", block: "start" });
   if (stream) stream.close();
   if (["queued", "running", "exporting"].includes(job.status)) {
     stream = new EventSource(`/api/jobs/${id}/stream`);
@@ -380,7 +930,7 @@ async function select(id, { scroll = true } = {}) {
       const msg = JSON.parse(e.data);
       if (msg.type === "end") { stream.close(); await select(id, { scroll: false }); return; }
       render(await api(`/api/jobs/${id}`));
-      // the list above must not say "대기" for a job the view says is running:
+      // the list must not say "대기" for a job the view says is running:
       // at once when the status moves, every few seconds for progress
       if (msg.status !== listedStatus || Date.now() - listedAt > 3000) {
         listedStatus = msg.status; listedAt = Date.now(); refresh();
@@ -389,11 +939,14 @@ async function select(id, { scroll = true } = {}) {
   }
 }
 
-const KIND = { train: "학습", autolabel: "자동 라벨", evaluate: "평가", predict: "추론" };
-const STATUS = { queued: "대기", running: "실행 중", exporting: "내보내는 중", done: "완료",
-                 failed: "실패", cancelled: "중지됨" };
+function closeDetail() {
+  if (stream) stream.close();
+  current = null; currentJob = null; $("detail").hidden = true; renderJobs();
+}
+$("detail-close").onclick = closeDetail;
 
 function render(job) {
+  currentJob = job;
   const rows = job.epochs_done;
   const train = job.kind === "train";
   const active = ["queued", "running", "exporting"].includes(job.status);
@@ -401,15 +954,15 @@ function render(job) {
 
   $("detail-title").textContent = `#${job.id} ${KIND[job.kind] || job.kind}`;
   $("detail-tag").textContent = STATUS[job.status] || job.status;
-  $("detail-tag").className = `tag ${job.status}`;
+  $("detail-tag").className = `pill ${job.status}`;
   const took = job.started && job.finished ? ` · ${duration(job.finished - job.started)} 걸림` : "";
-  $("detail-sub").textContent = `${short(job.model)} · ${job.dataset || (job.source ? short(job.source) : "")}${took}`;
+  const what = train ? ` · ${job.epochs}에폭 · ${job.imgsz}px · 배치 ${job.batch}${job.freeze ? " · 백본 고정" : ""}` : "";
+  $("detail-sub").textContent = `${short(job.model)} · ${job.dataset || (job.source ? short(job.source) : "")}${what}${took}`;
 
   const waiting = job.status === "queued"
     ? (running && running !== job.id ? `대기 중 — #${running}이(가) 끝나면 시작합니다` : "곧 시작합니다")
     : "";
-  $("detail-msg").textContent = job.detail || waiting;
-  $("detail-msg").className = "msg" + (job.status === "failed" ? " err" : "");
+  say("detail-msg", job.detail || waiting, job.status === "failed" ? "err" : "");
   const live = ["running", "exporting"].includes(job.status);
   $("detail-bar").hidden = !live;
   $("detail-bar").firstElementChild.style.width = `${Math.round((job.progress || 0) * 100)}%`;
@@ -417,23 +970,63 @@ function render(job) {
   // only the buttons this job can use: a greyed row of eleven says nothing
   const show = {
     cancel: ["queued", "running"].includes(job.status),
-    evaluate: train && has("weights"),
-    resume: train && !active && job.status !== "queued",
+    evaluate: train && has("weights") && !active,
+    resume: train && !active,
     "dl-weights": has("weights"), "dl-ir": has("openvino"), "dl-csv": has("results"),
     "dl-log": has("log"), "dl-pred": has("predictions"), "dl-video": has("video"),
-    register: train && has("weights"),
-    "delete-job": !["running", "exporting"].includes(job.status),
+    register: train && has("weights") && !active,
+    "delete-job": !live,
   };
   Object.entries(show).forEach(([id, on]) => { $(id).hidden = !on; });
+  $("downloads").hidden = !["dl-weights", "dl-ir", "dl-csv", "dl-log", "dl-pred", "dl-video"].some((id) => show[id]);
   $("try-row").hidden = !(train && has("weights"));
 
-  $("chart").hidden = $("chart-title").hidden = !train;
-  $("epochs-title").hidden = $("epochs-table").hidden = !train || !rows.length;
+  $("chart-box").hidden = !train;
+  $("epochs-box").hidden = !rows.length;
+  $("epochs-title").textContent = `에폭별 기록 (${rows.length})`;
   $("epochs").innerHTML = rows.slice().reverse().map((r) =>
     `<tr><td>${r.epoch}</td><td>${fmt(r.loss)}</td><td>${fmt(r.map50_95)}</td><td>${fmt(r.seconds, 1)}</td></tr>`).join("");
   if (train) chart(rows, job.epochs);
+  renderInfo(job);
+  renderCode(job);
   loadReport(job);
   loadPredictions(job);
+}
+
+// what the run was set up with and, once over, how it went (run.json + summary.json)
+function renderInfo(job) {
+  const run = job.run || {};
+  $("info").hidden = !(job.kind === "train" && run.variant);
+  if ($("info").hidden) return;
+  const m = (n) => n == null ? "—" : `${(n / 1e6).toFixed(1)}M`;
+  const start = { coco: "COCO 사전학습 가중치", imagenet: "ImageNet 백본만 (COCO를 못 받음)",
+                  scratch: "처음부터 (무작위)", custom: "직접 준 네트워크" }[run.start?.kind]
+    || (run.start?.path ? `이전 학습 · ${short(run.start.path)}` : "—");
+  const split = run.data || {}, tr = split.train, va = split.val;
+  const count = (d) => d ? `${d.images}장 · 상자 ${d.boxes}${d.background_images ? ` · 배경 ${d.background_images}` : ""}` : "—";
+  const o = run.optimizer || {};
+  const v = run.versions || {};
+  const facts = [
+    ["모델", `RT-DETR ${run.variant} · 파라미터 ${m(run.params)}`],
+    ["시작 가중치", start],
+    ["학습 데이터", count(tr)],
+    ["검증 데이터", count(va)],
+    ["학습하는 파라미터", `${m(run.trainable_params)}${run.freeze ? ` · ${run.freeze} 고정` : " · 전체"}`],
+    ["장치", `${run.gpu || run.device}${run.amp ? " · AMP" : ""}`],
+    ["옵티마이저", o.name ? `${o.name} · lr ${o.lr} (백본 ${o.lr_backbone}) · wd ${o.weight_decay}` : "—"],
+    ["스케줄", o.name ? `warmup ${o.warmup_epochs}에폭 → cosine · clip ${o.grad_clip}` : "—"],
+    ["증강", (run.augment || []).map((a) => a.replace(/ \(.*\)/, "")).join(", ") || "—"],
+    ["조기 종료", `patience ${run.patience}${run.stopped_early ? " · 일찍 멈춤" : ""}`],
+    run.best_epoch ? ["최고 에폭", `${run.best_epoch}${run.epoch_seconds ? ` · 에폭당 ${duration(run.epoch_seconds)}` : ""}`] : null,
+    run.final ? ["마지막 loss", Object.entries(run.final).map(([k, x]) => `${k} ${x.toFixed(3)}`).join(" · ")] : null,
+    ["버전", [v.rtdetr && `rtdetr ${v.rtdetr}`, v.torch && `torch ${v.torch}`, v.cuda && `CUDA ${v.cuda}`].filter(Boolean).join(" · ")],
+    run.resumed_at_epoch ? ["이어서 학습", `${run.resumed_at_epoch}에폭부터`] : null,
+  ].filter(Boolean);
+  $("info-facts").innerHTML = facts.map(([k, x]) => `<div><span>${k}</span>${esc(x)}</div>`).join("");
+  const names = run.names ? Object.values(run.names) : [];
+  $("info-classes").innerHTML = names.length && tr ? `<table class="t"><tr><th>클래스</th><th>학습 상자</th>${va ? "<th>검증 상자</th>" : ""}</tr>`
+    + names.map((n, i) => `<tr><td>${esc(n)}</td><td>${tr.per_class[i] ?? "—"}</td>${va ? `<td>${va.per_class[i] ?? "—"}</td>` : ""}</tr>`).join("")
+    + "</table>" : "";
 }
 
 let predShown = { id: null, at: 0 };
@@ -447,19 +1040,40 @@ async function loadPredictions(job) {
   predShown = { id: job.id, at: Date.now() };
   let r;
   try { r = await api(`/api/jobs/${job.id}/predictions?limit=60`); } catch { panel.hidden = true; return; }
-  const chips = Object.entries(r.per_class).map(([n, c]) => `<span class="chip">${n} ${c}</span>`).join("");
+  const chips = Object.entries(r.per_class).map(([n, c]) => `<span class="chip">${esc(n)}<b>${c}</b></span>`).join("");
   $("pred-summary").innerHTML = finished
-    ? `<b>${r.total}장 · 상자 ${r.boxes}개</b><span class="chips">${chips}</span>`
+    ? `<div class="kv"><div>이미지<b>${r.total}</b></div><div>상자<b>${r.boxes}</b></div></div>
+       <span class="grow"></span><div class="chips">${chips}</div>`
     : `<span class="dim">지금까지 그려진 결과 ${r.total}장</span>`;
   $("pred-gallery").innerHTML = r.files.map((f) => `
     <div class="shot">
-      <img src="/api/jobs/${job.id}/output/${encodeURIComponent(f.file)}" loading="lazy" onclick="window.open(this.src)">
-      <div class="cap"><span>${f.file.replace(/^\d+_/, "")}</span>
+      <img src="/api/jobs/${job.id}/output/${encodeURIComponent(f.file)}" loading="lazy" onclick="window.open(this.src)" alt="">
+      <div class="cap"><span>${esc(f.file.replace(/^\d+_/, ""))}</span>
         <span class="${f.boxes === 0 ? "miss" : ""}">${f.boxes == null ? "" : `상자 ${f.boxes}`}</span></div>
     </div>`).join("");
   $("pred-more").textContent = r.total > r.files.length
-    ? `처음 ${r.files.length}장만 보여줍니다 — 전부는 "결과 zip"으로 받으세요` : "";
+    ? `처음 ${r.files.length}장만 보여줍니다 — 전부는 다운로드 → 결과 이미지 zip` : "";
   panel.hidden = !r.files.length;
+}
+
+async function loadReport(job) {
+  const panel = $("report");
+  if (!job.artifacts.includes("report")) { panel.hidden = true; return; }
+  const r = await api(`/api/jobs/${job.id}/report`);
+  const rows = r.per_class.map((c) =>
+    `<tr><td>${esc(c.name)}</td><td>${fmt(c.ap50_95)}</td></tr>`).join("");
+  $("report-summary").innerHTML =
+    `<div class="kv"><div>mAP50<b>${fmt(r.map50)}</b></div><div>mAP50-95<b>${fmt(r.map50_95)}</b></div>
+       <div>conf<b>${fmt(r.conf, 2)}</b></div></div>
+     <table class="t" style="margin-top:12px"><tr><th>클래스</th><th>AP50-95</th></tr>${rows}</table>
+     <div class="hint">초록 = 정답, 색 상자 = 예측 · 빨간 숫자는 놓친 이미지</div>`;
+  $("gallery").innerHTML = r.images.map((im) => `
+    <div class="shot">
+      <img src="/api/jobs/${job.id}/eval/${im.file}" loading="lazy" onclick="window.open(this.src)" alt="">
+      <div class="cap"><span>정답 ${im.truth}</span>
+        <span class="${im.found < im.truth ? "miss" : ""}">찾음 ${im.found}</span></div>
+    </div>`).join("");
+  panel.hidden = false;
 }
 
 function duration(seconds) {
@@ -469,206 +1083,167 @@ function duration(seconds) {
 }
 
 function chart(rows, total) {
-  const c = $("chart"), ctx = c.getContext("2d");
-  const w = c.width = c.clientWidth * devicePixelRatio, h = c.height = 260 * devicePixelRatio;
+  const css = getComputedStyle(document.documentElement);
+  const color = (name) => css.getPropertyValue(name).trim();
+  const c = $("chart"), ctx = c.getContext("2d"), r = devicePixelRatio;
+  const w = c.width = c.clientWidth * r, h = c.height = 220 * r;
   ctx.clearRect(0, 0, w, h);
-  const pad = 38 * devicePixelRatio;
-  ctx.strokeStyle = "#2c323c"; ctx.lineWidth = devicePixelRatio;
-  ctx.beginPath(); ctx.moveTo(pad, 8); ctx.lineTo(pad, h - pad); ctx.lineTo(w - 8, h - pad); ctx.stroke();
+  const left = 10 * r, bottom = 18 * r, top = 8 * r, right = 8 * r;
+  ctx.strokeStyle = color("--line"); ctx.lineWidth = r;
+  for (let i = 0; i <= 4; i++) {                        // quiet horizontal guides
+    const y = top + (h - top - bottom) * i / 4;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(w - right, y); ctx.stroke();
+  }
+  ctx.fillStyle = color("--faint"); ctx.font = `${11 * r}px system-ui`;
+  ctx.fillText("1", left, h - 4 * r);
+  const last = String(Math.max(total, rows.length));
+  ctx.fillText(last, w - right - ctx.measureText(last).width, h - 4 * r);
   if (!rows.length) return;
-  const line = (values, color, lo, hi) => {
+  const line = (values, stroke, lo, hi) => {
     const points = values.map((v, i) => v == null ? null : [
-      pad + (w - pad - 8) * (rows.length === 1 ? 0.5 : i / Math.max(total - 1, rows.length - 1)),
-      h - pad - (h - pad - 8) * ((v - lo) / (hi - lo || 1))]).filter(Boolean);
+      left + (w - left - right) * (rows.length === 1 ? 0 : i / Math.max(total - 1, rows.length - 1)),
+      h - bottom - (h - top - bottom) * ((v - lo) / (hi - lo || 1))]).filter(Boolean);
     if (!points.length) return;
-    ctx.strokeStyle = color; ctx.lineWidth = 2 * devicePixelRatio; ctx.beginPath();
+    ctx.strokeStyle = stroke; ctx.lineWidth = 2 * r; ctx.lineJoin = "round"; ctx.beginPath();
     points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
     ctx.stroke();
-    points.forEach(([x, y]) => { ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, 2.5 * devicePixelRatio, 0, 7); ctx.fill(); });
+    const [x, y] = points[points.length - 1];
+    ctx.fillStyle = stroke; ctx.beginPath(); ctx.arc(x, y, 3.5 * r, 0, 7); ctx.fill();
   };
-  const losses = rows.map((r) => r.loss);
-  line(losses, "#ff9060", Math.min(...losses) * 0.98, Math.max(...losses) * 1.02);
-  const maps = rows.map((r) => r.map50_95);
-  if (maps.some((v) => v != null)) line(maps, "#3ecf8e", 0, Math.max(0.05, ...maps.filter(Boolean)));
-  ctx.fillStyle = "#8b94a3"; ctx.font = `${11 * devicePixelRatio}px system-ui`;
-  ctx.fillText("loss", pad + 6 * devicePixelRatio, 18 * devicePixelRatio);
-  ctx.fillStyle = "#3ecf8e";
-  ctx.fillText("mAP50-95", pad + 46 * devicePixelRatio, 18 * devicePixelRatio);
+  const losses = rows.map((row) => row.loss);
+  line(losses, color("--loss"), Math.min(...losses) * 0.98, Math.max(...losses) * 1.02);
+  const maps = rows.map((row) => row.map50_95);
+  if (maps.some((v) => v != null)) line(maps, color("--ok"), 0, Math.max(0.05, ...maps.filter(Boolean)));
 }
 
-let tab = "images";
-document.querySelectorAll("#ds-tabs button").forEach((b) => {
-  b.onclick = () => {
-    tab = b.dataset.tab;
-    document.querySelectorAll("#ds-tabs button").forEach((x) =>
-      x.setAttribute("aria-pressed", x.dataset.tab === tab));
-    document.querySelectorAll("[data-panel]").forEach((p) => p.hidden = p.dataset.panel !== tab);
+// ---------------------------------------------------------------- code you can copy
+const hl = (code) => esc(code)
+  .replace(/(#[^\n]*)/g, '<span class="c">$1</span>')
+  .replace(/(r?&quot;[^\n]*?&quot;)/g, '<span class="s">$1</span>')
+  .replace(/\b(from|import|for|in|print|pip|install|rtdetr predict)\b/g, '<span class="k">$1</span>');
+
+function pythonSnippet(path, device) {
+  return `from rtdetr import RTDETR
+
+model = RTDETR(r"${path}"${device ? `, device="${device}"` : ""})   # AUTO · CPU · GPU · NPU
+results = model("photo.jpg", conf=0.25)
+
+for r in results:
+    for box, score, cls in zip(r.boxes.xyxy, r.boxes.conf, r.boxes.cls):
+        x1, y1, x2, y2 = map(int, box)
+        print(r.names[int(cls)], f"{score:.2f}", x1, y1, x2, y2)
+
+r.save("result.jpg")                       # 상자를 그린 이미지
+
+# 영상 · 웹캠(0) · RTSP: 한 프레임씩 받기
+for r in model.predict("clip.mp4", stream=True):
+    print(len(r.boxes), "objects")`;
+}
+
+let codeTab = "python";
+function renderCode(job) {
+  const files = job.files || {};
+  const path = files.ir || files.weights;
+  $("code-box").hidden = !(job.kind === "train" && path);
+  if (!path) return;
+  const ir = files.ir ? short(files.ir) : "best.xml";
+  const snippets = {
+    python: pythonSnippet(path),
+    cli: `# 이미지 · 폴더 · 영상 — 결과는 runs/detect/predict/
+rtdetr predict model="${path}" source=photo.jpg conf=0.25
+
+# 웹캠 창으로 (q 또는 Esc로 종료)
+rtdetr predict model="${path}" source=0 show=true save=false`,
+    elsewhere: `# 1) 다운로드 → OpenVINO IR 로 zip을 받아 풉니다 (${ir} · .bin · labels.txt)
+# 2) 그 PC에는 추론용만 설치 — PyTorch 없이 됩니다
+pip install rtdetr
+
+# 3) 파이썬에서
+from rtdetr import RTDETR
+
+model = RTDETR(r"job${job.id}-openvino/${ir}", device="AUTO")   # Intel NPU면 "NPU"
+model.predict("photo.jpg", save=True)`,
   };
-});
+  document.querySelectorAll("#code-tabs button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.code === codeTab));
+  $("hub").hidden = codeTab !== "hub";
+  if (codeTab === "hub") return renderHub(job);
+  $("code").innerHTML = hl(snippets[codeTab]);
+  $("code").dataset.raw = snippets[codeTab];
+}
 
-$("ds-upload").onclick = async () => {
-  const say = (text, bad) => { $("ds-msg").textContent = text; $("ds-msg").className = "msg" + (bad ? " err" : ""); };
-  const target = $("ds-target").value;
-  const name = $("ds-name").value.trim();
-  const form = new FormData();
-  if (target) form.append("dataset_id", target);
-
-  let endpoint = null;
-  if (tab === "images") {
-    const files = [...$("ds-images").files];
-    if (!files.length) return say("이미지를 고르세요", true);
-    files.forEach((f) => form.append("files", f));
-    form.append("name", name || "images");
-    endpoint = "/api/datasets/images";
-  } else if (tab === "video") {
-    const file = $("ds-video").files[0];
-    if (!file) return say("영상을 고르세요", true);
-    form.append("video", file);
-    form.append("name", name || file.name.replace(/\.[^.]+$/, ""));
-    form.append("every", $("ds-every").value || "30");
-    form.append("max_frames", $("ds-max").value || "300");
-    endpoint = "/api/datasets/video";
-  } else if (tab === "zip") {
-    const file = $("ds-file").files[0];
-    if (!file) return say("zip을 고르세요", true);
-    form.append("archive", file);
-    form.append("name", name || file.name.replace(/\.zip$/, ""));
-    endpoint = "/api/datasets";
+// sharing a run on Hugging Face: a folder with the IR, labels and a README written from the run
+let hub = { job: null, readme: "", showReadme: false };
+const hubQuery = () => new URLSearchParams({ repo: $("hub-repo").value.trim(),
+  folder: $("hub-folder").value.trim().replace(/^\/+|\/+$/g, ""), pt: $("hub-pt").checked ? "1" : "0" });
+async function renderHub(job, { reload = false } = {}) {
+  if (hub.job !== job.id) {                  // a new run: start from its suggested place
+    const card = await api(`/api/jobs/${job.id}/modelcard`);
+    $("hub-repo").value = card.repo; $("hub-folder").value = card.folder; $("hub-pt").checked = false;
+    hub = { job: job.id, readme: card.readme, files: card.files, showReadme: false };
+  } else if (reload) {
+    const card = await api(`/api/jobs/${job.id}/modelcard?${hubQuery()}`);
+    hub.readme = card.readme; hub.files = card.files;
   }
+  const repo = $("hub-repo").value.trim() || "user/repo";
+  const folder = $("hub-folder").value.trim().replace(/^\/+|\/+$/g, "") || "models/my-model";
+  const name = folder.split("/").pop();
+  $("hub-files").textContent = `${name}/ · ${hub.files.join(" · ")}`;
+  $("hub-readme").textContent = hub.showReadme ? "업로드 명령 보기" : "README 보기";
+  const text = hub.showReadme ? hub.readme : `# 1) "업로드용 zip 받기" → 풀면 ${name}/ 폴더 (모델 · labels.txt · README.md)
+# 2) 한 번만: 쓰기 권한 토큰으로 로그인
+pip install -U huggingface_hub
+hf auth login
 
-  say("처리 중…");
-  try {
-    let res;
-    if (tab === "folder") {
-      const path = $("ds-path").value.trim();
-      if (!path) return say("폴더 경로를 적으세요", true);
-      const classes = $("ds-classes").value.split(",").map((c) => c.trim()).filter(Boolean);
-      res = await api("/api/datasets/local", { method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, name: name || undefined, names: classes.length ? classes : null }) });
-    } else {
-      res = await api(endpoint, { method: "POST", body: form });
-    }
-    const added = res.added ? `${res.added}장 추가 · ` : "";
-    const classes = res.classes?.length ? ` · 클래스 ${res.classes.join(", ")}` : "";
-    say(`${added}이미지 ${res.images} · 라벨 ${res.labelled}${classes}`);
-    await refresh();
-  } catch (e) { say(e.message, true); }
-};
+# 3) 폴더째 올리기 — 저장소의 ${folder}/ 로 들어갑니다
+hf upload ${repo} ./${name} ${folder}
 
-const picked = () => [...document.querySelectorAll("[data-pick]:checked")].map((el) => Number(el.dataset.pick));
-function updateMergeButton() { $("merge").disabled = picked().length < 2; }
+# 받는 쪽 (README에도 같은 코드가 들어 있습니다)
+from huggingface_hub import snapshot_download
+from rtdetr import RTDETR
 
-async function showStats(datasetId) {
-  const panel = $(`stats-${datasetId}`);
-  if (!panel.hidden) { panel.hidden = true; return; }
-  const s = await api(`/api/datasets/${datasetId}/stats`);
-  const rows = s.per_class.map((c) => `<tr><td>${c.name}</td><td>${c.boxes}</td></tr>`).join("");
-  const warn = [];
-  if (s.unlabelled.length) warn.push(`라벨 없음 ${s.unlabelled.length}장`);
-  if (s.empty_labels.length) warn.push(`빈 라벨(배경) ${s.empty_labels.length}장`);
-  if (s.tiny_boxes) warn.push(`아주 작은 상자 ${s.tiny_boxes}개`);
-  if (s.unknown_class_boxes) warn.push(`클래스 범위 밖 ${s.unknown_class_boxes}개`);
-  panel.innerHTML = `<table>${rows}<tr><td><b>상자 합계</b></td><td><b>${s.boxes}</b></td></tr></table>`
-    + (warn.length ? `<div class="warn" style="margin-top:6px">${warn.join(" · ")}</div>` : "");
-  panel.hidden = false;
+root = snapshot_download("${repo}", allow_patterns="${folder}/*")
+model = RTDETR(f"{root}/${folder}/${(hub.files.find((f) => f.endsWith(".xml")) || "best.xml")}")`;
+  $("code").innerHTML = hub.showReadme ? esc(text) : hl(text);
+  $("code").dataset.raw = text;
 }
+["hub-repo", "hub-folder", "hub-pt"].forEach((id) => $(id).addEventListener("change", () => {
+  if (currentJob) renderHub(currentJob, { reload: true });
+}));
+$("hub-readme").onclick = () => { hub.showReadme = !hub.showReadme; if (currentJob) renderHub(currentJob); };
+$("hub-zip").onclick = () => location.assign(`/api/jobs/${current}/download/huggingface?${hubQuery()}`);
+document.querySelectorAll("#code-tabs button").forEach((b) => b.onclick = () => {
+  codeTab = b.dataset.code; if (currentJob) renderCode(currentJob);
+});
+const general = `pip install rtdetr
 
-async function duplicate(datasetId) {
-  try { await api(`/api/datasets/${datasetId}/duplicate`, { method: "POST",
-        headers: { "Content-Type": "application/json" }, body: "{}" }); await refresh(); }
-  catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
-}
+from rtdetr import RTDETR
 
-$("merge").onclick = async () => {
-  const ids = picked();
-  const name = prompt("병합된 데이터셋 이름", "merged");
-  if (!name) return;
-  try { const res = await api("/api/datasets/merge", { method: "POST",
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, name }) });
-    $("ds-msg").textContent = `${res.added}장 병합 · 클래스 ${res.classes.join(", ")}`;
-    $("ds-msg").className = "msg"; await refresh(); }
-  catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
-};
+model = RTDETR("rtdetr-r18")        # 처음 한 번 가중치를 받습니다 (COCO 80 클래스)
+model("photo.jpg", conf=0.25)[0].save("result.jpg")
 
-async function removeDataset(datasetId) {
-  if (!confirm(`데이터셋 #${datasetId}과 그 작업 기록을 지웁니다. 계속할까요?`)) return;
-  try {
-    await api(`/api/datasets/${datasetId}`, { method: "DELETE" });
-    current = null; $("detail").hidden = true;
-    await refresh();
-  } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
-}
+# 학습한 모델은 그 경로를 그대로 넣습니다
+model = RTDETR(r"runs/job3/openvino/best.xml")`;
+$("code-general").innerHTML = hl(general);
+$("code-general").dataset.raw = general;
 
-async function autolabelAll(datasetId) {
-  try {
-    const res = await api(`/api/datasets/${datasetId}/autolabel`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      // no model: the server drafts with this dataset's latest run, else COCO
-      body: JSON.stringify({ conf: 0.35 }) });
-    await select(res.id);
-  } catch (e) { $("ds-msg").textContent = e.message; $("ds-msg").className = "msg err"; }
-}
-
-$("job-start").onclick = async () => {
-  $("job-msg").textContent = ""; $("job-msg").className = "msg";
-  const datasetId = Number($("job-dataset").value);
-  const jobs = await api("/api/jobs");
-  const same = jobs.find((j) => j.kind === "train" && j.dataset_id === datasetId
-                         && ["queued", "running", "exporting"].includes(j.status));
-  if (same && !confirm(`이 데이터셋은 #${same.id}이(가) 이미 ${same.status === "queued" ? "대기" : "학습"} 중입니다.\n하나 더 넣을까요?`)) return;
-  $("job-start").disabled = true;               // one click, one run
-  try {
-    const res = await api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        dataset_id: Number($("job-dataset").value), model: $("job-model").value,
-        epochs: Number($("job-epochs").value), imgsz: Number($("job-imgsz").value),
-        batch: Number($("job-batch").value), freeze: $("job-freeze").value,
-        val_ratio: Number($("job-val").value), device: $("job-device").value })});
-    $("job-msg").textContent = `#${res.id} 대기열에 추가됨`;
-    await select(res.id);
-  } catch (e) { $("job-msg").textContent = e.message; $("job-msg").className = "msg err"; }
-  finally { $("job-start").disabled = false; }
-};
-
-document.querySelectorAll("#presets button").forEach((b) => {
-  b.onclick = () => {
-    document.querySelectorAll("#presets button").forEach((x) =>
-      x.setAttribute("aria-pressed", x === b));
-    const p = { fast: { imgsz: 320, epochs: 30, batch: 8, freeze: "backbone" },
-                balanced: { imgsz: 640, epochs: 50, batch: 4, freeze: "backbone" },
-                accurate: { imgsz: 640, epochs: 150, batch: 2, freeze: "" } }[b.dataset.preset];
-    $("job-imgsz").value = p.imgsz; $("job-epochs").value = p.epochs;
-    // the CPU batches, times four on a GPU — 16 GB+ holds them at 640
-    $("job-batch").value = gpu ? p.batch * 4 : p.batch; $("job-freeze").value = p.freeze;
-  };
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".code .copy");
+  if (!btn) return;
+  const text = btn.nextElementSibling.dataset.raw;
+  try { await navigator.clipboard.writeText(text); }
+  catch {                                           // plain http from another machine: no clipboard API
+    const area = Object.assign(document.createElement("textarea"), { value: text });
+    document.body.append(area); area.select(); document.execCommand("copy"); area.remove();
+  }
+  btn.textContent = "복사됨"; setTimeout(() => btn.textContent = "복사", 1400);
 });
 
-async function loadReport(job) {
-  const panel = $("report");
-  if (!job.artifacts.includes("report")) { panel.hidden = true; return; }
-  const r = await api(`/api/jobs/${job.id}/report`);
-  const rows = r.per_class.map((c) =>
-    `<tr><td>${c.name}</td><td>${fmt(c.ap50_95)}</td></tr>`).join("");
-  $("report-summary").innerHTML =
-    `<div class="row"><b>mAP50 ${fmt(r.map50)}</b><span class="dim">mAP50-95 ${fmt(r.map50_95)}</span>
-     <span class="grow"></span><span class="dim">conf ${fmt(r.conf, 2)}</span></div>
-     <table style="margin-top:8px"><tr><th>클래스</th><th>AP50-95</th></tr>${rows}</table>`;
-  $("gallery").innerHTML = r.images.map((im) => `
-    <div class="shot">
-      <img src="/api/jobs/${job.id}/eval/${im.file}" loading="lazy"
-           onclick="window.open(this.src)">
-      <div class="cap"><span>참 ${im.truth}</span>
-        <span class="${im.found < im.truth ? "miss" : ""}">찾음 ${im.found}</span></div>
-    </div>`).join("");
-  panel.hidden = false;
-}
-
+// ---------------------------------------------------------------- job actions
 $("evaluate").onclick = async () => {
   try { const res = await api(`/api/jobs/${current}/evaluate`, { method: "POST",
         headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conf: 0.25 }) });
     await select(res.id); }
-  catch (e) { $("detail-msg").textContent = e.message; $("detail-msg").className = "msg err"; }
+  catch (e) { say("detail-msg", e.message, "err"); }
 };
 
 $("resume").onclick = async () => {
@@ -677,86 +1252,94 @@ $("resume").onclick = async () => {
   try { const res = await api(`/api/jobs/${current}/resume`, { method: "POST",
         headers: { "Content-Type": "application/json" }, body: JSON.stringify({ add_epochs: more }) });
     await select(res.id); }
-  catch (e) { $("detail-msg").textContent = e.message; $("detail-msg").className = "msg err"; }
+  catch (e) { say("detail-msg", e.message, "err"); }
 };
 
-$("dl-log").onclick = () => location.assign(`/api/jobs/${current}/download/log`);
-$("dl-pred").onclick = () => location.assign(`/api/jobs/${current}/download/predictions`);
-$("dl-video").onclick = () => location.assign(`/api/jobs/${current}/download/video`);
+const download = (kind) => () => { $("downloads").open = false; location.assign(`/api/jobs/${current}/download/${kind}`); };
+$("dl-weights").onclick = download("weights");
+$("dl-ir").onclick = download("openvino");
+$("dl-csv").onclick = download("results");
+$("dl-log").onclick = download("log");
+$("dl-pred").onclick = download("predictions");
+$("dl-video").onclick = download("video");
+
 $("register").onclick = async () => {
   const name = prompt("모델 이름", `model-${current}`);
   if (!name) return;
-  await api("/api/models", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ job_id: current, name }) });
-  await refresh();
-};
-
-$("detail-close").onclick = () => {
-  if (stream) stream.close();
-  current = null; $("detail").hidden = true; refresh();
+  try {
+    await api("/api/models", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ job_id: current, name }) });
+    say("detail-msg", `✓ "${name}"(으)로 등록했습니다 — 모델 탭과 추론의 모델 목록에 나옵니다`, "ok");
+    await refresh();
+  } catch (e) { say("detail-msg", e.message, "err"); }
 };
 
 $("delete-job").onclick = async () => {
   if (!confirm(`#${current} 작업과 그 결과 파일(가중치, IR, 로그)을 지웁니다.`)) return;
   try {
     await api(`/api/jobs/${current}`, { method: "DELETE" });
-    if (stream) stream.close();
-    current = null; $("detail").hidden = true;
+    closeDetail();
     await refresh();
-  } catch (e) { $("detail-msg").textContent = e.message; $("detail-msg").className = "msg err"; }
+  } catch (e) { say("detail-msg", e.message, "err"); }
 };
 
 $("cancel").onclick = async () => { await api(`/api/jobs/${current}/cancel`, { method: "POST" }); await select(current); };
-$("dl-weights").onclick = () => location.assign(`/api/jobs/${current}/download/weights`);
-$("dl-ir").onclick = () => location.assign(`/api/jobs/${current}/download/openvino`);
-$("dl-csv").onclick = () => location.assign(`/api/jobs/${current}/download/results`);
+
 $("try").onclick = async () => {
   const file = $("try-file").files[0];
-  if (!file) return ($("detail-msg").textContent = "이미지를 고르세요");
+  if (!file) return say("detail-msg", "시험할 이미지를 고르세요", "err");
   const form = new FormData();
   form.append("image", file);
   form.append("conf", $("try-conf").value || "0.25");
-  $("detail-msg").textContent = "추론 중…";
-  const res = await fetch(`/api/jobs/${current}/predict`, { method: "POST", body: form });
-  if (!res.ok) { const e = await res.json(); $("detail-msg").textContent = e.error; return; }
-  const found = JSON.parse(res.headers.get("X-Detections") || "[]");
-  $("detail-msg").textContent = found.length ? found.map((d) => `${d.name} ${d.confidence}`).join(", ") : "검출 없음";
-  $("preview").src = URL.createObjectURL(await res.blob()); $("preview").hidden = false;
+  say("detail-msg", "추론 중…");
+  $("try").disabled = true;
+  try {
+    const res = await fetch(`/api/jobs/${current}/predict`, { method: "POST", body: form });
+    if (!res.ok) { const e = await res.json(); return say("detail-msg", e.error, "err"); }
+    const found = JSON.parse(res.headers.get("X-Detections") || "[]");
+    say("detail-msg", found.length ? found.map((d) => `${d.name} ${d.confidence}`).join(", ") : "검출 없음");
+    $("preview").src = URL.createObjectURL(await res.blob()); $("preview").hidden = false;
+  } finally { $("try").disabled = false; }
 };
 
+// ---------------------------------------------------------------- inference
 let runTab = "dataset";
 document.querySelectorAll("#run-tabs button").forEach((b) => {
   b.onclick = () => {
     runTab = b.dataset.run;
-    document.querySelectorAll("#run-tabs button").forEach((x) =>
-      x.setAttribute("aria-pressed", x.dataset.run === runTab));
-    document.querySelectorAll("[data-runpanel]").forEach((p) =>
-      p.hidden = p.dataset.runpanel !== runTab);
+    document.querySelectorAll("#run-tabs button").forEach((x) => x.setAttribute("aria-pressed", x.dataset.run === runTab));
+    document.querySelectorAll("[data-runpanel]").forEach((p) => p.hidden = p.dataset.runpanel !== runTab);
     $("run-start").hidden = runTab === "webcam";
   };
 });
-
 $("run-model").onchange = () => { runPicked = true; };
+$("run-conf").oninput = () => { $("run-conf-out").textContent = Number($("run-conf").value).toFixed(2); };
 
 $("run-start").onclick = async () => {
-  const say = (t, bad) => { $("run-msg").textContent = t; $("run-msg").className = "msg" + (bad ? " err" : ""); };
+  const msg = (t, kind) => say("run-msg", t, kind);
   const form = new FormData();
   form.append("model", $("run-model").value);
   form.append("conf", $("run-conf").value || "0.25");
-  if (runTab === "dataset") form.append("dataset_id", $("run-dataset").value);
-  else if (runTab === "path") form.append("path", $("run-path").value.trim());
-  else if (runTab === "video") {
+  if (runTab === "dataset") {
+    if (!$("run-dataset").value) return msg("데이터셋이 없습니다", "err");
+    form.append("dataset_id", $("run-dataset").value);
+  } else if (runTab === "path") {
+    if (!$("run-path").value.trim()) return msg("폴더 경로를 적으세요", "err");
+    form.append("path", $("run-path").value.trim());
+  } else if (runTab === "video") {
     const file = $("run-video").files[0];
-    if (!file) return say("영상을 고르세요", true);
+    if (!file) return msg("영상을 고르세요", "err");
     form.append("video", file);
   }
-  say("보내는 중…");
+  msg("보내는 중…");
+  $("run-start").disabled = true;
   try { const res = await api("/api/predict", { method: "POST", body: form });
-        say(""); await select(res.id); }
-  catch (e) { say(e.message, true); }
+        msg(`✓ #${res.id} 시작 — 오른쪽에 결과가 쌓입니다`, "ok"); await select(res.id); }
+  catch (e) { msg(e.message, "err"); }
+  finally { $("run-start").disabled = false; }
 };
 
-// --- webcam preview: frames go to the server, annotated frames come back ---
+// webcam preview: frames go to the server, annotated frames come back
 let camStream = null, camTimer = null;
 $("cam-start").onclick = async () => {
   if (!window.isSecureContext || !navigator.mediaDevices) {
@@ -764,17 +1347,17 @@ $("cam-start").onclick = async () => {
     // runs an HTTPS twin for exactly this
     const { https_port } = await api("/api/status");
     if (https_port) {
-      const secure = `https://${location.hostname}:${https_port}${location.pathname}`;
-      $("cam-msg").innerHTML = `카메라는 https에서만 열립니다 → <a href="${secure}">${secure}</a> 에서 열기`
-        + ` <span class="dim">(처음 한 번 뜨는 인증서 경고에서 '고급 → 계속')</span>`;
+      const secure = `https://${location.hostname}:${https_port}${location.pathname}#infer`;
+      $("cam-msg").className = "msg";
+      $("cam-msg").innerHTML = `카메라는 https에서만 열립니다 → <a href="${secure}">${esc(secure)}</a>`
+        + `<br><span class="faint">처음 한 번 뜨는 인증서 경고에서 '고급 → 계속'</span>`;
     } else {
-      $("cam-msg").textContent = "브라우저는 https 또는 localhost 주소에서만 카메라를 허용합니다. "
-        + "서버를 --https-port 와 함께 실행하세요.";
+      say("cam-msg", "브라우저는 https 또는 localhost 주소에서만 카메라를 허용합니다. 서버를 --https-port 와 함께 실행하세요.", "err");
     }
     return;
   }
   try { camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 } }); }
-  catch (e) { $("cam-msg").textContent = "카메라를 열 수 없습니다: " + e.message; return; }
+  catch (e) { return say("cam-msg", "카메라를 열 수 없습니다: " + e.message, "err"); }
   const video = $("cam");
   video.srcObject = camStream; video.hidden = false; await video.play();
   $("cam-start").disabled = true; $("cam-stop").disabled = false;
@@ -795,13 +1378,12 @@ $("cam-start").onclick = async () => {
       const res = await fetch("/api/preview", { method: "POST", body: form });
       if (res.ok) {
         const found = JSON.parse(res.headers.get("X-Detections") || "[]");
-        $("cam-msg").textContent = found.length
-          ? found.map((d) => `${d.name} ${d.confidence}`).join(", ") : "검출 없음";
+        say("cam-msg", found.length ? found.map((d) => `${d.name} ${d.confidence}`).join(", ") : "검출 없음");
         const out = $("cam-out");
         if (out.src) URL.revokeObjectURL(out.src);
         out.src = URL.createObjectURL(await res.blob()); out.hidden = false; video.hidden = true;
-      } else { $("cam-msg").textContent = (await res.json()).error; }
-    } catch (e) { $("cam-msg").textContent = e.message; }
+      } else { say("cam-msg", (await res.json()).error, "err"); }
+    } catch (e) { say("cam-msg", e.message, "err"); }
     busy = false;
   }, 400);
 };
@@ -811,24 +1393,49 @@ $("cam-stop").onclick = () => {
   if (camStream) camStream.getTracks().forEach((t) => t.stop());
   camStream = null;
   $("cam").hidden = true; $("cam-out").hidden = true;
-  $("cam-start").disabled = false; $("cam-stop").disabled = true; $("cam-msg").textContent = "";
+  $("cam-start").disabled = false; $("cam-stop").disabled = true; say("cam-msg", "");
 };
+
+// ---------------------------------------------------------------- models
+function renderModels(models) {
+  $("models").innerHTML = models.length ? models.map((m) => `
+    <div class="card">
+      <div class="row"><b>${esc(m.name)}</b><span class="pill">${m.kind === "openvino" ? "OpenVINO IR" : m.kind}</span>
+        <span class="grow"></span>
+        <button class="btn sm" data-model-code="${m.id}">코드</button>
+        <button class="btn ghost sm danger" data-model="${m.id}">삭제</button></div>
+      ${m.classes.length ? `<div class="chips" style="margin-top:8px">${m.classes.map((c) => `<span class="chip">${esc(c)}</span>`).join("")}</div>` : ""}
+      <div class="small faint mono" style="margin-top:8px;word-break:break-all">${esc(m.path)}</div>
+      <div class="code" data-model-snippet="${m.id}" hidden><button class="btn copy">복사</button><pre></pre></div>
+    </div>`).join("")
+    : `<div class="empty">등록된 모델이 없습니다.<br><span class="small">작업을 열고 "모델로 등록"을 누르거나, 아래에서 파일을 올리세요.</span></div>`;
+  document.querySelectorAll("[data-model]").forEach((el) => el.onclick = async () => {
+    if (!confirm("이 모델을 목록에서 뺍니다. 파일은 그대로 둡니다.")) return;
+    await api(`/api/models/${el.dataset.model}`, { method: "DELETE" }); await refresh();
+  });
+  document.querySelectorAll("[data-model-code]").forEach((el) => el.onclick = () => {
+    const m = models.find((x) => String(x.id) === el.dataset.modelCode);
+    const box = document.querySelector(`[data-model-snippet="${m.id}"]`), pre = box.querySelector("pre");
+    pre.dataset.raw = pythonSnippet(m.path); pre.innerHTML = hl(pre.dataset.raw);
+    box.hidden = !box.hidden;
+  });
+}
 
 $("model-upload").onclick = async () => {
   const files = [...$("model-file").files];
-  if (!files.length) return;
+  if (!files.length) return say("model-msg", "파일을 고르세요", "err");
   const main = files.find((f) => /\.(pt|onnx|xml)$/i.test(f.name)) || files[0];
   const form = new FormData();
   files.forEach((f) => form.append("files", f));       // an IR is .xml + .bin together
   form.append("name", $("model-name").value || main.name.replace(/\.[^.]+$/, ""));
   try { await api("/api/models/upload", { method: "POST", body: form });
-    $("run-msg").textContent = "등록됨"; $("run-msg").className = "msg";
-    $("model-file").value = "";
+    say("model-msg", "✓ 올렸습니다", "ok");
+    $("model-file").resetDrop(); $("model-name").value = "";
     await refresh(); }
-  catch (e) { $("run-msg").textContent = e.message; $("run-msg").className = "msg err"; }
+  catch (e) { say("model-msg", e.message, "err"); }
 };
 
-// the GPU at a glance: is the run actually using it, and how full is it
+// ---------------------------------------------------------------- GPU, live
 async function gpuLive() {
   let r;
   try { r = await api("/api/gpu"); } catch { return; }
@@ -839,16 +1446,15 @@ async function gpuLive() {
   el.innerHTML = r.gpus.map((g) => {
     const mem = g.mem_total_mb ? (g.mem_used_mb / g.mem_total_mb) * 100 : 0;
     const gb = (mb) => (mb / 1024).toFixed(1);
-    return `<span title="GPU ${g.index}">${g.name.replace(/^NVIDIA (GeForce )?/, "")}</span>`
+    return `<span class="name" title="GPU ${g.index}">${esc(g.name.replace(/^NVIDIA (GeForce )?/, ""))}</span>`
       + `<span>사용률 <b>${g.util ?? "?"}%</b>${meter(g.util || 0)}</span>`
-      + `<span>메모리 <b>${gb(g.mem_used_mb)}</b>/${gb(g.mem_total_mb)} GB${meter(mem)}</span>`
+      + `<span>메모리 <b>${gb(g.mem_used_mb)}</b>/${gb(g.mem_total_mb)}GB${meter(mem)}</span>`
       + (g.temp_c != null ? `<span>${g.temp_c}°C</span>` : "")
       + (g.power_w != null ? `<span>${Math.round(g.power_w)}W${g.power_limit_w ? `/${Math.round(g.power_limit_w)}` : ""}</span>` : "");
-  }).join(`<span class="dim">|</span>`);
+  }).join("");
   el.hidden = false;
 }
 gpuLive().then(refresh);   // refresh reads what gpuLive saw
 setInterval(gpuLive, 2000);
-
 setInterval(() => { if (!stream || stream.readyState === 2) refresh(); }, 4000);
 </script>

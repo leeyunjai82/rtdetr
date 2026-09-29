@@ -27,6 +27,7 @@ Everything runs on CPU in a few minutes; there is no training involved.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -70,6 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     out_root = Path(args.out)
     for variant in args.variants:
         build(variant, out_root, args.imgsz, args.half, args.keep_onnx)
+    # the repo's front page travels with the weights
+    shutil.copyfile(Path(__file__).with_name("hub_README.md"), out_root / "README.md")
     print(f"\nmirror ready at {out_root}/ — upload it keeping these directory names:")
     print('  pip install -U "huggingface_hub[cli]" && hf auth login')
     print(f"  hf upload leeyunjai/rtdetr {out_root} . --repo-type=model")

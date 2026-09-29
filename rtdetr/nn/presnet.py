@@ -151,6 +151,7 @@ class PResNet(nn.Module):
         self.return_idx = list(return_idx)
         self.out_channels = [out_channels[i] for i in self.return_idx]
         self.out_strides = [out_strides[i] for i in self.return_idx]
+        self.imagenet_loaded = False
         if pretrained:
             self.load_imagenet(depth)
 
@@ -165,6 +166,7 @@ class PResNet(nn.Module):
             path = download(url, cache_dir() / "imagenet" / url.rsplit("/", 1)[-1])
             state = torch.load(path, map_location="cpu", weights_only=False)
             missing, unexpected = self.load_state_dict(state, strict=False)
+            self.imagenet_loaded = True
             print(
                 f"[rtdetr] loaded ImageNet backbone (r{depth}); "
                 f"missing {len(missing)}, unexpected {len(unexpected)}"

@@ -18,6 +18,7 @@ import functools
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -38,6 +39,7 @@ from labeling import (
     read_labels,
     write_labels,
 )
+from modelcard import model_card, slug
 from worker import Worker
 
 from rtdetr.data.labels import label_path as shared_label_path
@@ -638,7 +640,40 @@ def get_job(job_id: int):
         (job_id,),
     )
     job["artifacts"] = _artifacts(job)
+    job["files"] = _model_files(job)
+    job["run"] = _run_summary(job)
     return job
+
+
+def _run_summary(job: dict) -> dict:
+    """The run's setup and, once it is over, how it went — for the job's info panel."""
+    if job["kind"] != "train" or not job.get("run_dir"):
+        return {}
+    run_dir = Path(job["run_dir"])
+    record = _run_record(run_dir)
+    summary = run_dir / "summary.json"
+    if summary.exists():
+        try:
+            done = json.loads(summary.read_text(encoding="utf-8"))
+            outcome = ("best_epoch", "stopped_early", "epoch_seconds", "final")
+            record = dict(done.get("run") or record, **{k: done.get(k) for k in outcome})
+        except ValueError:
+            pass
+    return record
+
+
+def _model_files(job: dict) -> dict:
+    """Where a run's model sits on disk, for the copy-and-run snippets."""
+    if not job.get("run_dir"):
+        return {}
+    run_dir = Path(job["run_dir"]).resolve()
+    files = {}
+    if (run_dir / "weights" / "best.pt").exists():
+        files["weights"] = str(run_dir / "weights" / "best.pt")
+    xml = next((run_dir / "openvino").glob("*.xml"), None)
+    if xml is not None:
+        files["ir"] = str(xml)
+    return files
 
 
 @app.post("/api/jobs/{job_id}/resume")
@@ -842,7 +877,9 @@ def stream_job(job_id: int):
 
 
 @app.get("/api/jobs/{job_id}/download/{kind}")
-def download(job_id: int, kind: str):
+def download(job_id: int, kind: str, repo: str | None = None, folder: str | None = None,
+             pt: bool = False):
+    folder_in_repo = folder
     job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
     if job is None or not job["run_dir"]:
         raise HTTPException(404, "nothing to download yet")
@@ -857,7 +894,13 @@ def download(job_id: int, kind: str):
         if not folder.is_dir():
             raise HTTPException(404, "no exported IR")
         archive = shutil.make_archive(str(run_dir / f"job{job_id}-openvino"), "zip", folder)
+        if job["kind"] == "train":           # the card travels with the model
+            files = sorted(p.name for p in folder.iterdir())
+            with zipfile.ZipFile(archive, "a") as bundle:
+                bundle.writestr("README.md", _card(job, repo, folder_in_repo, files))
         return FileResponse(archive, filename=f"job{job_id}-openvino.zip")
+    if kind == "huggingface":
+        return _hub_bundle(job, repo, folder_in_repo, pt)
     if kind == "results":
         path = run_dir / "results.csv"
         if not path.exists():
@@ -881,6 +924,159 @@ def download(job_id: int, kind: str):
             raise HTTPException(404, "no log")
         return FileResponse(path, filename=f"job{job_id}-train.log", media_type="text/plain")
     raise HTTPException(404, "unknown artefact")
+
+
+# ---------------------------------------------------------------- Hugging Face
+
+
+def _hub_repo() -> str:
+    """The repo this install downloads its weights from — the natural place to share more."""
+    from rtdetr.downloads import assets_url
+
+    found = re.search(r"huggingface\.co/([^/]+/[^/]+)/resolve", assets_url())
+    return found.group(1) if found else "your-name/rtdetr-models"
+
+
+def _hub_folder(job: dict) -> str:
+    dataset = db.one("SELECT name FROM datasets WHERE id = ?", (job["dataset_id"],))
+    return "models/" + slug(dataset["name"] if dataset else "", f"job{job['id']}")
+
+
+def _card_facts(job: dict, repo: str, folder: str, files: list[str]) -> dict:
+    """Everything the card says, read back from the run — never typed in."""
+    run_dir = Path(job["run_dir"])
+    summary = {}
+    if (run_dir / "summary.json").exists():
+        summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    log = (run_dir / "train.log").read_text(encoding="utf-8", errors="replace") \
+        if (run_dir / "train.log").exists() else ""
+
+    named = sorted(summary.get("names", {}).items(), key=lambda kv: int(kv[0]))
+    variant, names = None, [v for _, v in named]
+    model = str(job["model"])
+    if re.fullmatch(r"rtdetr-r(18|34|50)", model):
+        variant = model.rsplit("-", 1)[-1]
+    weights = run_dir / "weights" / "best.pt"
+    if (variant is None or not names) and weights.exists():
+        try:
+            import torch
+
+            ckpt = torch.load(weights, map_location="cpu", weights_only=False)
+            variant = variant or ckpt.get("variant")
+            names = names or [v for _, v in sorted(ckpt.get("names", {}).items())]
+        except Exception:  # noqa: BLE001 — a card with less in it beats no card
+            pass
+
+    run = summary.get("run") or _run_record(run_dir)
+    variant = run.get("variant") or variant
+    origin = run.get("start") or {}
+    if Path(model).suffix in (".pt", ".xml", ".onnx"):
+        weights_dir = Path(model).parent.name == "weights"   # runs/jobN/weights/best.pt -> jobN
+        start = Path(model).parent.parent.name if weights_dir else Path(model).name
+    elif origin.get("kind") in ("coco", "imagenet", "scratch"):
+        start = origin["kind"]
+    else:                                   # a run from before run.json: read the log
+        start = "imagenet" if "loaded ImageNet backbone" in log else "coco"
+    device = re.search(r"training on (\S+?),", log)
+    device = run.get("gpu") or (device.group(1) if device else None)
+    gpu = _gpu()
+    if device and device.startswith("cuda") and gpu:
+        device = gpu["name"]
+    images = re.search(r"training on \S+?, (\d+) images", log)
+
+    dataset = db.one("SELECT * FROM datasets WHERE id = ?", (job["dataset_id"],))
+    boxes = {}
+    if dataset:
+        try:
+            boxes = {c["name"]: c["boxes"] for c in dataset_stats(dataset["id"])["per_class"]}
+        except HTTPException:
+            pass
+    rows = db.query("SELECT epoch, loss, map50_95 FROM epochs WHERE job_id = ? ORDER BY epoch",
+                    (job["id"],))
+    scored = [r for r in rows if r["map50_95"] is not None]
+    report = run_dir / "eval" / "report.json"
+    report = json.loads(report.read_text(encoding="utf-8")) if report.exists() else {}
+
+    import rtdetr
+
+    return {
+        "title": dataset["name"] if dataset else f"job{job['id']}",
+        "repo": repo, "folder": folder, "files": files,
+        "variant": variant, "names": names,
+        "imgsz": summary.get("imgsz") or job.get("imgsz"),
+        "epochs": job.get("epochs"), "epochs_run": summary.get("epochs_run"),
+        "best_epoch": max(scored, key=lambda r: r["map50_95"])["epoch"] if scored else None,
+        "batch": job.get("batch"), "freeze": job.get("freeze"),
+        "start": start, "device": device,
+        "train_images": int(images.group(1)) if images else None,
+        "dataset_images": dataset["images"] if dataset else None,
+        "map50_95": summary.get("best_map50_95", job.get("best_map")),
+        "map50": report.get("map50"),
+        "per_class_ap": {c["name"]: c["ap50_95"] for c in report.get("per_class", [])},
+        "boxes": boxes,
+        "seconds": job["finished"] - job["started"]
+        if job.get("finished") and job.get("started") else None,
+        "date": time.strftime("%Y-%m-%d", time.localtime(job.get("finished") or time.time())),
+        "version": (run.get("versions") or {}).get("rtdetr") or rtdetr.__version__,
+        "curve": rows,
+        "run": run,
+        "stopped_early": summary.get("stopped_early"),
+        "final": summary.get("final"),
+        "epoch_seconds": summary.get("epoch_seconds"),
+    }
+
+
+def _run_record(run_dir: Path) -> dict:
+    """``run.json`` — how the trainer was set up; there from the first batch on."""
+    path = run_dir / "run.json"
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except ValueError:                      # half-written while we read it
+        return {}
+
+
+def _card(job: dict, repo: str | None, folder: str | None, files: list[str]) -> str:
+    return model_card(_card_facts(job, repo or _hub_repo(), folder or _hub_folder(job), files))
+
+
+def _hub_files(job: dict, pt: bool) -> list[Path]:
+    run_dir = Path(job["run_dir"])
+    wanted = [p for p in sorted((run_dir / "openvino").glob("*"))
+              if p.suffix in (".xml", ".bin") or p.name == "labels.txt"
+              or p.name.endswith(".names.json")]
+    if pt and (run_dir / "weights" / "best.pt").exists():
+        wanted.append(run_dir / "weights" / "best.pt")
+    return wanted
+
+
+def _hub_bundle(job: dict, repo: str | None, folder: str | None, pt: bool):
+    """The folder to upload as it is: the IR, its labels, the card — and best.pt if asked."""
+    if job["kind"] != "train":
+        raise HTTPException(400, "only a training run has a model to share")
+    files = _hub_files(job, pt)
+    if not any(p.suffix == ".xml" for p in files):
+        raise HTTPException(404, "no exported IR — export failed or the run is still going")
+    folder = folder or _hub_folder(job)
+    name = folder.strip("/").rsplit("/", 1)[-1] or f"job{job['id']}"
+    archive = Path(job["run_dir"]) / f"{name}.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for path in files:
+            bundle.write(path, f"{name}/{path.name}")
+        bundle.writestr(f"{name}/README.md", _card(job, repo, folder, [p.name for p in files]))
+    return FileResponse(archive, filename=archive.name)
+
+
+@app.get("/api/jobs/{job_id}/modelcard")
+def job_modelcard(job_id: int, repo: str | None = None, folder: str | None = None,
+                  pt: bool = False):
+    """The README.md a Hugging Face upload of this run would carry, plus where it would go."""
+    job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+    if job is None or job["kind"] != "train" or not job["run_dir"]:
+        raise HTTPException(404, "no trained model here")
+    folder = folder or _hub_folder(job)
+    files = [p.name for p in _hub_files(job, pt)]
+    return {"repo": repo or _hub_repo(), "folder": folder, "files": files + ["README.md"],
+            "readme": _card(job, repo, folder, files)}
 
 
 @app.post("/api/jobs/{job_id}/predict")
