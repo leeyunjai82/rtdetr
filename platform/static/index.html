@@ -108,6 +108,7 @@
             <button class="db" data-preset="accurate">정확하게</button>
           </div>
           <div class="hint" id="preset-hint"></div>
+          <div class="hint" id="kept" hidden></div>
         </div>
         <div class="field"><div class="pb-label">시작 모델</div>
           <select class="inp" id="job-model"><option>dfine-s</option><option>dfine-m</option><option>dfine-l</option></select>
@@ -116,6 +117,8 @@
           <div><div class="pb-label">에폭</div><input class="inp" id="job-epochs" type="number" value="50" min="1"></div>
           <div><div class="pb-label">배치</div><input class="inp" id="job-batch" type="number" value="4" min="1"></div>
         </div>
+        <div class="field"><div class="pb-label">백본 고정</div>
+          <select class="inp" id="job-freeze" style="width:100%"><option value="backbone">예 — 빠르고 적은 데이터에 알맞아요</option><option value="">아니오 — 백본까지 내 데이터에 맞춰요</option></select></div>
         <div class="field"><div class="pb-label">안 나아지면 멈추기</div>
           <div class="row" style="align-items:center">
             <input class="inp" id="job-patience" type="number" value="15" min="0" style="flex:none;width:80px">
@@ -130,8 +133,6 @@
           <div class="grid2">
             <div><div class="pb-label">입력 크기</div><input class="inp" id="job-imgsz" type="number" value="640" step="32"></div>
             <div><div class="pb-label">검증 비율</div><input class="inp" id="job-val" type="number" value="0.2" step="0.05" min="0.05" max="0.5"></div>
-            <div><div class="pb-label">백본 고정</div>
-              <select class="inp" id="job-freeze"><option value="backbone">예 (빨라요)</option><option value="">아니오</option></select></div>
             <div><div class="pb-label">장치</div>
               <select class="inp" id="job-device"><option value="">자동</option><option value="cpu">CPU</option><option value="0">GPU 0</option></select></div>
           </div>
@@ -418,7 +419,7 @@ async function refresh() {
   running = state.running_job;
   if (state.gpu && !gpu) {                 // a GPU wants batches a CPU could not hold
     gpu = state.gpu;
-    if ($("job-batch").value === "4") $("job-batch").value = "16";
+    if ($("job-batch").value === "4" && !touched.has("job-batch")) $("job-batch").value = "16";
     presetHint();
   }
   $("n-data").textContent = datasets.length;
@@ -648,18 +649,38 @@ function presetHint() {
     $("job-augment").checked ? T("증강") : "", gpu ? gpu.name : "CPU"]
     .filter(Boolean).join(" · ");
 }
+// A goal fills in the fields you have not touched; one you changed by hand
+// stays as you set it — a button must not quietly undo a choice
+const PRESET_FIELDS = { imgsz: "job-imgsz", epochs: "job-epochs", batch: "job-batch",
+                        freeze: "job-freeze", patience: "job-patience", augment: "job-augment" };
+const touched = new Set();
+const setField = (id, value) => {
+  if (touched.has(id)) return;
+  if ($(id).type === "checkbox") $(id).checked = value; else $(id).value = value;
+};
+function showKept() {
+  $("kept").hidden = !touched.size;
+  $("kept").innerHTML = touched.size
+    ? `${T`직접 바꾼 칸 ${touched.size}개는 목표를 바꿔도 그대로예요.`} <a href="#" id="unkeep">${T("목표값으로 되돌리기")}</a>` : "";
+  $("unkeep")?.addEventListener("click", (e) => {
+    e.preventDefault(); touched.clear();
+    document.querySelector("#presets button.on")?.click();
+  });
+}
 document.querySelectorAll("#presets button").forEach((b) => {
   b.onclick = () => {
     press("#presets button", (x) => x === b);
     const p = PRESETS[b.dataset.preset];
-    $("job-imgsz").value = p.imgsz; $("job-epochs").value = p.epochs;
     // the CPU batches, times four on a GPU — 16 GB+ holds them at 640
-    $("job-batch").value = gpu ? p.batch * 4 : p.batch; $("job-freeze").value = p.freeze;
-    $("job-patience").value = p.patience; $("job-augment").checked = p.augment;
-    presetHint();
+    for (const [key, id] of Object.entries(PRESET_FIELDS))
+      setField(id, key === "batch" && gpu ? p.batch * 4 : p[key]);
+    presetHint(); showKept();
   };
 });
-["job-imgsz", "job-epochs", "job-batch", "job-freeze", "job-patience", "job-augment"].forEach((id) => $(id).addEventListener("input", presetHint));
+Object.values(PRESET_FIELDS).forEach((id) => {
+  $(id).addEventListener("input", presetHint);
+  $(id).addEventListener("change", () => { touched.add(id); presetHint(); showKept(); });
+});
 presetHint();
 
 $("job-start").onclick = async () => {

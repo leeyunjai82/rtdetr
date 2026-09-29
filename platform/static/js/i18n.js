@@ -59,7 +59,11 @@
     "{0}에폭": "{0} epochs", "배치 {0}": "batch {0}",
     "안 나아지면 멈추기": "Stop when it stops improving", "에폭 동안 mAP가 그대로면 멈춰요": "epochs with no better mAP, then stop",
     "가장 좋았던 가중치가 남아요. 0이면 끝까지 해요.": "The best weights are kept. 0 runs every epoch.",
-    "{0}에폭 정체 시 멈춤": "stop after {0} flat epochs", "증강": "augment",
+    "{0}에폭 정체 시 멈춤": "stop after {0} flat epochs",
+    "직접 바꾼 칸 {0}개는 목표를 바꿔도 그대로예요.": "The {0} field(s) you changed stay as you set them.",
+    "목표값으로 되돌리기": "Use the goal's values",
+    "예 — 빠르고 적은 데이터에 알맞아요": "Yes — faster, suits a small dataset",
+    "아니오 — 백본까지 내 데이터에 맞춰요": "No — the backbone learns your data too", "증강": "augment",
     "확대·축소·자르기 증강": "Zoom, crop and colour augmentation",
     "크기와 위치가 다른 사진을 만들어 배워요. 에폭이 많을 때 도움이 되고, 짧은 학습에서는 느려져요.":
       "Trains on pictures at other sizes and positions. Helps longer runs; slows short ones.",
