@@ -108,7 +108,24 @@ old for the driver, take `libze1_*.deb` from
 
 ## Duplicate boxes
 
-There is no NMS: one-to-one matching during training teaches the model to emit a
-single query per object, so at working thresholds (0.25 and up) there is
-nothing to suppress. Very low thresholds let the low-scoring queries pile onto
-the same object — raise `conf` rather than adding NMS.
+D-FINE has no NMS step: one-to-one matching during training teaches it to give
+each object one query, and mostly it does. Below its confident answers,
+though, a second query can land on the same object, often under a
+neighbouring class. On eight test pictures, `dfine-s` at `conf=0.25` gave 194
+boxes with 20 pairs overlapping by more than IoU 0.7 — one vehicle as `truck`
+0.83 and `car` 0.57 (IoU 0.93), one fridge three times — and every pair was
+one object twice. Raising `conf` to 0.5 cleared the same-class pairs but not
+the truck/car ones.
+
+So `predict` keeps the best box and drops any box that covers it by more than
+IoU 0.7, whatever the class: 194 boxes became 176 with no pair left, and at
+0.5, 66 became 60. Separate objects rarely overlap that much; for a scene where
+they do, change or switch it off:
+
+```python
+model.predict("crowd.jpg", overlap=0.85)   # only near-identical boxes merge
+model.predict("crowd.jpg", overlap=None)   # every box the model gave
+```
+
+`val` and the mAP a run reports use the unfiltered boxes, as D-FINE's own
+numbers do.

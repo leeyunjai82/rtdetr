@@ -27,8 +27,10 @@ train and test in a browser. Apache-2.0 from the code to the model you export.
   scores 48.5 COCO mAP with 10M parameters.
 * **Runs on the machine you have.** OpenVINO runs the model on a CPU, an Intel
   GPU or an Intel NPU; no CUDA needed to deploy. A GPU makes training quick.
-* **No NMS.** One box per object, so there is no IoU threshold to tune and
-  latency does not climb with a crowded frame.
+* **No NMS to tune.** D-FINE is trained to give each object one box. The odd
+  second box on the same object — one vehicle as both truck and car — is
+  dropped by a fixed overlap filter (IoU 0.7, any class), so there is no
+  threshold to tune and a crowded frame costs no extra time.
 
 ## Install
 
@@ -138,8 +140,11 @@ re-measured here:
 
 | model | params | COCO mAP50-95 | NMS | license |
 | --- | --- | --- | --- | --- |
-| D-FINE n / s / m / l / x | 4M / 10M / 19M / 31M / 62M | 42.8 / 48.5 / 52.3 / 54.0 / 55.8 | none | Apache-2.0 |
+| D-FINE n / s / m / l / x | 4M / 10M / 19M / 31M / 62M | 42.8 / 48.5 / 52.3 / 54.0 / 55.8 | not needed¹ | Apache-2.0 |
 | YOLO11 n / s / m / l / x | 2.6M / 9.4M / 20.1M / 25.3M / 56.9M | 39.5 / 47.0 / 51.5 / 53.4 / 54.7 | needed | AGPL-3.0 |
+
+¹ The model has no NMS step; `predict` drops a box overlapping a better one
+by IoU > 0.7, the rare duplicate — see [performance](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md#duplicate-boxes).
 
 Read it plainly:
 

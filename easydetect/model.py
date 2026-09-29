@@ -112,6 +112,7 @@ class Detector:
         device: str | None = None,
         max_det: int = 300,
         classes: list[int] | None = None,
+        overlap: float | None = 0.7,
         stream: bool = False,
         save: bool = False,
         show: bool = False,
@@ -125,7 +126,9 @@ class Detector:
         """Run detection on any supported source.
 
         Returns a ``list[Results]``, or a generator when ``stream=True`` (the
-        only sane option for a long video or a live camera).
+        only sane option for a long video or a live camera). ``overlap`` drops
+        a box covering a higher-scoring one by more than that IoU — the same
+        object found twice, sometimes under two classes; ``None`` keeps all.
         """
         if source is None:
             raise ValueError("predict() needs a source (image, folder, video, url, camera index)")
@@ -141,6 +144,7 @@ class Detector:
             device=device,
             max_det=max_det,
             classes=classes,
+            overlap=overlap,
             save=save,
             show=show,
             project=project,
@@ -173,7 +177,7 @@ class Detector:
 
     def _track_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         allowed = {
-            "imgsz", "device", "max_det", "classes", "save", "show",
+            "imgsz", "device", "max_det", "classes", "overlap", "save", "show",
             "project", "name", "vid_stride", "verbose", "line_width",
         }
         unexpected = set(kwargs) - allowed
@@ -190,6 +194,7 @@ class Detector:
         device: str | None = None,
         max_det: int = 300,
         classes: list[int] | None = None,
+        overlap: float | None = 0.7,
         save: bool = False,
         show: bool = False,
         project: str = "runs",
@@ -210,7 +215,8 @@ class Detector:
 
         try:
             for frame in loader:
-                det, speed = predictor(frame.img, conf=conf, max_det=max_det, classes=classes)
+                det, speed = predictor(frame.img, conf=conf, max_det=max_det, classes=classes,
+                                       overlap=overlap)
                 if tracker is not None:
                     det = tracker.update(det)
                 result = Results(

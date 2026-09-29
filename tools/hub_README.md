@@ -35,8 +35,9 @@ for r in model.predict(0, stream=True, show=True):   # webcam; q or Esc quits
     pass
 ```
 
-No NMS step to tune: D-FINE predicts its set of boxes end to end, and the
-package handles resize, decode and drawing.
+No NMS step to tune: D-FINE predicts its set of boxes end to end; the package
+drops the rare second box on one object (IoU > 0.7) and handles resize, decode
+and drawing.
 
 ## COCO models — 80 classes
 

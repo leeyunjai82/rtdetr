@@ -46,6 +46,39 @@ def read_names(model_path: Path) -> dict[int, str]:
     return {}
 
 
+#: Default for ``overlap``: above this IoU, two boxes are one object.
+OVERLAP = 0.7
+
+
+def drop_duplicates(xyxy: np.ndarray, overlap: float = OVERLAP) -> np.ndarray:
+    """Indices of the boxes to keep, from boxes sorted best first.
+
+    A DETR is trained to give each object one query, and mostly does; but
+    below its confident answers a second query can land on the same object,
+    often under a neighbouring class — one vehicle as both ``truck`` 0.83 and
+    ``car`` 0.57 (IoU 0.93). Measured on dfine-s at ``conf=0.25``, every pair
+    overlapping by more than 0.7 was one object twice, and several pairs
+    were two classes, so this ignores the class: a box that covers a better
+    one by more than ``overlap`` goes. Two separate objects that overlap this
+    much in a picture are rare; pass ``overlap=None`` to keep every box.
+    """
+    x1, y1, x2, y2 = xyxy.T
+    area = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
+    alive = np.ones(len(xyxy), bool)
+    for i in range(len(xyxy)):
+        if not alive[i]:
+            continue
+        rest = np.nonzero(alive[i + 1:])[0] + i + 1
+        if not len(rest):
+            break
+        iw = np.clip(np.minimum(x2[i], x2[rest]) - np.maximum(x1[i], x1[rest]), 0, None)
+        ih = np.clip(np.minimum(y2[i], y2[rest]) - np.maximum(y1[i], y1[rest]), 0, None)
+        inter = iw * ih
+        iou = inter / np.maximum(area[i] + area[rest] - inter, 1e-9)
+        alive[rest[iou > overlap]] = False
+    return np.nonzero(alive)[0]
+
+
 class OVPredictor:
     """Compiles an IR once, then runs images through it."""
 
@@ -121,8 +154,14 @@ class OVPredictor:
         conf: float = 0.25,
         max_det: int = 300,
         classes: list[int] | None = None,
+        overlap: float | None = OVERLAP,
     ) -> np.ndarray:
-        """-> ``(N, 6)`` array of ``x1 y1 x2 y2 conf cls`` in pixels."""
+        """-> ``(N, 6)`` array of ``x1 y1 x2 y2 conf cls`` in pixels.
+
+        ``overlap`` drops a box that covers a higher-scoring one by more than
+        that IoU, whatever the two classes (``None`` keeps them all): see
+        :func:`drop_duplicates`.
+        """
         if _looks_like_logits(scores):
             scores = 1.0 / (1.0 + np.exp(-scores))
         cls = scores.argmax(-1)
@@ -141,6 +180,9 @@ class OVPredictor:
         xyxy = cxcywh2xyxy_np(boxes.astype(np.float32)) * np.array([w, h, w, h], np.float32)
         xyxy[:, 0::2] = xyxy[:, 0::2].clip(0, w)
         xyxy[:, 1::2] = xyxy[:, 1::2].clip(0, h)
+        if overlap is not None and len(xyxy) > 1:
+            kept = drop_duplicates(xyxy, overlap)
+            xyxy, best, cls = xyxy[kept], best[kept], cls[kept]
         return np.concatenate(
             [xyxy, best.astype(np.float32)[:, None], cls.astype(np.float32)[:, None]], axis=1
         )
@@ -151,6 +193,7 @@ class OVPredictor:
         conf: float = 0.25,
         max_det: int = 300,
         classes: list[int] | None = None,
+        overlap: float | None = OVERLAP,
     ) -> tuple[np.ndarray, dict[str, float]]:
         """Run one image; returns ``(detections (N,6), speed dict in ms)``."""
         import time
@@ -160,7 +203,7 @@ class OVPredictor:
         t1 = time.perf_counter()
         boxes, scores = self.infer(tensor)
         t2 = time.perf_counter()
-        det = self.postprocess(boxes, scores, img.shape[:2], conf, max_det, classes)
+        det = self.postprocess(boxes, scores, img.shape[:2], conf, max_det, classes, overlap)
         t3 = time.perf_counter()
         speed = {
             "preprocess": (t1 - t0) * 1e3,
