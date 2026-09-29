@@ -30,6 +30,7 @@ import yaml
 from db import Database
 from fastapi import FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from labeling import (
     IMG_SUFFIXES,
     label_path,
@@ -52,6 +53,8 @@ DATASETS, RUNS = DATA / "datasets", DATA / "runs"
 db = Database(DATA / "platform.db")
 worker = Worker(db, RUNS)
 app = FastAPI(title="easydetect platform")
+# the themaker-ui design kit and its fonts; the pages link them relatively
+app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 _models: dict[str, object] = {}
 
 

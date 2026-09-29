@@ -13,6 +13,16 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
 
 [PLAN.md](PLAN.md) is what this is meant to become, and what is missing today.
 
+The screens follow [themaker-ui](https://github.com/themakerrobot/themaker-ui),
+the design kit shared by themakerrobot's education tools: its stylesheet and the
+Pretendard font are copied unchanged into `static/css/` and `static/assets/`
+(CI checks the copy against the kit's v1.0.0 tag), and what is particular to
+this app sits in `static/css/app.css`. The **EN / 한** button at the top right
+switches between Korean and English; the choice is remembered in the browser,
+and a first visit follows the browser's language. Strings live in
+`static/js/i18n.js` — Korean is the source, with an English entry for each.
+Button names below are the English ones.
+
 ## The loop
 
 1. **Collect** — four ways into a dataset, and all of them can add to one that
@@ -21,10 +31,10 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    this machine (`python platform/run.py label --source photos/ --names can,bottle`).
    A YOLO-format export from a labelling service goes in as the zip it
    downloaded as — Roboflow's *YOLOv8* / *YOLOv11* TXT, say — with its classes,
-   labels and train/valid split kept; *통계* and *라벨링* show it straight away.
+   labels and train/valid split kept; *Statistics* and *Draw boxes* show it straight away.
    Labels are stored where training reads them: in `labels/` beside an
    `images/` folder, otherwise next to each picture, inside the folder.
-2. **Label** — *라벨링* on the dataset card. Drag to draw, drag inside a box to
+2. **Label** — *Draw boxes* on the dataset card. Drag to draw, drag inside a box to
    move it, drag a corner to resize, <kbd>1</kbd>–<kbd>9</kbd> to set the class,
    <kbd>Del</kbd> to remove, <kbd>Ctrl</kbd>+<kbd>Z</kbd> to undo. Saving is
    automatic. The wheel zooms and the middle button (or <kbd>Space</kbd>) pans,
@@ -35,13 +45,13 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    `valid/images`, …) can be browsed one folder at a time, and ←/→ stay in it;
    background frames — a label with no boxes — are marked apart from pictures
    that have boxes.
-3. **Keep the set honest** — *통계* counts boxes per class and flags what usually
+3. **Keep the set honest** — *Statistics* counts boxes per class and flags what usually
    bites: images with no label, labels with no boxes, specks under 0.1% of the
-   frame. *복제* takes a snapshot before a risky relabel, *병합* combines sets and
+   frame. *Duplicate* takes a snapshot before a risky relabel, *Merge selected* combines sets and
    remaps class indices by name (index 0 rarely means the same thing in two
    datasets), and an image can be dropped with its label from the labelling page.
-4. **Let the model do the first pass** — *자동 라벨* fills the current image;
-   *전체 자동 라벨* queues a job over every unlabelled image in the dataset.
+4. **Let the model do the first pass** — *Auto-label* fills the current image;
+   *Auto-label all* queues a job over every unlabelled image in the dataset.
    Correcting boxes is far quicker than drawing them, and once you have a
    `best.pt` you can point the auto-labeller at it.
 5. **Train** — a preset (빠름 / 균형 / 정확) or your own model, epochs, image size,
@@ -53,37 +63,37 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    at a time; inside an epoch the job shows its batch, what is left and when it
    is validating, and the loss and mAP curve updates per epoch; images are
    decoded by loader processes (half the cores, at most eight —
-   `EASYDETECT_WORKERS` overrides); *중지* stops within a batch;
-   *이어서 학습* continues a finished run with more epochs in the same directory;
+   `EASYDETECT_WORKERS` overrides); *Stop* stops within a batch;
+   *Train more* continues a finished run with more epochs in the same directory;
    every run keeps a `train.log`, and a failure carries the end of it.
-   *삭제* removes a finished job with its weights, IR and log — refused while a
+   *Delete* removes a finished job with its weights, IR and log — refused while a
    resumed run, an evaluation or a registered model still uses those files.
-   *학습 정보* on the job shows what the run was set up with from its first
+   *Run details* on the job shows what the run was set up with from its first
    batch — starting weights, train/validation images and boxes per class,
    trainable parameters, optimizer and schedule, augmentation, device, versions
    — and, once it ends, the best epoch, time per epoch and final losses. The
    trainer writes this to `run.json` in the run folder (`summary.json` repeats
    it with the outcome), so it is there for scripts too.
-6. **See what it learned** — *평가* scores the run on its validation split and
+6. **See what it learned** — *Evaluate* scores the run on its validation split and
    draws every one of those frames with the truth in green and the prediction in
    its class colour, next to per-class AP. A single mAP says whether to keep
    going; this says what to fix.
-7. **Run it on everything else** — *추론* takes a dataset, a folder path on this
+7. **Run it on everything else** — *Predict* takes a dataset, a folder path on this
    machine, or an uploaded video, and queues it like a training job. While it
    works the job says how far it is ("이미지 54/300 · 상자 5개 · 남은 시간 약
    43초") and shows frames as they are drawn; when done, the boxes per class and
    the first 60 drawn frames are right there, with a zip of all of them (and
    `results.json`) and, for a video, `annotated.mp4` to download. The model
    picker lists your finished runs first — no need to register one to use it —
-   and auto-labelling drafts with the dataset's own latest run when it has one. *웹캠* opens the browser's camera and
+   and auto-labelling drafts with the dataset's own latest run when it has one. *Webcam* opens the browser's camera and
    posts a frame every 400 ms, so you see the model on live video even when the
    server is somewhere else.
 8. **Take it away** — `best.pt`, the OpenVINO IR as a zip (exported when a run
-   finishes), `results.csv`. *모델로 등록* gives the run a name (the IR if it has
+   finishes), `results.csv`. *Register model* gives the run a name (the IR if it has
    one, otherwise the weights) and it then appears wherever a model is chosen —
    auto-labelling, batch inference, the webcam. A `.pt`, `.onnx` or IR (its
    `.xml` and `.bin` picked together) from elsewhere goes into the same list.
-   *코드에서 쓰기* on a finished run gives Python, command-line and "another
+   *Use it in code* on a finished run gives Python, command-line and "another
    PC" snippets with this run's paths filled in, ready to copy.
 9. **Share it** — the *Hugging Face* tab builds the folder to upload: the IR,
    `labels.txt`, optionally `best.pt`, and a `README.md` model card written

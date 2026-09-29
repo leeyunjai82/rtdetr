@@ -1,126 +1,65 @@
 <!doctype html>
+<html lang="ko">
 <meta charset="utf-8">
-<title>라벨링 — easydetect</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233b6cf6'/%3E%3Crect x='7' y='10' width='18' height='14' rx='2.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Crect x='7' y='6' width='10' height='5' rx='1.5' fill='white'/%3E%3Ccircle cx='16' cy='17' r='2.2' fill='white'/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script>   /* the platform's theme, before the first paint */
-  try { document.documentElement.dataset.theme = localStorage.getItem("theme")
-          || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); } catch {}
-</script>
-<style>
-  :root {
-    color-scheme: light;
-    --bg:#eceef2; --surface:#ffffff; --sunk:#f0f2f5; --field:#ffffff;
-    --line:#e3e6eb; --line-strong:#cfd4dc; --ink:#171a20; --dim:#5d6675; --faint:#98a1af;
-    --accent:#3b6cf6; --accent-soft:#e9efff; --ok:#12a168; --bad:#d93f3f; --bad-soft:#fdecec;
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg:#0b0d11; --surface:#15181e; --sunk:#1b1f26; --field:#11141a;
-    --line:#242932; --line-strong:#323845; --ink:#e8eaee; --dim:#9098a6; --faint:#626a78;
-    --accent:#5b8cff; --accent-soft:#1a2440; --ok:#3ccf91; --bad:#f26d6d; --bad-soft:#2d1717;
-  }
-  * { box-sizing:border-box; }
-  [hidden] { display:none !important; }
-  body { margin:0; background:var(--bg); color:var(--ink); display:flex; height:100vh;
-         font:14px/1.5 Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
-         -webkit-font-smoothing:antialiased; }
-  aside { width:260px; flex:none; background:var(--surface); border-right:1px solid var(--line); display:flex; flex-direction:column; }
-  aside h1 { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; margin:0; padding:14px 16px;
-             border-bottom:1px solid var(--line); overflow:hidden; }
-  aside h1 a { color:var(--dim); text-decoration:none; font-size:18px; line-height:1; padding:2px 6px 4px; border-radius:6px; }
-  aside h1 a:hover { background:var(--sunk); color:var(--ink); }
-  aside h1 span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .section { font-size:11.5px; font-weight:700; color:var(--faint); text-transform:uppercase; letter-spacing:.06em; margin:0 0 6px 4px; }
-  .classes { padding:12px; border-bottom:1px solid var(--line); }
-  .cls { display:flex; align-items:center; gap:9px; width:100%; padding:6px 8px; margin:1px 0; border:1px solid transparent;
-         border-radius:7px; background:none; color:var(--ink); font:inherit; text-align:left; cursor:pointer; }
-  .cls:hover { background:var(--sunk); }
-  .cls[aria-pressed="true"] { border-color:var(--accent); background:var(--accent-soft); }
-  .swatch { width:12px; height:12px; border-radius:4px; flex:none; }
-  .key { margin-left:auto; color:var(--faint); font-size:11.5px; font-family:ui-monospace, Consolas, monospace;
-         border:1px solid var(--line); border-radius:4px; padding:0 5px; }
-  .key:empty { display:none; }
-  .count { color:var(--dim); font-size:12px; min-width:18px; text-align:right; font-variant-numeric:tabular-nums; }
-  .row { display:flex; align-items:center; gap:6px; }
-  .filter { padding:8px 12px; border-bottom:1px solid var(--line); color:var(--dim); font-size:13px; }
-  .filter label { display:flex; align-items:center; gap:7px; cursor:pointer; }
-  .filter input { width:auto; height:auto; accent-color:var(--accent); }
-  input, #folder { height:32px; background:var(--field); color:var(--ink); border:1px solid var(--line-strong);
-                   border-radius:7px; padding:0 9px; font:inherit; outline:none; }
-  input:focus, #folder:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
-  #folder { width:100%; }
-  .files { flex:1; overflow:auto; padding:6px; }
-  .file { display:flex; gap:9px; padding:5px 10px; border-radius:6px; cursor:pointer; color:var(--dim); font-size:13px; }
-  .file:hover { background:var(--sunk); }
-  .file[aria-current="true"] { background:var(--accent-soft); color:var(--ink); }
-  .file .dot { width:7px; height:7px; border-radius:50%; background:var(--line-strong); margin-top:7px; flex:none; }
-  .file.done .dot { background:var(--ok); }
-  .file.empty .dot { background:none; box-shadow:inset 0 0 0 1.5px var(--ok); }  /* labelled: nothing in it */
-  .file span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  header { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:10px 14px; background:var(--surface); border-bottom:1px solid var(--line); }
-  .group { display:flex; gap:4px; padding-right:8px; margin-right:4px; border-right:1px solid var(--line); }
-  button { display:inline-flex; align-items:center; gap:6px; height:32px; padding:0 11px; background:var(--surface); color:var(--ink);
-           border:1px solid var(--line-strong); border-radius:7px; font:inherit; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; }
-  button:hover:not(:disabled) { background:var(--sunk); }
-  button:disabled { opacity:.45; cursor:default; }
-  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
-  button.primary:hover:not(:disabled) { background:var(--accent); filter:brightness(1.07); }
-  button.danger { color:var(--bad); border-color:transparent; background:none; }
-  button.danger:hover:not(:disabled) { background:var(--bad-soft); }
-  .grow { flex:1; }
-  .status { color:var(--dim); font-size:13px; font-variant-numeric:tabular-nums; }
-  .stage { flex:1; overflow:auto; display:grid; place-items:center; padding:20px; }
-  canvas { touch-action:none; box-shadow:0 4px 24px rgba(0,0,0,.25); border-radius:2px; }
-  footer { padding:8px 14px; border-top:1px solid var(--line); background:var(--surface); color:var(--faint); font-size:12px; }
-  kbd { background:var(--sunk); border:1px solid var(--line-strong); border-bottom-width:2px; border-radius:4px; padding:0 5px;
-        font-size:11.5px; color:var(--dim); font-family:ui-monospace, Consolas, monospace; }
-</style>
+<title>상자 그리기 — easydetect</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231F5F7A'/%3E%3Crect x='7' y='10' width='18' height='14' rx='2.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Crect x='7' y='6' width='10' height='5' rx='1.5' fill='white'/%3E%3Ccircle cx='16' cy='17' r='2.2' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../static/assets/fonts/pretendard.css">
+<link rel="stylesheet" href="../static/css/themaker-ui.css">
+<link rel="stylesheet" href="../static/css/app.css">
 
-<aside>
-  <h1><a href="/#data" title="플랫폼으로">←</a><span id="title">라벨링</span></h1>
-  <div class="classes">
-    <div class="section">클래스</div>
-    <div id="classes"></div>
-    <div class="row" style="margin-top:8px">
-      <input id="new-class" placeholder="클래스 추가" style="flex:1;min-width:0">
-      <button id="add-class" title="추가">+</button>
-    </div>
-  </div>
-  <div class="row filter"><select id="folder" title="폴더별로 보기"></select></div>
-  <div class="row filter"><label><input type="checkbox" id="only-unlabelled"> 라벨 없는 것만</label></div>
-  <div class="files" id="files"></div>
-</aside>
+<header>
+  <a class="hbtn" href="../#data" title="플랫폼으로"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+  <h1><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="currentColor"/><rect x="7" y="10" width="18" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2.4"/><rect x="7" y="6" width="10" height="5" rx="1.5" fill="white"/><circle cx="16" cy="17" r="2.2" fill="white"/></svg>easydetect</h1>
+  <span class="navlink on" id="title">상자 그리기</span>
+  <span class="grow"></span>
+  <span class="badge" id="status"></span>
+  <button class="lang-toggle" id="langToggle" type="button" data-no-i18n title="한국어 / English">EN</button>
+</header>
 
-<main>
-  <header>
-    <div class="group">
-      <button id="prev" title="이전 (←)">‹ 이전</button>
-      <button id="next" title="다음 (→)">다음 ›</button>
+<main class="mk-main label-main">
+  <section class="pan pan-side label-side">
+    <div class="ph">클래스</div>
+    <div class="pb">
+      <div id="classes"></div>
+      <div class="row" style="margin-top:8px">
+        <input class="inp" id="new-class" placeholder="클래스 추가">
+        <button class="db" id="add-class" title="추가">추가</button>
+      </div>
+      <div class="sec2">
+        <div class="st">이미지</div>
+        <select class="inp" id="folder" title="폴더별로 보기" style="width:100%;margin-bottom:8px"></select>
+        <label class="hint check" style="margin-top:0"><input type="checkbox" id="only-unlabelled"> 상자 없는 것만 보기</label>
+        <div class="files" id="files"></div>
+      </div>
     </div>
-    <div class="group">
-      <button id="auto" class="primary" title="모델이 상자 초안을 그립니다">자동 라벨</button>
-      <button id="copy" title="이전 이미지의 상자를 그대로 가져옵니다 (C)">이전 상자 복사</button>
+  </section>
+
+  <section class="pan pan-wide">
+    <div class="ph tools">
+      <button class="db" id="prev" title="이전 (←)">이전</button>
+      <button class="db" id="next" title="다음 (→)">다음</button>
+      <span class="sep"></span>
+      <button class="db go" id="auto" title="모델이 상자 초안을 그려요">자동 라벨</button>
+      <button class="db" id="copy" title="이전 이미지의 상자를 그대로 가져와요 (C)">이전 상자 복사</button>
+      <span class="sep"></span>
+      <button class="db" id="undo" title="Ctrl+Z">되돌리기</button>
+      <button class="db" id="clear">모두 지우기</button>
+      <button class="db" id="reset-zoom" hidden>100%</button>
+      <span class="grow"></span>
+      <button class="db danger" id="drop" title="이 이미지와 상자를 데이터셋에서 지워요">이미지 삭제</button>
     </div>
-    <div class="group">
-      <button id="undo" title="Ctrl+Z">되돌리기</button>
-      <button id="clear">모두 지우기</button>
-      <button id="reset-zoom" hidden>100%</button>
+    <div class="stage"><canvas id="canvas"></canvas></div>
+    <div class="keys">
+      끌어서 그려요 · 상자 안을 끌면 옮겨요 · 모서리를 끌면 크기가 바뀌어요 ·
+      <kbd>1</kbd>–<kbd>9</kbd> 클래스 · <kbd>Del</kbd> 지우기 · <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기 ·
+      <kbd>←</kbd> <kbd>→</kbd> 넘기기 · <kbd>C</kbd> 이전 상자 복사 · 휠 확대 ·
+      <kbd>Space</kbd>+끌기로 화면 이동 · 저장은 저절로 돼요
     </div>
-    <span class="grow"></span>
-    <span class="status" id="status"></span>
-    <button id="drop" class="danger" title="이 이미지와 라벨을 데이터셋에서 지웁니다">이미지 삭제</button>
-  </header>
-  <div class="stage"><canvas id="canvas"></canvas></div>
-  <footer>
-    드래그로 그리기 · 상자 안을 끌면 이동 · 모서리를 끌면 크기 조절 ·
-    <kbd>1</kbd>–<kbd>9</kbd> 클래스 · <kbd>Del</kbd> 삭제 · <kbd>Ctrl</kbd>+<kbd>Z</kbd> 되돌리기 ·
-    <kbd>←</kbd> <kbd>→</kbd> 이동 · <kbd>C</kbd> 이전 상자 복사 · 휠 확대 · 가운데 버튼(또는
-    <kbd>Space</kbd>)으로 이동 · 저장 자동
-  </footer>
+  </section>
 </main>
 
+<script src="../static/js/i18n.js"></script>
 <script>
 const COLORS = ["#ff5a5a","#4da3ff","#3ecf8e","#ffb648","#c07cff","#39d5d5","#ff7ac0","#9dd23a","#ff9060"];
 const $ = (id) => document.getElementById(id);
@@ -144,8 +83,8 @@ function renderFolders() {
   dataset.files.forEach((f) => { const d = folderOf(f.name); counts[d] = (counts[d] || 0) + 1; });
   const names = Object.keys(counts).sort();
   $("folder").hidden = names.length < 2;          // one folder: nothing to choose
-  $("folder").innerHTML = `<option value="">모든 폴더 (${dataset.files.length})</option>`
-    + names.map((d) => `<option value="${d}">${d || "(최상위)"} (${counts[d]})</option>`).join("");
+  $("folder").innerHTML = `<option value="">${T`모든 폴더 (${dataset.files.length})`}</option>`
+    + names.map((d) => `<option value="${d}">${d || T("(최상위)")} (${counts[d]})</option>`).join("");
   $("folder").value = folder;
 }
 
@@ -164,7 +103,7 @@ const api = async (path, options) => {
 
 async function boot() {
   dataset = await api(`/api/datasets/${DATASET}`);
-  document.title = `${dataset.name} — 라벨링`;
+  document.title = T`${dataset.name} — 상자 그리기`;
   $("title").textContent = dataset.name;
   renderFolders(); renderClasses(); renderFiles();
   // open on a picture with boxes: exports often lead with background frames,
@@ -178,12 +117,12 @@ function renderClasses() {
   const counts = boxes.reduce((acc, b) => (acc[b.cls] = (acc[b.cls] || 0) + 1, acc), {});
   $("classes").innerHTML = "";
   dataset.classes.forEach((name, i) => {
-    const b = document.createElement("button");
-    b.className = "cls";
-    b.setAttribute("aria-pressed", i === cls);
-    b.innerHTML = `<span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>
-                   <span>${name}</span><span class="count">${counts[i] || ""}</span>
-                   <span class="key">${i < 9 ? i + 1 : ""}</span>`;
+    const b = document.createElement("div");
+    b.className = "cls" + (i === cls ? " on" : "");
+    b.setAttribute("role", "button");
+    b.innerHTML = `<div class="top"><span class="swatch" style="background:${COLORS[i % COLORS.length]}"></span>
+                   <span class="nm">${name}</span><span class="ct num">${counts[i] || ""}</span>
+                   <span class="key">${i < 9 ? i + 1 : ""}</span></div>`;
     b.onclick = () => setClass(i);
     $("classes").append(b);
   });
@@ -213,7 +152,7 @@ function renderFiles() {
     if (i === index) position = shown;
     const row = document.createElement("div");
     row.className = "file" + (f.boxes > 0 ? " done" : f.labelled ? " empty" : "");
-    row.title = f.boxes > 0 ? `상자 ${f.boxes}개` : f.labelled ? "빈 라벨 (배경 이미지)" : "라벨 없음";
+    row.title = f.boxes > 0 ? T`상자 ${f.boxes}개` : f.labelled ? T("빈 라벨 (배경 이미지)") : T("아직 상자가 없어요");
     row.setAttribute("aria-current", i === index);
     const label = folder ? f.name.slice(folder.length + 1) : f.name;   // the folder is already chosen
     row.innerHTML = `<span class="dot"></span><span>${label}</span>`;
@@ -222,7 +161,7 @@ function renderFiles() {
   });
   const here = dataset.files.filter(inFolder);
   const done = here.filter((f) => f.labelled).length;
-  $("status").textContent = `${position} / ${shown}${folder ? ` · ${folder}` : ""} · 라벨 완료 ${done}/${here.length}`;
+  $("status").textContent = `${position} / ${shown}${folder ? ` · ${folder}` : ""} · ${T`다 그린 것 ${done}/${here.length}`}`;
 }
 
 async function load(i) {
@@ -403,7 +342,7 @@ canvas.addEventListener("pointerup", () => {
 function touch() { dirty = true; renderClasses(); draw(); save(); }
 
 function copyPrevious() {
-  if (!lastBoxes.length) { $("status").textContent = "복사할 이전 상자가 없습니다"; return; }
+  if (!lastBoxes.length) { $("status").textContent = "복사할 이전 상자가 없어요"; return; }
   push();
   boxes = boxes.concat(JSON.parse(JSON.stringify(lastBoxes)).map((b) => ({ ...b, conf: undefined })));
   selected = -1; touch();
@@ -433,7 +372,7 @@ async function autolabel() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ conf: 0.35 }) });
     push(); boxes = boxes.concat(res.boxes); selected = -1; touch();
-  } catch (e) { $("status").textContent = "자동 라벨 실패: " + e.message; return; }
+  } catch (e) { $("status").textContent = T`자동 라벨이 안 됐어요: ${e.message}`; return; }
   finally { $("auto").disabled = false; }
   renderFiles();
 }
@@ -458,11 +397,11 @@ document.addEventListener("keyup", (e) => {
 });
 
 $("drop").onclick = async () => {
-  if (!confirm(`${dataset.files[index].name} 을(를) 데이터셋에서 지웁니다.`)) return;
+  if (!confirm(T`${dataset.files[index].name} 을(를) 데이터셋에서 지울까요?`)) return;
   dirty = false;                                   // it is going away; do not save it back
   await api(`/api/datasets/${DATASET}/images/${index}`, { method: "DELETE" });
   dataset = await api(`/api/datasets/${DATASET}`);
-  if (!dataset.files.length) { location.assign("/"); return; }
+  if (!dataset.files.length) { location.assign("../"); return; }
   renderFolders();
   await load(Math.min(index, dataset.files.length - 1));
 };
@@ -485,5 +424,6 @@ $("auto").onclick = autolabel;
 $("undo").onclick = undo;
 $("clear").onclick = () => { push(); boxes = []; selected = -1; touch(); };
 window.addEventListener("beforeunload", save);
+addEventListener("langchange", () => { if (dataset) { document.title = T`${dataset.name} — 상자 그리기`; renderFolders(); renderFiles(); } });
 boot();
 </script>

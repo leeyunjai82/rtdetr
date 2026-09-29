@@ -67,7 +67,7 @@ easydetect train model=dfine-s data=shapes/data.yaml epochs=50 device=0
 ```
 
 In the [platform](../platform/README.md), the same zip goes in through
-*수집 → zip* without unpacking.
+*Datasets → zip* without unpacking.
 
 ## Starting point
 

@@ -24,5 +24,15 @@ licensed under the Apache License, Version 2.0:
 The packaging, API, trainer, validator, exporter, predictor, CLI and the web
 platform are this project's own.
 
+The web platform's look comes from two files it ships unchanged:
+
+* themaker-ui (https://github.com/themakerrobot/themaker-ui) v1.0.0, Copyright
+  (c) 2026 themakerrobot, MIT License — platform/static/css/themaker-ui.css;
+  the license text is platform/static/css/THEMAKER-UI-LICENSE.
+
+* Pretendard (https://github.com/orioncactus/pretendard), Copyright (c) 2021
+  Kil Hyung-jin, SIL Open Font License 1.1 — platform/static/assets/fonts/;
+  the notice is at the top of pretendard.css.
+
 No code or weights from AGPL-licensed projects are included. Only D-FINE's
 COCO-trained checkpoints are used; checkpoints pretrained on Objects365 are not.

@@ -64,6 +64,18 @@ def test_the_pages_are_served(studio):
     assert client.get("/label/999").status_code == 404
 
 
+def test_the_design_kit_and_translations_are_served(studio):
+    client, _ = studio
+    page = client.get("/").text
+    for asset in ("static/css/themaker-ui.css", "static/css/app.css",
+                  "static/assets/fonts/pretendard.css", "static/js/i18n.js"):
+        assert asset in page
+        assert client.get("/" + asset).status_code == 200
+    # the label page sits one level down and links the same files relatively
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    assert '"../static/js/i18n.js"' in client.get("/label/1").text
+
+
 def test_uploading_images_and_labels_counts_them(studio):
     client, _ = studio
     response = upload(

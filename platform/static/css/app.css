@@ -1,0 +1,185 @@
+/* easydetect platform — what the themaker-ui kit does not cover.
+   Kit tokens only: no new colours, fonts or gradients. The kit itself
+   (css/themaker-ui.css) is a verbatim copy and is never edited here. */
+
+[hidden]{display:none !important}           /* a flex rule must not beat hidden */
+a{color:var(--acc-ink)}
+code,pre,.mono{font-family:var(--mono)}
+.grow{flex:1}
+.dim{color:var(--ink3)}
+.small{font-size:11.5px}
+
+/* ── header ── */
+header h1 svg{width:26px;height:26px;color:var(--acc);flex-shrink:0}
+header nav{display:flex;align-self:stretch;align-items:flex-end;gap:2px}
+header nav .navlink{height:100%;padding-top:0;padding-bottom:0}
+.navlink .n{font-size:11px;color:var(--ink3);font-weight:600}
+.navlink.on .n{color:var(--acc-ink)}
+.gpu{display:flex;align-items:center;gap:12px;font-size:11.5px;color:var(--ink3);white-space:nowrap}
+.gpu > span{display:flex;align-items:center;gap:5px}
+.gpu b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.gpu .name{color:var(--ink);font-weight:700}
+.gpu .track{width:46px;height:5px}
+.gpu .fill.hot{background:var(--warn)}
+.badge:empty{display:none}
+.notice{margin:8px 8px 0;padding:9px 13px;border:1px solid var(--warn);border-radius:8px;
+  background:var(--panel);color:var(--warn);font-size:12.5px;font-weight:600}
+
+/* ── steps: they show how far you are, and take you there ── */
+.steps{margin-top:8px}
+.stp[data-go]{cursor:pointer}
+.stp[data-go]:hover{color:var(--acc-ink)}
+
+/* ── panels ── */
+.pan-side{width:380px}
+.pan-out{width:300px}
+.pan > .ph .grow{flex:1}
+.pan > .ph .sub{font-weight:400;color:var(--ink3);font-size:11.5px}
+.lead{font-size:12px;color:var(--ink2);line-height:1.6;margin-bottom:12px}
+.field{margin-top:12px}
+.field:first-child{margin-top:0}
+.field .inp,.grid2 .inp{width:100%}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.grid2 .pb-label{margin-top:0}
+.range{display:flex;align-items:center;gap:10px;height:28px}
+.range output{font-size:12px;font-weight:700;color:var(--acc-ink);min-width:34px;text-align:right;
+  font-variant-numeric:tabular-nums}
+details > summary{cursor:pointer;font-size:11.5px;font-weight:700;color:var(--ink3);margin-top:12px}
+details > summary:hover{color:var(--acc-ink)}
+
+/* ── buttons ── */
+.db.block{width:100%;justify-content:center;padding:9px 12px;margin-top:14px}
+.seg{flex-wrap:wrap}
+.seg.full .db{flex:1;justify-content:center}
+.db.sm{padding:4px 9px;font-size:11.5px}
+a.db{text-decoration:none}
+
+/* ── drop a file, or click ── */
+.dropzone{display:flex;flex-direction:column;align-items:center;gap:3px;margin-top:0}
+.dropzone b{color:var(--ink);font-size:12.5px}
+.dropzone span{font-weight:400}
+.dropzone.has b{color:var(--acc-ink)}
+.dropzone.compact{padding:10px 12px}
+
+.msg{font-size:12px;color:var(--ink2);margin-top:8px;line-height:1.5}
+.msg:empty{display:none}
+.msg.err{color:var(--warn)}
+.msg.ok{color:var(--ok)}
+.warn{color:var(--warn)}
+
+/* ── cards and lists ── */
+.card{border:1px solid var(--line);border-radius:9px;padding:10px 11px;margin-top:8px;background:var(--panel)}
+.card .top{display:flex;align-items:center;gap:6px}
+.card .nm{font-size:12.5px;font-weight:700;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .meta{display:flex;gap:10px;font-size:11.5px;color:var(--ink3);margin:6px 0 8px}
+.card .meta b{color:var(--ink);font-variant-numeric:tabular-nums}
+.card .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+.chip{font-size:11px;padding:1px 7px;border-radius:5px;background:var(--panel2);color:var(--ink2);
+  border:1px solid var(--line-soft)}
+.chip b{color:var(--ink);margin-left:3px}
+.empty{text-align:center;padding:22px 12px;color:var(--ink3);font-size:12px;line-height:1.7;
+  border:1.5px dashed var(--line-soft);border-radius:10px;margin-top:8px}
+.stats{margin-top:10px;padding-top:8px;border-top:1px solid var(--line-soft)}
+
+/* a job, in the list on the right */
+.job{margin-top:6px}
+.job:first-child{margin-top:0}
+.job .sub{font-size:11px;color:var(--ink3);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job .sub.err{color:var(--warn);white-space:normal}
+.job .track{margin-top:7px}
+.state{font-size:11px;font-weight:700;color:var(--ink3);flex-shrink:0}
+.state.running,.state.exporting,.state.queued{color:var(--acc-ink)}
+.state.done{color:var(--ok)}
+.state.failed{color:var(--warn)}
+
+/* the menu behind "⋯" and "다운로드" */
+.menu{position:relative}
+.menu > summary{list-style:none;margin:0}
+.menu > summary::-webkit-details-marker{display:none}
+.menu-list{position:absolute;right:0;top:calc(100% + 4px);z-index:20;min-width:170px;padding:4px;
+  background:var(--panel);border:1px solid var(--line);border-radius:9px;box-shadow:var(--shadow)}
+.menu-list button,.menu-list label{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;
+  color:var(--ink2);font:inherit;font-size:12px;font-weight:600;text-align:left;padding:7px 9px;
+  border-radius:6px;cursor:pointer}
+.menu-list button:hover,.menu-list label:hover{background:var(--acc-soft);color:var(--acc-ink)}
+.menu-list button.danger:hover{background:transparent;color:var(--warn)}
+.menu-list .dim{font-weight:400}
+.menu-list hr{border:0;border-top:1px solid var(--line-soft);margin:4px 2px}
+
+/* ── the job you opened ── */
+.guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.guide .card{margin-top:0}
+.guide .cir{display:inline-flex;align-items:center;justify-content:center;width:21px;height:21px;
+  border-radius:50%;background:var(--acc);color:#fff;font-size:11px;font-weight:700;margin-bottom:6px}
+.guide b{display:block;font-size:12.5px;margin-bottom:2px}
+.guide span{font-size:11.5px;color:var(--ink3)}
+.toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.kv{display:flex;gap:22px;flex-wrap:wrap}
+.kv div{font-size:11px;color:var(--ink3);font-weight:600}
+.kv b{display:block;font-size:19px;color:var(--ink);font-weight:800;font-variant-numeric:tabular-nums}
+.facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px 18px}
+.facts div{font-size:12px;color:var(--ink2);min-width:0}
+.facts span{display:block;font-size:11px;font-weight:700;color:var(--ink3);margin-bottom:1px}
+.mk-table{font-variant-numeric:tabular-nums}
+canvas#chart{width:100%;height:220px;display:block}
+.legend{display:flex;gap:12px;font-size:11px;color:var(--ink3);font-weight:600;text-transform:none;letter-spacing:0}
+.legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.sec2 .st{display:flex;align-items:center;gap:8px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:10px}
+.shot{background:var(--panel2);border:1px solid var(--line-soft);border-radius:8px;overflow:hidden}
+.shot img{width:100%;display:block;cursor:zoom-in}
+.shot .cap{padding:5px 8px;font-size:11px;color:var(--ink3);display:flex;gap:8px}
+.shot .cap span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shot .cap span:last-child{margin-left:auto;flex:none}
+.miss{color:var(--warn)}
+img#preview{max-width:100%;border-radius:8px;border:1px solid var(--line);margin-top:10px;display:block}
+#cam,#cam-out{width:100%;border-radius:8px;margin-top:10px;display:block;background:var(--ink)}
+
+/* code to copy: the paper, not a dark slab */
+.code{position:relative;margin-top:10px}
+.code pre{margin:0;padding:12px 14px;border-radius:8px;background:var(--panel2);color:var(--ink);
+  border:1px solid var(--line-soft);font-size:12px;line-height:1.65;overflow:auto}
+.code pre .c{color:var(--ink3)}
+.code pre .s{color:var(--ok)}
+.code pre .k{color:var(--acc-ink);font-weight:700}
+.code .copy{position:absolute;top:7px;right:7px;padding:3px 9px;font-size:11px}
+
+@media (max-width:1100px){
+  .pan > .pb{overflow:visible}
+  header nav{align-self:auto}
+}
+@media (max-width:700px){
+  .grid2{grid-template-columns:1fr}
+  .gpu{display:none}
+}
+
+/* ── label page ── */
+.label-side{width:280px}
+.label-side .cls{margin-top:6px}
+.label-side .cls:first-child{margin-top:0}
+.swatch{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+.cls .key{font-family:var(--mono);font-size:10.5px;color:var(--ink3);border:1px solid var(--line-soft);
+  border-radius:4px;padding:0 5px;flex-shrink:0}
+.cls .key:empty{display:none}
+.check{display:flex;align-items:center;gap:7px;cursor:pointer}
+.files{margin-top:8px}
+.file{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer;
+  color:var(--ink2);font-size:12px}
+.file:hover{background:var(--panel2)}
+.file[aria-current="true"]{background:var(--acc-soft);color:var(--acc-ink);font-weight:700}
+.file .dot{width:7px;height:7px;border-radius:50%;background:var(--line-soft);flex-shrink:0}
+.file.done .dot{background:var(--ok)}
+.file.empty .dot{background:none;box-shadow:inset 0 0 0 1.5px var(--ok)}   /* labelled: nothing in it */
+.file span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pan > .ph.tools{flex-wrap:wrap;gap:6px;padding:8px 10px}
+.tools .sep{width:1px;height:20px;background:var(--line-soft);margin:0 3px}
+.stage{flex:1;min-height:0;overflow:auto;display:grid;place-items:center;padding:16px;background:var(--panel2)}
+.stage canvas{touch-action:none;cursor:crosshair;border:1px solid var(--line);border-radius:2px}
+.keys{padding:8px 13px;border-top:1px solid var(--line-soft);color:var(--ink3);font-size:11px;line-height:1.9;flex-shrink:0}
+kbd{background:var(--panel);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;
+  font-size:10.5px;color:var(--ink2);font-family:var(--mono)}
+@media (max-width:1100px){
+  .label-main .pan-wide{min-height:70vh}
+  .label-side .files{max-height:30vh;overflow:auto}
+}
