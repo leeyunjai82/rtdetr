@@ -43,7 +43,7 @@ def test_labels_land_exactly_where_the_trainer_reads_them(tmp_path):
     """One rule for both sides. A folder not called images keeps its labels
     beside the pictures, inside the folder — never in a labels/ shared with
     whatever sits next to it."""
-    from rtdetr.data.labels import label_path as trainer_rule
+    from easydetect.data.labels import label_path as trainer_rule
 
     for image in (
         tmp_path / "images" / "train" / "a.jpg",

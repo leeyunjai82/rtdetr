@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from rtdetr.tracker import IoUTracker, iou_matrix
+from easydetect.tracker import IoUTracker, iou_matrix
 
 
 def det(*boxes):

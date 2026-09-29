@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 # Apache-2.0
-"""Build the weight-mirror layout that ``RTDETR("rtdetr-r18")`` downloads from.
+"""Build the weight-mirror layout that ``Detector("dfine-s")`` downloads from.
 
-    python tools/build_mirror.py --out mirror                 # all variants
-    python tools/build_mirror.py --out mirror --variants r18   # just one
+    python tools/build_mirror.py --out mirror              # all five sizes
+    python tools/build_mirror.py --out mirror --sizes s    # just one
 
-For each variant this downloads the Apache-2.0 COCO checkpoint from the original
-RT-DETR release, loads it (strict — this package's layout matches), and writes::
+For each size this downloads the Apache-2.0 COCO checkpoint from the D-FINE
+release, loads it (strict — this package's layout matches), and writes::
 
-    mirror/rtdetr-r18/rtdetr-r18.pt      torch weights, for train/val/export
-    mirror/rtdetr-r18/rtdetr-r18.xml     OpenVINO IR, what predict downloads
-    mirror/rtdetr-r18/rtdetr-r18.bin
-    mirror/rtdetr-r18/labels.txt         COCO class names, one per line
+    mirror/dfine-s/dfine-s.pt      torch weights, for train/val/export
+    mirror/dfine-s/dfine-s.xml     OpenVINO IR, what predict downloads
+    mirror/dfine-s/dfine-s.bin
+    mirror/dfine-s/labels.txt      COCO class names, one per line
 
-Upload that tree to the mirror named by ``$RTDETR_ASSETS_URL`` (by default the
-Hugging Face repo in rtdetr/downloads.py), keeping the directory names:
+The GitHub Actions workflow ``mirror.yml`` runs this and uploads the result.
 
-    hf upload leeyunjai/rtdetr mirror . --repo-type=model
+Upload that tree to the mirror named by ``$EASYDETECT_ASSETS_URL`` (by default the
+Hugging Face repo in easydetect/downloads.py), keeping the directory names:
+
+    hf upload leeyunjai/easydetect mirror . --repo-type=model
 
 (the `hf` command comes from ``pip install -U "huggingface_hub[cli]"``; it used
 to be called ``huggingface-cli``)
@@ -33,20 +35,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import convert_official  # noqa: E402  (same directory)
+import convert_dfine  # noqa: E402  (same directory)
 
 
-def build(variant: str, out_root: Path, imgsz: int, half: bool, keep_onnx: bool) -> Path:
-    from rtdetr import RTDETR
+def build(size: str, out_root: Path, imgsz: int, half: bool, keep_onnx: bool) -> Path:
+    from easydetect import Detector
 
-    name = f"rtdetr-{variant}"
+    name = f"dfine-{size}"
     out = out_root / name
     out.mkdir(parents=True, exist_ok=True)
 
     checkpoint = out / f"{name}.pt"
-    convert_official.main(["--variant", variant, "--out", str(checkpoint), "--imgsz", str(imgsz)])
+    convert_dfine.main(["--size", size, "--out", str(checkpoint), "--imgsz", str(imgsz)])
 
-    model = RTDETR(str(checkpoint), verbose=False)
+    model = Detector(str(checkpoint), verbose=False)
     xml = model.export(format="openvino", imgsz=imgsz, half=half, out_dir=out)
     if not keep_onnx:
         (out / f"{name}.onnx").unlink(missing_ok=True)
@@ -58,10 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", default="mirror", help="output directory")
     parser.add_argument(
-        "--variants",
-        nargs="+",
-        default=list(convert_official.OFFICIAL),
-        choices=("r18", "r34", "r50"),
+        "--sizes", nargs="+", default=list(convert_dfine.OFFICIAL), choices=tuple("nsmlx")
     )
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--half", action="store_true", help="FP16 IR (smaller, same accuracy)")
@@ -69,13 +68,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     out_root = Path(args.out)
-    for variant in args.variants:
-        build(variant, out_root, args.imgsz, args.half, args.keep_onnx)
+    for size in args.sizes:
+        build(size, out_root, args.imgsz, args.half, args.keep_onnx)
     # the repo's front page travels with the weights
     shutil.copyfile(Path(__file__).with_name("hub_README.md"), out_root / "README.md")
     print(f"\nmirror ready at {out_root}/ — upload it keeping these directory names:")
     print('  pip install -U "huggingface_hub[cli]" && hf auth login')
-    print(f"  hf upload leeyunjai/rtdetr {out_root} . --repo-type=model")
+    print(f"  hf upload leeyunjai/easydetect {out_root} . --repo-type=model")
     return 0
 
 

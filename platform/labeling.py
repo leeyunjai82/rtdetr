@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rtdetr.data.labels import label_path as _shared_label_path
-from rtdetr.data.labels import label_row_to_box
+from easydetect.data.labels import label_path as _shared_label_path
+from easydetect.data.labels import label_row_to_box
 
 IMG_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"}
 
@@ -23,7 +23,7 @@ def list_images(root: Path) -> list[Path]:
 def label_path(image: Path) -> Path:
     """Where the trainer will read this image's boxes — the only place to write them.
 
-    One rule, shared with the trainer (``rtdetr.data.labels``): the last
+    One rule, shared with the trainer (``easydetect.data.labels``): the last
     ``images`` folder becomes ``labels``, and with none the label sits beside
     the image. Two rules used to exist here, and a folder not called ``images``
     got its labels written where training never looked.

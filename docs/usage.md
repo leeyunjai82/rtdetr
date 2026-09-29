@@ -1,6 +1,6 @@
 # Using the model
 
-Everything `RTDETR(...)` can be pointed at, and everything a prediction gives
+Everything `Detector(...)` can be pointed at, and everything a prediction gives
 back. See also [training](training.md), [weights](weights.md),
 [performance](performance.md).
 
@@ -22,8 +22,8 @@ Anything you can point it at:
 | list | `model(["a.jpg", "b.jpg"])` |
 
 ```python
-model = RTDETR("rtdetr-r18", device="NPU")     # AUTO, CPU, GPU, NPU
-model = RTDETR("rtdetr-r18", precision="f32")  # exact, ~3x slower on CPU
+model = Detector("dfine-s", device="NPU")     # AUTO, CPU, GPU, NPU
+model = Detector("dfine-s", precision="f32")  # exact, ~3x slower on CPU
 
 for r in model.predict("clip.mp4", conf=0.4, stream=True):   # generator, O(1) memory
     print(r.boxes.xyxyn)
@@ -34,7 +34,7 @@ for r in model.predict(0, stream=True, show=True):  # webcam window, q or Esc qu
     pass                                           # (a generator only runs when iterated)
 ```
 
-One `RTDETR` can be shared between threads — a capture thread and a worker,
+One `Detector` can be shared between threads — a capture thread and a worker,
 say — each gets its own inference request underneath, so calls neither block
 nor collide.
 

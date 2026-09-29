@@ -23,7 +23,7 @@ class BoxMetrics:
 
 
 class DetMetrics:
-    """What :meth:`RTDETR.val` answers with.
+    """What :meth:`Detector.val` answers with.
 
     ``metrics.box.map50`` / ``metrics.box.map`` are the headline numbers;
     ``metrics["map50"]`` and ``dict(metrics.results_dict)`` are there so the

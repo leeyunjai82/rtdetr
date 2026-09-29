@@ -1,10 +1,10 @@
 # Apache-2.0
-"""Pretrained-weight download and cache — stdlib only (urllib), cached in ~/.rtdetr.
+"""Pretrained-weight download and cache — stdlib only (urllib), cached in ~/.easydetect.
 
-``RTDETR("rtdetr-r18")`` has to just work, so the first predict pulls the
+``Detector("dfine-s")`` has to just work, so the first predict pulls the
 OpenVINO IR for that name from the public mirror and keeps it under
-``~/.rtdetr/`` (override with ``$RTDETR_HOME``). The mirror base URL is
-``$RTDETR_ASSETS_URL``-overridable, which is also how an offline site points
+``~/.easydetect/`` (override with ``$EASYDETECT_HOME``). The mirror base URL is
+``$EASYDETECT_ASSETS_URL``-overridable, which is also how an offline site points
 the package at an internal copy.
 """
 
@@ -20,21 +20,22 @@ from pathlib import Path
 from .errors import DownloadError, ModelNotFoundError
 
 #: Where the released weights live. Layout: ``<base>/<name>/<file>``.
-DEFAULT_ASSETS_URL = "https://huggingface.co/leeyunjai/rtdetr/resolve/main"
+DEFAULT_ASSETS_URL = "https://huggingface.co/leeyunjai/easydetect/resolve/main"
 
 #: Names the mirror knows, with the spellings users type mapped onto them.
-MODEL_NAMES = ("rtdetr-r18", "rtdetr-r34", "rtdetr-r50")
+MODEL_NAMES = ("dfine-n", "dfine-s", "dfine-m", "dfine-l", "dfine-x")
 
 _TIMEOUT = 30.0
 
 
 def normalize_name(name: str) -> str:
-    """``rtdetr_r18`` / ``RTDETR-R18`` / ``rtdetr-r18.pt`` -> ``rtdetr-r18``."""
+    """``dfine_s`` / ``D-FINE-S`` / ``DFINE-S`` / ``dfine-s.pt`` -> ``dfine-s``."""
     stem = str(name).strip().lower()
     for suffix in (".pt", ".xml", ".onnx"):
         if stem.endswith(suffix):
             stem = stem[: -len(suffix)]
-    return stem.replace("_", "-")
+    stem = stem.replace("_", "-")
+    return "dfine-" + stem[len("d-fine-"):] if stem.startswith("d-fine-") else stem
 
 
 def is_model_name(name: str) -> bool:
@@ -42,18 +43,18 @@ def is_model_name(name: str) -> bool:
 
 
 def assets_url() -> str:
-    return os.environ.get("RTDETR_ASSETS_URL", DEFAULT_ASSETS_URL).rstrip("/")
+    return os.environ.get("EASYDETECT_ASSETS_URL", DEFAULT_ASSETS_URL).rstrip("/")
 
 
 def cache_dir() -> Path:
-    root = Path(os.environ.get("RTDETR_HOME", Path.home() / ".rtdetr")).expanduser()
+    root = Path(os.environ.get("EASYDETECT_HOME", Path.home() / ".easydetect")).expanduser()
     root.mkdir(parents=True, exist_ok=True)
     return root
 
 
 def read_url_bytes(url: str, timeout: float = _TIMEOUT) -> bytes:
     """Fetch a URL into memory (used for image URLs as well as weights)."""
-    request = urllib.request.Request(url, headers={"User-Agent": "rtdetr"})
+    request = urllib.request.Request(url, headers={"User-Agent": "easydetect"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read()
@@ -68,7 +69,7 @@ def download(url: str, dest: Path, progress: bool = True) -> Path:
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    request = urllib.request.Request(url, headers={"User-Agent": "rtdetr"})
+    request = urllib.request.Request(url, headers={"User-Agent": "easydetect"})
     try:
         with urllib.request.urlopen(request, timeout=_TIMEOUT) as response, open(tmp, "wb") as out:
             total = int(response.headers.get("Content-Length") or 0)
@@ -115,8 +116,8 @@ def download_ir(name: str) -> Path:
     except DownloadError as exc:
         raise ModelNotFoundError(
             f"'{name}' is not on the mirror yet ({exc}). Pass a .pt/.xml path, "
-            f"point $RTDETR_ASSETS_URL at your own copy, or train it yourself: "
-            f"RTDETR('{name}').train(data='data.yaml')"
+            f"point $EASYDETECT_ASSETS_URL at your own copy, or train it yourself: "
+            f"Detector('{name}').train(data='data.yaml')"
         ) from exc
     _asset(name, "labels.txt", required=False)
     return xml
@@ -133,7 +134,7 @@ def download_checkpoint(name: str) -> Path:
         raise ModelNotFoundError(
             f"no pretrained checkpoint for '{name}' on the mirror ({exc}). "
             f"Training starts from an ImageNet backbone instead: "
-            f"RTDETR('{name}').train(data='data.yaml')"
+            f"Detector('{name}').train(data='data.yaml')"
         ) from exc
 
 

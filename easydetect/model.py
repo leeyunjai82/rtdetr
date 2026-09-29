@@ -1,10 +1,10 @@
 # Apache-2.0
-"""The one object users touch: ``RTDETR``.
+"""The one object users touch: ``Detector``.
 
-    from rtdetr import RTDETR
+    from easydetect import Detector
 
-    model = RTDETR("rtdetr-r18")            # mirrored weights, downloaded on demand
-    model = RTDETR("best.pt")               # or your own checkpoint
+    model = Detector("dfine-s")            # mirrored weights, downloaded on demand
+    model = Detector("best.pt")               # or your own checkpoint
     results = model("bus.jpg", conf=0.5)    # list[Results]
     model.train(data="data.yaml", epochs=100)
     model.val(data="data.yaml").box.map50
@@ -28,7 +28,7 @@ from .metrics import DetMetrics
 from .results import Results
 
 _TORCH_HINT = (
-    "this needs the training extra: pip install 'rtdetr[train]' "
+    "this needs the training extra: pip install 'easydetect[train]' "
     "(torch, torchvision, scipy, onnx)"
 )
 
@@ -53,12 +53,12 @@ def _torch_device(device: Any) -> str | None:
     return str(device)
 
 
-class RTDETR:
+class Detector:
     """Train, validate, export, track and predict with one object."""
 
     def __init__(
         self,
-        model: str | Path = "rtdetr-r18",
+        model: str | Path = "dfine-s",
         device: str = "AUTO",
         verbose: bool = True,
         precision: str | None = None,
@@ -74,7 +74,7 @@ class RTDETR:
         self.verbose = verbose
         self.task = "detect"
         self.names: dict[int, str] = {}
-        self.net = None  # torch RTDETRNet (lazy)
+        self.net = None  # torch DFINENet (lazy)
         self.ckpt: dict | None = None
         self.variant: str | None = None
         self.ckpt_path: Path | None = None
@@ -267,7 +267,7 @@ class RTDETR:
         return self.predictor
 
     def _cache_export_dir(self) -> Path:
-        stem = self.ckpt_path.stem if self.ckpt_path else (self.variant or "r18")
+        stem = self.ckpt_path.stem if self.ckpt_path else (self.variant or "s")
         out = downloads.cache_dir() / "exported" / stem
         out.mkdir(parents=True, exist_ok=True)
         return out
@@ -276,14 +276,14 @@ class RTDETR:
 
     def _load_checkpoint(self, path: Path) -> None:
         torch = _import_torch()
-        from .nn.rtdetr_net import RTDETRNet
+        from .nn import DFINENet
 
         ckpt = torch.load(path, map_location="cpu", weights_only=False)
         self.ckpt = ckpt
         self.ckpt_path = Path(path)
         self.variant = ckpt["variant"]
         self.names = {int(k): str(v) for k, v in ckpt.get("names", {}).items()}
-        self.net = RTDETRNet(ckpt["variant"], ckpt["num_classes"], pretrained_backbone=False)
+        self.net = DFINENet(ckpt["variant"], ckpt["num_classes"], pretrained_backbone=False)
         self.net.load_state_dict(ckpt["model"])
         self.net.eval()
         self.ir_path = None
@@ -299,7 +299,7 @@ class RTDETR:
             return self.net
         raise RuntimeError(
             f"'{self.model_name}' has no torch weights — load a .pt checkpoint "
-            f"(RTDETR('best.pt')) or a pretrained name to do this."
+            f"(Detector('best.pt')) or a pretrained name to do this."
         )
 
     # ----------------------------------------------------------------- training
@@ -337,7 +337,7 @@ class RTDETR:
         """
         _import_torch()
         from .data.dataset import load_data_yaml
-        from .nn.rtdetr_net import RTDETRNet
+        from .nn import DFINENet
         from .trainer import Trainer
         from .validator import validate_torch
 
@@ -353,7 +353,7 @@ class RTDETR:
             if self.net is not None:
                 origin = {"kind": "coco", "weights": self.model_name}
         if self.net is None:
-            self.net = RTDETRNet(self.variant or "r18", cfg["nc"])
+            self.net = DFINENet(self.variant or "s", cfg["nc"])
             loaded = getattr(self.net.backbone, "imagenet_loaded", False)
             origin = {"kind": "imagenet" if loaded else "scratch"}
         elif self.net.num_classes != cfg["nc"]:
@@ -404,9 +404,9 @@ class RTDETR:
 
     def _reheaded_net(self, nc: int):
         """Keep backbone/encoder/decoder weights, re-init the class heads for ``nc``."""
-        from .nn.rtdetr_net import RTDETRNet
+        from .nn import DFINENet
 
-        fresh = RTDETRNet(self.variant or "r18", nc, pretrained_backbone=False)
+        fresh = DFINENet(self.variant or "s", nc, pretrained_backbone=False)
         transferred = transfer_weights(fresh, self.net.state_dict())
         if self.verbose:
             print(
@@ -464,7 +464,7 @@ class RTDETR:
         if out_dir is None:
             out_dir = self.ckpt_path.parent if self.ckpt_path else Path(".")
         imgsz = imgsz or (self.ckpt or {}).get("imgsz", 640)
-        stem = self.ckpt_path.stem if self.ckpt_path else f"rtdetr-{self.variant}"
+        stem = self.ckpt_path.stem if self.ckpt_path else f"easydetect-{self.variant}"
         verbose = self.verbose if verbose is None else verbose
         exporter = export_openvino if format == "openvino" else export_onnx
         return exporter(
@@ -478,10 +478,10 @@ class RTDETR:
         """One line about what is loaded."""
         where = self.ckpt_path or self.ir_path or self.model_name
         nc = self.net.num_classes if self.net is not None else len(self.names) or "?"
-        return f"RT-DETR {self.variant or '?'} — {nc} classes — {where}"
+        return f"D-FINE-{(self.variant or '?').upper()} — {nc} classes — {where}"
 
     def __repr__(self) -> str:
-        return f"RTDETR({self.model_name!r}, device={self.device!r})"
+        return f"Detector({self.model_name!r}, device={self.device!r})"
 
 
 class _Stream:
@@ -515,7 +515,7 @@ class _Stream:
             return
         try:
             print(
-                f"rtdetr: {self._verb}(stream=True) returned a generator that was never "
+                f"easydetect: {self._verb}(stream=True) returned a generator that was never "
                 f"iterated, so nothing ran. Use it in a loop:\n"
                 f"    for r in model.{self._verb}(source, stream=True, ...):\n"
                 f"        ...\n"
@@ -530,7 +530,7 @@ def _display(result: Results, frame, line_width: int | None = None) -> bool:
     """Show one frame without blocking the stream. False means "stop"."""
     import cv2
 
-    window = Path(frame.path).name or "rtdetr"
+    window = Path(frame.path).name or "easydetect"
     cv2.imshow(window, result.plot(line_width=line_width))
     key = cv2.waitKey(1 if frame.kind != "image" else 0) & 0xFF
     if key in (ord("q"), 27):  # q or Esc
@@ -603,4 +603,4 @@ def _import_torch():
         raise ImportError(_TORCH_HINT) from exc
 
 
-__all__ = ["RTDETR", "increment_path", "transfer_weights"]
+__all__ = ["Detector", "increment_path", "transfer_weights"]

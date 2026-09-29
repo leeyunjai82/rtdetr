@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import pytest
 
-from rtdetr.sources import SourceLoader, _expand, is_url
+from easydetect.sources import SourceLoader, _expand, is_url
 
 
 @pytest.fixture

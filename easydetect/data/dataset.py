@@ -144,7 +144,7 @@ class DetDataset(Dataset):
             hsv[..., 2] = np.clip(hsv[..., 2] + random.randint(-30, 30), 0, 255)
             img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-        img = cv2.resize(img, (self.imgsz, self.imgsz))  # plain resize (RT-DETR default)
+        img = cv2.resize(img, (self.imgsz, self.imgsz))  # plain resize, as D-FINE trains
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         tensor = torch.from_numpy(img.transpose(2, 0, 1)).contiguous()
 

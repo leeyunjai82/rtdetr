@@ -1,8 +1,9 @@
 # Apache-2.0
-"""Export: RTDETRNet -> ONNX (opset 17) -> OpenVINO IR, static shape, FP16 optional."""
+"""Export: DFINENet -> ONNX (opset 17) -> OpenVINO IR, static shape, FP16 optional."""
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 import warnings
@@ -30,22 +31,28 @@ def _write_labels(out_dir: Path, fname: str, names) -> dict[int, str]:
     return table
 
 
-def export_onnx(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=False, verbose=True):
+def export_onnx(net, names, imgsz=640, out_dir=".", fname="easydetect", half=False, verbose=True):
     """Write ``<out_dir>/<fname>.onnx`` (plus labels). Returns the .onnx path."""
     import torch
 
-    from .nn.rtdetr_net import DeployWrapper
+    from .nn import DeployWrapper
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     onnx_path = out_dir / f"{fname}.onnx"
 
-    wrapper = DeployWrapper(net).eval().cpu()
+    # the deploy form fuses the re-parameterised blocks and drops the training
+    # heads; a copy, so the caller's network can keep training
+    deployed = copy.deepcopy(net).cpu()
+    deployed = deployed.deploy() if hasattr(deployed, "deploy") else deployed.eval()
+    wrapper = DeployWrapper(deployed).eval()
     dummy = torch.zeros(1, 3, imgsz, imgsz)
     with _EXPORT_LOCK, warnings.catch_warnings():
         # The graph is exported at a fixed input size on purpose, so the tracer
         # baking shape-dependent constants (the query count) in is what we want.
         warnings.filterwarnings("ignore", category=torch.jit.TracerWarning)
+        warnings.filterwarnings("ignore", category=UserWarning)   # shape-inference chatter
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
         torch.onnx.export(
             wrapper,
             dummy,
@@ -57,11 +64,12 @@ def export_onnx(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=False, 
         )
     _write_labels(out_dir, fname, names)
     if verbose:
-        print(f"[rtdetr] exported: {onnx_path}")
+        print(f"[easydetect] exported: {onnx_path}")
     return onnx_path
 
 
-def export_openvino(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=False, verbose=True):
+def export_openvino(net, names, imgsz=640, out_dir=".", fname="easydetect", half=False,
+                    verbose=True):
     """Write ``<out_dir>/<fname>.xml`` (+ .bin, + labels). Returns the .xml path."""
     import openvino as ov
 
@@ -74,5 +82,5 @@ def export_openvino(net, names, imgsz=640, out_dir=".", fname="rtdetr", half=Fal
     model = ov.convert_model(str(onnx_path))
     ov.save_model(model, str(xml_path), compress_to_fp16=half)
     if verbose:
-        print(f"[rtdetr] exported: {xml_path} ({'FP16' if half else 'FP32'})")
+        print(f"[easydetect] exported: {xml_path} ({'FP16' if half else 'FP32'})")
     return xml_path

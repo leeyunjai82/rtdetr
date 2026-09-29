@@ -24,9 +24,9 @@ lives in the repo. One-time setup on PyPI (Publishing → add a pending publishe
 
 | Field | Value |
 | --- | --- |
-| PyPI project | `rtdetr` |
-| Owner | `leeyunjai82` |
-| Repository | `rtdetr` |
+| PyPI project | `easydetect` |
+| Owner | `themakerrobot` |
+| Repository | `easydetect` |
 | Workflow | `publish.yml` |
 | Environment | `pypi` |
 

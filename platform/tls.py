@@ -31,7 +31,7 @@ def ensure_certificate(folder: Path) -> tuple[Path, Path]:
     from cryptography.x509.oid import NameOID
 
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "rtdetr platform")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "easydetect platform")])
     now = datetime.datetime.now(datetime.timezone.utc)
     names = [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
     host = socket.gethostname()

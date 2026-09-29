@@ -27,7 +27,7 @@ def draw_boxes(
     line_width: int | None = None,
     color: tuple[int, int, int] | None = None,
 ) -> np.ndarray:
-    """Draw ``boxes`` (a :class:`~rtdetr.results.Boxes`) onto a copy of ``img``.
+    """Draw ``boxes`` (a :class:`~easydetect.results.Boxes`) onto a copy of ``img``.
 
     ``color`` (BGR) overrides the per-class palette — what you want when two
     sets of boxes share a frame and the distinction is truth versus prediction

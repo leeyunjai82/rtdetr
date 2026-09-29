@@ -25,9 +25,9 @@ def _loader_workers() -> int:
     """Processes decoding images for training — half the cores, at most eight.
 
     With none, a GPU waits on one thread reading JPEGs: 30% busy on a 7,000
-    image set. $RTDETR_WORKERS overrides it (0 for in-process loading).
+    image set. $EASYDETECT_WORKERS overrides it (0 for in-process loading).
     """
-    override = os.environ.get("RTDETR_WORKERS")
+    override = os.environ.get("EASYDETECT_WORKERS")
     if override is not None and override.strip().isdigit():
         return int(override)
     return max(1, min(8, (os.cpu_count() or 2) // 2))
@@ -136,7 +136,7 @@ class Worker(threading.Thread):
     # -- the two kinds of work ---------------------------------------------
 
     def _train(self, job: dict) -> None:
-        from rtdetr import RTDETR
+        from easydetect import Detector
 
         job_id = job["id"]
         dataset = self.db.one("SELECT * FROM datasets WHERE id = ?", (job["dataset_id"],))
@@ -179,7 +179,7 @@ class Worker(threading.Thread):
                 detail=f"에폭 {epoch}/{epochs} · 배치 {step}/{steps} · {eta}",
             )
 
-        model = RTDETR(job["model"], verbose=False)
+        model = Detector(job["model"], verbose=False)
         # The trainer picks its own run directory and skips one that already
         # exists, so the log cannot be written there until it comes back.
         handle, temporary = tempfile.mkstemp(prefix=f"job{job_id}_", suffix=".log")
@@ -225,7 +225,7 @@ class Worker(threading.Thread):
 
     def _autolabel(self, job: dict) -> None:
         """Pre-label every unlabelled image in a dataset, so a person only corrects."""
-        from rtdetr import RTDETR
+        from easydetect import Detector
 
         job_id = job["id"]
         dataset = self.db.one("SELECT * FROM datasets WHERE id = ?", (job["dataset_id"],))
@@ -244,7 +244,7 @@ class Worker(threading.Thread):
             )
             return
 
-        model = RTDETR(job["model"], verbose=False)
+        model = Detector(job["model"], verbose=False)
         written = 0
         for i, image in enumerate(images, start=1):
             if job_id in self.cancelled:
@@ -273,11 +273,11 @@ class Worker(threading.Thread):
         import cv2
         import numpy as np
 
-        from rtdetr import RTDETR
-        from rtdetr.data.dataset import load_data_yaml
-        from rtdetr.plotting import draw_boxes
-        from rtdetr.results import Boxes
-        from rtdetr.validator import validate_torch
+        from easydetect import Detector
+        from easydetect.data.dataset import load_data_yaml
+        from easydetect.plotting import draw_boxes
+        from easydetect.results import Boxes
+        from easydetect.validator import validate_torch
 
         job_id = job["id"]
         parent = self.db.one("SELECT * FROM jobs WHERE id = ?", (job["resume_of"],))
@@ -288,7 +288,7 @@ class Worker(threading.Thread):
         weights = Path(parent["run_dir"]) / "weights" / "best.pt"
 
         self.db.update_job(job_id, status="running", started=time.time(), detail=None, progress=0)
-        model = RTDETR(str(weights), verbose=False)
+        model = Detector(str(weights), verbose=False)
         conf = job["conf"] or 0.25
 
         metrics = validate_torch(
@@ -298,7 +298,7 @@ class Worker(threading.Thread):
 
         out = Path(parent["run_dir"]) / "eval"
         out.mkdir(parents=True, exist_ok=True)
-        from rtdetr.data.dataset import DetDataset
+        from easydetect.data.dataset import DetDataset
 
         val = DetDataset(data_yaml, "val", parent["imgsz"], augment=False)
         cards = []
@@ -366,8 +366,8 @@ class Worker(threading.Thread):
         """
         import cv2
 
-        from rtdetr import RTDETR
-        from rtdetr.sources import SourceLoader
+        from easydetect import Detector
+        from easydetect.sources import SourceLoader
 
         job_id = job["id"]
         out = self.runs_dir / f"job{job_id}"
@@ -376,7 +376,7 @@ class Worker(threading.Thread):
         self.db.update_job(job_id, status="running", started=time.time(), progress=0,
                            run_dir=str(out), detail="모델 불러오는 중…")
 
-        model = RTDETR(job["model"], verbose=False)
+        model = Detector(job["model"], verbose=False)
         conf = job["conf"] or 0.25
         loader = SourceLoader(job["source"], vid_stride=1)
         total = max(len(loader), 1)

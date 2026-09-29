@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 
-class RTDETRError(Exception):
-    """Base class for every error raised by rtdetr."""
+class EasyDetectError(Exception):
+    """Base class for every error raised by easydetect."""
 
 
-class ModelNotFoundError(RTDETRError, FileNotFoundError):
+class ModelNotFoundError(EasyDetectError, FileNotFoundError):
     """A model name could not be resolved to weights (locally or on the mirror)."""
 
 
-class DownloadError(RTDETRError, OSError):
+class DownloadError(EasyDetectError, OSError):
     """A weight download failed."""

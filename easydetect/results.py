@@ -76,7 +76,7 @@ class Boxes:
 
     @property
     def id(self) -> np.ndarray | None:
-        """Track ids (``None`` unless the boxes came from :meth:`RTDETR.track`)."""
+        """Track ids (``None`` unless the boxes came from :meth:`Detector.track`)."""
         return self.data[:, 4].astype(np.int32) if self.is_track else None
 
     # -- container niceties -------------------------------------------------
@@ -163,7 +163,7 @@ class Results:
         """Open a window with the annotated image (blocks until a key press)."""
         import cv2
 
-        cv2.imshow(title or (Path(self.path).name or "rtdetr"), self.plot())
+        cv2.imshow(title or (Path(self.path).name or "easydetect"), self.plot())
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 

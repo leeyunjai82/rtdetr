@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rtdetr.results import Boxes, Results
+from easydetect.results import Boxes, Results
 
 DET = np.array(
     [[10, 10, 50, 60, 0.9, 0], [0, 0, 20, 20, 0.8, 0], [5, 5, 30, 30, 0.7, 1]], np.float32
@@ -88,20 +88,20 @@ class TestLabelPlacement:
     """Labels have to stay inside the frame and off each other."""
 
     def test_a_label_at_the_right_edge_slides_back_inside(self):
-        from rtdetr.plotting import _label_position
+        from easydetect.plotting import _label_position
 
         left, top = _label_position(x1=195, y1=50, y2=80, tw=60, th=12, shape=(100, 200), placed=[])
         assert left + 60 <= 200 and left >= 0
         assert 0 <= top <= 100 - 12
 
     def test_a_label_at_the_top_drops_below_the_line(self):
-        from rtdetr.plotting import _label_position
+        from easydetect.plotting import _label_position
 
         _, top = _label_position(x1=10, y1=2, y2=40, tw=30, th=12, shape=(100, 200), placed=[])
         assert top >= 0
 
     def test_a_second_label_moves_instead_of_covering_the_first(self):
-        from rtdetr.plotting import _label_position
+        from easydetect.plotting import _label_position
 
         first = _label_position(x1=10, y1=50, y2=90, tw=40, th=12, shape=(200, 200), placed=[])
         taken = [(first[0], first[1], first[0] + 40, first[1] + 12)]
@@ -110,7 +110,7 @@ class TestLabelPlacement:
 
     def test_stacked_boxes_take_the_free_slots_before_colliding(self):
         """Three overlapping detections: each label finds its own row."""
-        from rtdetr.plotting import _label_position, _overlaps
+        from easydetect.plotting import _label_position, _overlaps
 
         placed = []
         for i in range(3):
@@ -122,7 +122,7 @@ class TestLabelPlacement:
             placed.append(box)
 
     def test_labels_never_leave_the_frame_however_crowded(self):
-        from rtdetr.plotting import _label_position
+        from easydetect.plotting import _label_position
 
         placed = []
         for i in range(12):
@@ -138,7 +138,7 @@ def test_a_fixed_colour_overrides_the_class_palette(result):
     """Overlays need "truth vs prediction" to read, not "class 0 vs class 1"."""
     import numpy as np
 
-    from rtdetr.plotting import color_for, draw_boxes
+    from easydetect.plotting import color_for, draw_boxes
 
     palette = draw_boxes(result.orig_img, result.boxes, result.names)
     pinned = draw_boxes(result.orig_img, result.boxes, result.names, color=(0, 255, 0))

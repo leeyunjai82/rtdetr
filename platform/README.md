@@ -1,7 +1,7 @@
-# rtdetr platform
+# easydetect platform
 
 Label images, train on them, watch the run, take the model away — in a browser,
-on one machine. It is a separate application that uses the `rtdetr` package; the
+on one machine. It is a separate application that uses the `easydetect` package; the
 package itself stays a library with a CLI and no web dependencies.
 
 ```bash
@@ -53,7 +53,7 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
    at a time; inside an epoch the job shows its batch, what is left and when it
    is validating, and the loss and mAP curve updates per epoch; images are
    decoded by loader processes (half the cores, at most eight —
-   `RTDETR_WORKERS` overrides); *중지* stops within a batch;
+   `EASYDETECT_WORKERS` overrides); *중지* stops within a batch;
    *이어서 학습* continues a finished run with more epochs in the same directory;
    every run keeps a `train.log`, and a failure carries the end of it.
    *삭제* removes a finished job with its weights, IR and log — refused while a
@@ -98,11 +98,11 @@ python platform/run.py                 # http://<this machine>:8080, from any ma
 
 ## Where things live
 
-Everything sits under `rtdetr-platform/` in the directory you start from —
-`--data /some/path` or `$RTDETR_PLATFORM_HOME` moves it:
+Everything sits under `easydetect-platform/` in the directory you start from —
+`--data /some/path` or `$EASYDETECT_PLATFORM_HOME` moves it:
 
 ```
-rtdetr-platform/
+easydetect-platform/
   platform.db          datasets, jobs, per-epoch numbers
   datasets/<name>/     uploaded datasets (registered folders stay where they are)
   runs/job<id>/        weights/, openvino/, results.csv, summary.json
@@ -174,7 +174,7 @@ Other limits worth knowing:
   `--host 127.0.0.1` keeps it to this machine. Browsers only allow the webcam
   on `https://` or `localhost`, so the same app is also served over HTTPS on
   8443 (`--https-port`, 0 turns it off) with a certificate made on first start
-  and kept in `rtdetr-platform/tls/`. The browser warns about it once; the
+  and kept in `easydetect-platform/tls/`. The browser warns about it once; the
   webcam tab opened over `http://` links to the HTTPS address.
 
 ## Tests

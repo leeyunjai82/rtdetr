@@ -1,11 +1,11 @@
 # Apache-2.0
-"""``rtdetr <mode> key=value ...`` — the command line for this package.
+"""``easydetect <mode> key=value ...`` — the command line for this package.
 
-    rtdetr predict model=rtdetr-r18 source=bus.jpg conf=0.5
-    rtdetr train   model=rtdetr-r18 data=data.yaml epochs=100 imgsz=640
-    rtdetr val     model=best.pt data=data.yaml
-    rtdetr export  model=best.pt format=openvino half=true
-    rtdetr track   model=best.pt source=video.mp4
+    easydetect predict model=dfine-s source=bus.jpg conf=0.5
+    easydetect train   model=dfine-s data=data.yaml epochs=100 imgsz=640
+    easydetect val     model=best.pt data=data.yaml
+    easydetect export  model=best.pt format=openvino half=true
+    easydetect track   model=best.pt source=video.mp4
 """
 
 from __future__ import annotations
@@ -15,9 +15,9 @@ from typing import Any
 
 MODES = ("predict", "track", "train", "val", "export")
 
-HELP = """rtdetr — real-time detection transformer, Apache-2.0
+HELP = """easydetect — real-time object detection (D-FINE), Apache-2.0
 
-Usage:  rtdetr <mode> key=value ...
+Usage:  easydetect <mode> key=value ...
 
 Modes:
   predict   run detection on an image / folder / video / url / camera
@@ -27,15 +27,15 @@ Modes:
   export    write an OpenVINO IR (or ONNX) next to the checkpoint
 
 Common keys:
-  model=rtdetr-r18|best.pt|model.xml   source=bus.jpg|dir|video.mp4|0|url
+  model=dfine-n|s|m|l|x|best.pt|model.xml   source=bus.jpg|dir|video.mp4|0|url
   data=data.yaml  epochs=100  imgsz=640  batch=8  conf=0.25  device=0|cpu|AUTO
   project=runs  name=predict  save=true  show=false  format=openvino  half=true
 
 Examples:
-  rtdetr predict model=rtdetr-r18 source=bus.jpg conf=0.5
-  rtdetr train   model=rtdetr-r18 data=data.yaml epochs=100
-  rtdetr val     model=best.pt data=data.yaml
-  rtdetr export  model=best.pt format=openvino half=true
+  easydetect predict model=dfine-s source=bus.jpg conf=0.5
+  easydetect train   model=dfine-s data=data.yaml epochs=100
+  easydetect val     model=best.pt data=data.yaml
+  easydetect export  model=best.pt format=openvino half=true
 """
 
 
@@ -99,14 +99,14 @@ def main(argv: list[str] | None = None) -> int:
         print(HELP, file=sys.stderr)
         return 2
 
-    from .model import RTDETR
+    from .model import Detector
 
-    model_name = _take(overrides, "model", "rtdetr-r18")
+    model_name = _take(overrides, "model", "dfine-s")
     device = _take(overrides, "device")
     verbose = _take(overrides, "verbose", True)
 
     if mode in ("predict", "track"):
-        model = RTDETR(model_name, device=device or "AUTO", verbose=verbose)
+        model = Detector(model_name, device=device or "AUTO", verbose=verbose)
         source = _take(overrides, "source")
         if source is None:
             print(
@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{len(results)} result(s)")
         return 0
 
-    model = RTDETR(model_name, verbose=verbose)
+    model = Detector(model_name, verbose=verbose)
     if mode == "train":
         data = _take(overrides, "data")
         if data is None:

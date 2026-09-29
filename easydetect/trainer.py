@@ -20,7 +20,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from .data.dataset import DetDataset, load_data_yaml
-from .utils.loss import SetCriterion
+from .utils.loss import DetectionLoss
 
 
 def seed_everything(seed: int) -> None:
@@ -28,6 +28,37 @@ def seed_everything(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+#: The backbone learns slower than the rest — D-FINE's per-size ratios.
+BACKBONE_LR_MULT = {"n": 0.5, "s": 0.5, "m": 0.1, "l": 0.05, "x": 0.01}
+
+
+class ModelEMA:
+    """An exponential moving average of the weights — what gets validated and saved.
+
+    The decay ramps up over ``warmups`` updates, so early epochs are not
+    dominated by the random start: ``decay * (1 - exp(-updates / warmups))``.
+    """
+
+    def __init__(self, net, decay=0.9999, warmups=1000, updates=0):
+        import copy
+
+        self.module = copy.deepcopy(net).eval()
+        for p in self.module.parameters():
+            p.requires_grad_(False)
+        self.decay, self.warmups, self.updates = decay, warmups, updates
+
+    @torch.no_grad()
+    def update(self, net):
+        self.updates += 1
+        d = self.decay * (1 - math.exp(-self.updates / self.warmups))
+        current = net.state_dict()
+        for k, v in self.module.state_dict().items():
+            if v.dtype.is_floating_point:
+                v.mul_(d).add_(current[k].detach(), alpha=1 - d)
+            else:
+                v.copy_(current[k])
 
 
 #: Shorthands accepted by ``freeze``.
@@ -60,7 +91,7 @@ def freeze_modules(net, freeze):
             param.requires_grad = False
             frozen_params += param.numel()
     modules = [getattr(net, p.split(".")[0]) for p in prefixes]
-    print(f"[rtdetr] frozen: {', '.join(prefixes)} ({frozen_params / 1e6:.1f}M parameters)")
+    print(f"[easydetect] frozen: {', '.join(prefixes)} ({frozen_params / 1e6:.1f}M parameters)")
     return modules
 
 
@@ -79,6 +110,33 @@ def _split_counts(ds, num_classes: int) -> dict:
             "per_class": per_class}
 
 
+#: The loss parts logged per epoch (see utils.loss).
+LOGGED = ("vfl", "l1", "giou", "fgl", "ddf")
+
+
+def _param_groups(net, lr, lr_backbone):
+    """D-FINE's grouping: the backbone at its own rate, and no weight decay on
+    norms and biases outside it (nor on the backbone's norms)."""
+    groups = {"backbone": [], "backbone_norm": [], "no_decay": [], "rest": []}
+    for name, p in net.named_parameters():
+        if not p.requires_grad:
+            continue
+        is_norm = "norm" in name or ".bn." in name or name.endswith(".bn")
+        if name.startswith("backbone"):
+            groups["backbone_norm" if is_norm else "backbone"].append(p)
+        elif is_norm or name.endswith(".bias"):
+            groups["no_decay"].append(p)
+        else:
+            groups["rest"].append(p)
+    out = [
+        {"params": groups["rest"], "lr": lr},
+        {"params": groups["no_decay"], "lr": lr, "weight_decay": 0.0},
+        {"params": groups["backbone"], "lr": lr_backbone},
+        {"params": groups["backbone_norm"], "lr": lr_backbone, "weight_decay": 0.0},
+    ]
+    return [g for g in out if g["params"]]
+
+
 def _one_thread_per_worker(_worker_id: int) -> None:
     import cv2
 
@@ -95,7 +153,7 @@ class Trainer:
         imgsz=640,
         batch=8,
         lr=1e-4,
-        lr_backbone_mult=0.1,
+        lr_backbone_mult=None,
         weight_decay=1e-4,
         warmup_epochs=1,
         device=None,
@@ -138,16 +196,14 @@ class Trainer:
         # the CPU left Adam's moments there — "cuda:0 and cpu" on the first step
         self.net = net = net.to(self.device)
 
-        backbone_params, other_params = [], []
-        for n, p in net.named_parameters():
-            if not p.requires_grad:
-                continue
-            (backbone_params if n.startswith("backbone") else other_params).append(p)
-        groups = [{"params": other_params, "lr": lr}]
-        if backbone_params:
-            groups.append({"params": backbone_params, "lr": lr * lr_backbone_mult})
-        self.opt = torch.optim.AdamW(groups, lr=lr, weight_decay=weight_decay)
-        self.criterion = SetCriterion(net.num_classes)
+        if lr_backbone_mult is None:
+            lr_backbone_mult = BACKBONE_LR_MULT.get(getattr(net, "variant", ""), 0.1)
+        self.lr_backbone_mult = lr_backbone_mult
+        self.opt = torch.optim.AdamW(
+            _param_groups(net, lr, lr * lr_backbone_mult), lr=lr, weight_decay=weight_decay
+        )
+        self.criterion = DetectionLoss(net.num_classes, reg_max=net.decoder.reg_max)
+        self.ema = ModelEMA(net)
         self.warmup_epochs = warmup_epochs
         self.base_lrs = [g["lr"] for g in self.opt.param_groups]
         self.scaler = torch.amp.GradScaler(enabled=self.amp)
@@ -176,17 +232,21 @@ class Trainer:
     def _load_resume_state(self) -> None:
         last = self.save_dir / "weights" / "last.pt"
         if not last.exists():
-            print(f"[rtdetr] resume: nothing to resume from in {self.save_dir}, starting fresh")
+            print(f"[easydetect] resume: nothing to resume from in {self.save_dir}, starting fresh")
             return
         ckpt = torch.load(last, map_location="cpu", weights_only=False)
-        self.net.load_state_dict(ckpt["model"])
+        # "model" is the averaged weights everyone uses; "raw" what training was at
+        self.net.load_state_dict(ckpt.get("raw") or ckpt["model"])
+        self.ema.module.load_state_dict(ckpt["model"])
+        self.ema.updates = int(ckpt.get("ema_updates", 0))
         if ckpt.get("optimizer"):
             self.opt.load_state_dict(ckpt["optimizer"])
         if ckpt.get("scaler") and self.amp:
             self.scaler.load_state_dict(ckpt["scaler"])
         self.start_epoch = int(ckpt.get("epoch", -1)) + 1
         self.best = float(ckpt.get("best", -1.0))
-        print(f"[rtdetr] resuming {self.save_dir} at epoch {self.start_epoch + 1}/{self.epochs}")
+        print(f"[easydetect] resuming {self.save_dir} "
+              f"at epoch {self.start_epoch + 1}/{self.epochs}")
 
     # ------------------------------------------------------------- the record
 
@@ -239,7 +299,7 @@ class Trainer:
             "gpu": torch.cuda.get_device_name(self.device) if self.device.type == "cuda" else None,
             "cpu": platform.processor() or platform.machine(),
             "versions": {
-                "rtdetr": __version__,
+                "easydetect": __version__,
                 "torch": torch.__version__,
                 "cuda": torch.version.cuda if self.device.type == "cuda" else None,
                 "python": sys.version.split()[0],
@@ -272,7 +332,7 @@ class Trainer:
             "stopped_early": stopped_early,
             "train_seconds": round(seconds, 1),
             "epoch_seconds": round(seconds / len(rows), 1) if rows else None,
-            "final": {k: float(last[k]) for k in ("loss", "vfl", "l1", "giou") if last.get(k)},
+            "final": {k: float(last[k]) for k in ("loss", *LOGGED) if last.get(k)},
             "wall_seconds": round(time.time() - started, 1),
             "finished": time.strftime("%Y-%m-%dT%H:%M:%S"),
         }
@@ -310,18 +370,18 @@ class Trainer:
             # resuming a run that already finished its schedule: there is nothing
             # to do until someone asks for more epochs
             print(
-                f"[rtdetr] already trained {self.start_epoch} epochs; "
+                f"[easydetect] already trained {self.start_epoch} epochs; "
                 f"raise epochs above {self.epochs} to continue"
             )
             return self.save_dir / "weights" / "best.pt"
         print(
-            f"[rtdetr] training on {self.device}, {len(ds)} images, "
+            f"[easydetect] training on {self.device}, {len(ds)} images, "
             f"{self.epochs} epochs -> {self.save_dir}"
         )
         setup = self._write_setup(ds)
         started, stopped_early = time.time(), False
 
-        logs = {"vfl": 0.0, "l1": 0.0, "giou": 0.0}
+        logs = dict.fromkeys(LOGGED, 0.0)
         for epoch in range(self.start_epoch, self.epochs):
             net.train()
             for module in self.frozen:  # frozen batch norms must not keep adapting
@@ -333,7 +393,7 @@ class Trainer:
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
 
                 with torch.amp.autocast(self.device.type, enabled=self.amp):
-                    out = net(imgs)
+                    out = net(imgs, targets)       # targets feed the denoising queries
                     loss, logs = self.criterion(out, targets)
 
                 self.opt.zero_grad(set_to_none=True)
@@ -342,6 +402,7 @@ class Trainer:
                 torch.nn.utils.clip_grad_norm_(net.parameters(), 0.1)
                 self.scaler.step(self.opt)
                 self.scaler.update()
+                self.ema.update(net)
                 running += float(loss.detach())
                 if self.on_progress is not None and (
                     time.time() - reported >= 1.0 or step + 1 == len(dl)
@@ -355,7 +416,7 @@ class Trainer:
             avg = running / max(len(dl), 1)
             msg = (
                 f"epoch {epoch + 1}/{self.epochs}  loss {avg:.3f}  "
-                f"vfl {logs['vfl']:.3f} l1 {logs['l1']:.3f} giou {logs['giou']:.3f}  "
+                + " ".join(f"{k} {float(logs.get(k, 0.0)):.3f}" for k in LOGGED) + "  "
                 f"{time.time() - t0:.1f}s"
             )
 
@@ -366,16 +427,14 @@ class Trainer:
                         "phase": "val", "epoch": epoch + 1, "epochs": self.epochs,
                         "seconds": time.time() - t0,
                     })
-                metric = val_fn(net)
+                metric = val_fn(self.ema.module)
                 msg += f"  mAP50-95 {metric:.4f}"
-            print("[rtdetr] " + msg)
+            print("[easydetect] " + msg)
 
             row = {
                 "epoch": epoch + 1,
                 "loss": round(avg, 5),
-                "vfl": round(float(logs["vfl"]), 5),
-                "l1": round(float(logs["l1"]), 5),
-                "giou": round(float(logs["giou"]), 5),
+                **{k: round(float(logs.get(k, 0.0)), 5) for k in LOGGED},
                 "map50_95": round(metric, 5) if metric is not None else "",
                 "lr": self.opt.param_groups[0]["lr"],
                 "seconds": round(time.time() - t0, 2),
@@ -397,7 +456,7 @@ class Trainer:
                 self.on_epoch_end(dict(row, epochs=self.epochs, save_dir=str(self.save_dir)))
             if val_fn is not None and self.patience and since_improved >= self.patience:
                 print(
-                    f"[rtdetr] early stop: no mAP improvement for {self.patience} epochs "
+                    f"[easydetect] early stop: no mAP improvement for {self.patience} epochs "
                     f"(best {self.best:.4f})"
                 )
                 stopped_early = True
@@ -419,7 +478,7 @@ class Trainer:
             ),
             encoding="utf-8",
         )
-        print(f"[rtdetr] done. weights: {best_path}")
+        print(f"[easydetect] done. weights: {best_path}")
         return best_path
 
     def _append_results(self, row):
@@ -435,7 +494,9 @@ class Trainer:
     def _save(self, net, epoch, fname):
         torch.save(
             {
-                "model": net.state_dict(),
+                "model": self.ema.module.state_dict(),
+                "raw": net.state_dict(),
+                "ema_updates": self.ema.updates,
                 "optimizer": self.opt.state_dict(),
                 "scaler": self.scaler.state_dict() if self.amp else None,
                 "variant": net.variant,

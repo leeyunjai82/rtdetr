@@ -73,11 +73,11 @@ def tiny_ir(tmp_path_factory) -> Path:
     """A real (untrained) 2-class IR at 64x64 — small enough to export in a test."""
     if not (HAS_TORCH and HAS_OV):
         pytest.skip("needs torch + openvino")
-    from rtdetr.exporter import export_openvino
-    from rtdetr.nn.rtdetr_net import RTDETRNet
+    from easydetect.exporter import export_openvino
+    from easydetect.nn import DFINENet
 
     out = tmp_path_factory.mktemp("ir")
-    net = RTDETRNet("r18", num_classes=2, pretrained_backbone=False)
+    net = DFINENet("n", num_classes=2, pretrained_backbone=False)
     return export_openvino(
         net, {0: "can", 1: "bottle"}, imgsz=64, out_dir=out, fname="tiny", verbose=False
     )

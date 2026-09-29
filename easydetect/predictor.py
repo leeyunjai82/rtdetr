@@ -1,5 +1,5 @@
 # Apache-2.0
-"""OpenVINO inference for an exported RT-DETR IR (or ONNX).
+"""OpenVINO inference for an exported D-FINE IR (or ONNX).
 
 The exported graph is ``images -> (boxes cxcywh 0..1, scores)``. The scores it
 emits are **already sigmoid'd** — squashing them a second time silently turns a

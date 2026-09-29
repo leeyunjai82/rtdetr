@@ -1,5 +1,5 @@
 # Apache-2.0
-"""The network itself: shapes, variants, and the export path for deformable attention."""
+"""The network itself: sizes, train/eval outputs, and the export path for deformable attention."""
 
 from __future__ import annotations
 
@@ -12,26 +12,32 @@ pytestmark = [needs_torch]
 
 
 @pytest.mark.parametrize(
-    ("variant", "decoder_layers", "millions"),
-    [("r18", 3, 20.2), ("r34", 4, 31.3), ("r50", 6, 42.9)],
+    ("size", "decoder_layers", "millions"),
+    [("n", 3, 3.8), ("s", 3, 10.3), ("m", 4, 19.6), ("l", 6, 31.2), ("x", 6, 62.6)],
 )
-def test_each_variant_matches_the_published_shape(variant, decoder_layers, millions):
-    from rtdetr.nn import RTDETRNet
+def test_each_size_matches_the_published_shape(size, decoder_layers, millions):
+    from easydetect.nn import DFINENet
 
-    net = RTDETRNet(variant, num_classes=80, pretrained_backbone=False)
+    net = DFINENet(size, num_classes=80, pretrained_backbone=False)
     assert len(net.decoder.decoder.layers) == decoder_layers
     assert len(net.decoder.dec_score_head) == decoder_layers
     params = sum(p.numel() for p in net.parameters()) / 1e6
-    assert params == pytest.approx(millions, abs=0.3)
+    assert params == pytest.approx(millions, abs=0.2)
+
+
+def _targets(torch, n=1):
+    return [{"labels": torch.tensor([0, 1]), "boxes": torch.tensor([[0.3, 0.3, 0.2, 0.2],
+                                                                    [0.7, 0.6, 0.3, 0.4]])}
+            for _ in range(n)]
 
 
 def test_eval_returns_the_last_layer_and_training_returns_every_layer():
     import torch
 
-    from rtdetr.nn import RTDETRNet
+    from easydetect.nn import DFINENet
 
-    net = RTDETRNet("r18", num_classes=5, pretrained_backbone=False)
-    x = torch.zeros(1, 3, 128, 128)
+    net = DFINENet("n", num_classes=5, pretrained_backbone=False)
+    x = torch.zeros(1, 3, 320, 320)
 
     net.eval()
     with torch.no_grad():
@@ -40,29 +46,56 @@ def test_eval_returns_the_last_layer_and_training_returns_every_layer():
     assert "aux_outputs" not in out
 
     net.train()
-    out = net(x)
-    # 2 intermediate decoder layers + the encoder's own top-k proposals
-    assert len(out["aux_outputs"]) == 3
-    assert out["aux_outputs"][0]["pred_logits"].shape == (1, 300, 5)
+    out = net(x, _targets(torch))
+    # the intermediate decoder layers, the first layer's plain head, the
+    # encoder's top-k proposals, and the denoising queries
+    assert len(out["aux_outputs"]) == 2
+    assert out["pre_outputs"]["pred_logits"].shape == (1, 300, 5)
+    assert len(out["enc_aux_outputs"]) == 1
+    assert "pred_corners" in out and "dn_outputs" in out
 
 
 def test_an_input_too_small_for_300_queries_still_runs():
-    """8x8 + 4x4 + 2x2 tokens is fewer than num_queries — must not blow up."""
+    """4x4 + 2x2 tokens at 64 px is fewer than the query count — must not blow up."""
     import torch
 
-    from rtdetr.nn import RTDETRNet
+    from easydetect.nn import DFINENet
 
-    net = RTDETRNet("r18", num_classes=2, pretrained_backbone=False).eval()
+    net = DFINENet("n", num_classes=2, pretrained_backbone=False)
     with torch.no_grad():
-        out = net(torch.zeros(1, 3, 64, 64))
-    assert out["pred_logits"].shape == (1, 84, 2)
+        out = net.eval()(torch.zeros(1, 3, 64, 64))
+    assert out["pred_logits"].shape == (1, 20, 2)
+    out = net.train()(torch.zeros(2, 3, 64, 64), _targets(torch, 2))
+    assert out["pred_logits"].shape == (2, 20, 2)
 
 
-def test_unknown_variants_are_rejected():
-    from rtdetr.nn import RTDETRNet
+def test_unknown_sizes_are_rejected():
+    from easydetect.nn import DFINENet
 
-    with pytest.raises(ValueError, match="r18"):
-        RTDETRNet("r101", num_classes=80, pretrained_backbone=False)
+    with pytest.raises(ValueError, match="n.*s.*m.*l.*x"):
+        DFINENet("r18", num_classes=80, pretrained_backbone=False)
+
+
+def test_the_deploy_form_gives_the_same_answer():
+    """Fused convolutions, dropped training heads — same boxes."""
+    import copy
+
+    import torch
+
+    from easydetect.nn import DFINENet
+
+    torch.manual_seed(0)
+    net = DFINENet("n", num_classes=3, pretrained_backbone=False).eval()
+    x = torch.rand(1, 3, 320, 320)
+    with torch.no_grad():
+        before = net(x)
+        after = copy.deepcopy(net).deploy()(x)
+    # an untrained net scores its queries almost equally, so fused maths can
+    # reorder near-ties: compare as sets, not position by position
+    a, b = before["pred_boxes"][0], after["pred_boxes"][0]
+    assert torch.cdist(a, b).min(1).values.max() < 1e-3
+    scores = [out["pred_logits"].sort(1).values for out in (before, after)]
+    assert torch.allclose(*scores, atol=1e-3)
 
 
 @needs_ov
@@ -71,13 +104,17 @@ def test_deformable_attention_survives_the_trip_to_openvino(tmp_path):
     import openvino as ov
     import torch
 
-    from rtdetr.nn.decoder import MSDeformableAttention
+    from easydetect.nn.decoder import MSDeformableAttention
 
-    attn = MSDeformableAttention(embed_dim=64, num_heads=4, num_levels=3, num_points=4).eval()
+    attn = MSDeformableAttention(embed_dim=64, num_heads=4, num_levels=3,
+                                 num_points=[3, 6, 3]).eval()
     shapes = [(8, 8), (4, 4), (2, 2)]
     q = torch.randn(1, 20, 64)
-    ref = torch.rand(1, 20, 3, 4)
+    ref = torch.rand(1, 20, 1, 4)
     value = torch.randn(1, sum(h * w for h, w in shapes), 64)
+    # the decoder hands the attention its values already split per level
+    values = value.reshape(1, value.shape[1], 4, 16).permute(0, 2, 3, 1).split(
+        [h * w for h, w in shapes], dim=-1)
 
     class Wrapper(torch.nn.Module):
         def __init__(self, attn):
@@ -85,16 +122,17 @@ def test_deformable_attention_survives_the_trip_to_openvino(tmp_path):
             self.attn = attn
 
         def forward(self, q, ref, value):
-            return self.attn(q, ref, value, shapes)
+            v = value.reshape(1, value.shape[1], 4, 16).permute(0, 2, 3, 1).split(
+                [h * w for h, w in shapes], dim=-1)
+            return self.attn(q, ref, v, shapes)
 
     with torch.no_grad():
-        expected = Wrapper(attn)(q, ref, value)
+        expected = attn(q, ref, values, shapes)
     onnx_path = tmp_path / "attn.onnx"
     torch.onnx.export(
-        Wrapper(attn), (q, ref, value), str(onnx_path), opset_version=16,
+        Wrapper(attn), (q, ref, value), str(onnx_path), opset_version=17,
         input_names=["q", "ref", "value"], output_names=["out"], dynamo=False,
     )
-    # OpenVINO's CPU default may be bfloat16; compare against the same maths
     compiled = ov.Core().compile_model(
         ov.convert_model(str(onnx_path)), "CPU", {"INFERENCE_PRECISION_HINT": "f32"}
     )

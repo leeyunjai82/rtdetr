@@ -8,8 +8,8 @@ import json
 import numpy as np
 import pytest
 
-from rtdetr.predictor import _looks_like_logits, read_names
-from rtdetr.utils.ops import cxcywh2xyxy_np
+from easydetect.predictor import _looks_like_logits, read_names
+from easydetect.utils.ops import cxcywh2xyxy_np
 
 from .conftest import needs_ov, needs_torch
 
@@ -17,7 +17,7 @@ from .conftest import needs_ov, needs_torch
 class _Decoder:
     """postprocess() without compiling anything — it is a pure function."""
 
-    from rtdetr.predictor import OVPredictor
+    from easydetect.predictor import OVPredictor
 
     postprocess = OVPredictor.postprocess
 
@@ -78,7 +78,7 @@ def test_class_names_are_read_from_labels_txt_or_the_json_sidecar(tmp_path):
 @needs_torch
 @needs_ov
 def test_a_real_ir_round_trips_from_pixels_to_detections(tiny_ir):
-    from rtdetr.predictor import OVPredictor
+    from easydetect.predictor import OVPredictor
 
     predictor = OVPredictor(tiny_ir, device="CPU")
     assert predictor.imgsz == 64 and predictor.names == {0: "can", 1: "bottle"}
@@ -96,7 +96,7 @@ def test_one_predictor_can_be_shared_between_threads(tiny_ir):
     "Infer Request is busy". Each thread now has a request of its own."""
     import threading
 
-    from rtdetr.predictor import OVPredictor
+    from easydetect.predictor import OVPredictor
 
     predictor = OVPredictor(tiny_ir, device="CPU", precision="f32")
     rng = np.random.default_rng(0)

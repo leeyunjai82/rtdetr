@@ -1,0 +1,82 @@
+name: mirror
+
+# Builds the pretrained D-FINE weights (.pt + OpenVINO IR + labels) from the
+# official Apache-2.0 COCO release and uploads them to the Hugging Face repo
+# the package downloads from. Needs the repository secret HF_TOKEN (write).
+
+on:
+  workflow_dispatch:
+    inputs:
+      sizes:
+        description: "Sizes to build, space separated"
+        default: "n s m l x"
+      readme_only:
+        description: "Only refresh the repo's README"
+        type: boolean
+        default: false
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    env:
+      HF_REPO: leeyunjai/easydetect
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[train]" "huggingface_hub>=0.25"
+      - name: Build the weights
+        if: ${{ !inputs.readme_only }}
+        run: python tools/build_mirror.py --out mirror --sizes ${{ inputs.sizes }}
+      - name: README only
+        if: ${{ inputs.readme_only }}
+        run: mkdir -p mirror && cp tools/hub_README.md mirror/README.md
+      - name: Check the IRs predict before uploading them
+        if: ${{ !inputs.readme_only }}
+        run: |
+          python - <<'PY'
+          import glob, urllib.request
+          from easydetect import Detector
+          urllib.request.urlretrieve(
+              "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/basketball1.png", "b.png")
+          for xml in sorted(glob.glob("mirror/*/*.xml")):
+              r = Detector(xml, verbose=False)("b.png", conf=0.5)[0]
+              names = [r.names[int(c)] for c in r.boxes.cls]
+              print(xml, names)
+              assert "person" in names, f"{xml} found no person"
+          PY
+      - name: Upload to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          api.create_repo(os.environ["HF_REPO"], repo_type="model", exist_ok=True)
+          info = api.upload_folder(
+              folder_path="mirror",
+              repo_id=os.environ["HF_REPO"],
+              repo_type="model",
+              commit_message="easydetect weights (${{ inputs.sizes }}) from ${{ github.sha }}",
+              delete_patterns=["rtdetr-*/*"],   # the retired RT-DETR folders
+          )
+          print(info)
+          PY
+      - name: Download one back, the way users will
+        if: ${{ !inputs.readme_only }}
+        run: |
+          python - <<'PY'
+          import os, tempfile
+          os.environ["EASYDETECT_HOME"] = tempfile.mkdtemp()
+          from easydetect import Detector
+          size = "${{ inputs.sizes }}".split()[0]
+          r = Detector(f"dfine-{size}", verbose=False)("b.png", conf=0.5)[0]
+          print(f"dfine-{size} from the hub:", r)
+          assert len(r.boxes)
+          PY

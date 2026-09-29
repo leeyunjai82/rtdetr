@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import re
 
-#: What each variant is made of, for people who have not read the paper.
+#: What each size is made of, for people who have not read the paper.
 VARIANTS = {
-    "r18": {"backbone": "PResNet-18 (ResNet-18-vd)", "decoder": 3, "params": "20M", "coco": "46.4"},
-    "r34": {"backbone": "PResNet-34 (ResNet-34-vd)", "decoder": 4, "params": "31M", "coco": "48.9"},
-    "r50": {"backbone": "PResNet-50 (ResNet-50-vd)", "decoder": 6, "params": "43M", "coco": "53.1"},
+    "n": {"backbone": "HGNetv2-B0", "decoder": 3, "params": "4M", "coco": "42.8"},
+    "s": {"backbone": "HGNetv2-B0", "decoder": 3, "params": "10M", "coco": "48.5"},
+    "m": {"backbone": "HGNetv2-B2", "decoder": 4, "params": "19M", "coco": "52.3"},
+    "l": {"backbone": "HGNetv2-B4", "decoder": 6, "params": "31M", "coco": "54.0"},
+    "x": {"backbone": "HGNetv2-B5", "decoder": 6, "params": "62M", "coco": "55.8"},
 }
 
 
@@ -74,7 +76,7 @@ def _details(facts: dict) -> list[tuple[str, str]]:
         rows.append(("Hardware", hardware + (f" · CPU {run['cpu']}" if run.get("cpu") else "")))
     versions = run.get("versions") or {}
     if versions:
-        names = {"rtdetr": "rtdetr", "torch": "PyTorch", "cuda": "CUDA", "python": "Python"}
+        names = {"easydetect": "easydetect", "torch": "PyTorch", "cuda": "CUDA", "python": "Python"}
         rows.append(("Software", " · ".join(f"{names[k]} {v}" for k, v in versions.items() if v)))
     if run.get("resumed_at_epoch"):
         rows.append(("Resumed", f"continued from epoch {run['resumed_at_epoch']}"))
@@ -91,7 +93,7 @@ def model_card(facts: dict) -> str:
     files (list of file names in the folder), curve (list of epoch rows).
     """
     names = list(facts.get("names") or [])
-    variant = facts.get("variant") or "r18"
+    variant = facts.get("variant") or "s"
     spec = VARIANTS.get(variant, {"backbone": variant, "decoder": "?", "params": "?", "coco": "—"})
     repo, folder = facts["repo"], facts["folder"].strip("/")
     files = facts.get("files") or []
@@ -100,10 +102,10 @@ def model_card(facts: dict) -> str:
 
     start = facts.get("start")
     started_from = {
-        "coco": "COCO-pretrained RT-DETR weights (official release, Apache-2.0)",
+        "coco": "COCO-pretrained D-FINE weights (official release, Apache-2.0)",
         "imagenet": "ImageNet backbone only — the COCO weights were not reachable when it trained",
         "scratch": "random initialisation",
-    }.get(start, f"an earlier run (`{start}`)" if start else "COCO-pretrained RT-DETR weights")
+    }.get(start, f"an earlier run (`{start}`)" if start else "COCO-pretrained D-FINE weights")
     run = facts.get("run") or {}
     split = run.get("data") or {}
 
@@ -112,8 +114,9 @@ def model_card(facts: dict) -> str:
     best = f" (best at epoch {facts['best_epoch']})" if facts.get("best_epoch") else ""
     rows = [
         ("Task", f"object detection — {len(names)} class{'es' if len(names) != 1 else ''}"),
-        ("Architecture", f"RT-DETR {variant}: {spec['backbone']} backbone → hybrid encoder → "
-                         f"{spec['decoder']}-layer deformable-attention decoder, no NMS"),
+        ("Architecture", f"D-FINE-{variant.upper()}: {spec['backbone']} backbone → hybrid "
+                         f"encoder → {spec['decoder']}-layer decoder with fine-grained "
+                         "distribution refinement, no NMS"),
         ("Parameters", _millions(run["params"]) if run.get("params") else spec["params"]),
         ("Started from", started_from),
         ("Input size", f"{facts.get('imgsz', 640)} × {facts.get('imgsz', 640)}"),
@@ -136,24 +139,24 @@ def model_card(facts: dict) -> str:
     if facts.get("seconds"):
         rows.append(("Training time", _duration(facts["seconds"])
                      + (f" on {facts['device']}" if facts.get("device") else "")))
-    trained = f"{facts.get('date', '')} with rtdetr {facts.get('version', '')}"
+    trained = f"{facts.get('date', '')} with easydetect {facts.get('version', '')}"
     rows.append(("Trained", trained.strip()))
 
     out = [
         "---",
         "license: apache-2.0",
-        "library_name: rtdetr",
+        "library_name: easydetect",
         "pipeline_tag: object-detection",
         "tags:",
         "  - object-detection",
-        "  - rt-detr",
+        "  - d-fine",
         "  - openvino",
         "---",
         "",
-        f"# {facts['title']} — RT-DETR {variant}",
+        f"# {facts['title']} — D-FINE-{variant.upper()}",
         "",
         "Finds " + ", ".join(f"**{n}**" for n in names) + " in images and video." if names else "",
-        "Trained with [rtdetr](https://github.com/leeyunjai82/rtdetr); runs on OpenVINO "
+        "Trained with [easydetect](https://github.com/themakerrobot/easydetect); runs on OpenVINO "
         "(CPU, Intel GPU, NPU) with no PyTorch needed at inference.",
         "",
         "| | |",
@@ -214,15 +217,15 @@ def model_card(facts: dict) -> str:
         "## Use it",
         "",
         "```bash",
-        "pip install rtdetr huggingface_hub",
+        "pip install easydetect huggingface_hub",
         "```",
         "",
         "```python",
         "from huggingface_hub import snapshot_download",
-        "from rtdetr import RTDETR",
+        "from easydetect import Detector",
         "",
         f'root = snapshot_download("{repo}", allow_patterns="{pattern}")',
-        f'model = RTDETR(f"{{root}}/{path}")      # device="CPU" / "GPU" / "NPU", default AUTO',
+        f'model = Detector(f"{{root}}/{path}")      # device="CPU" / "GPU" / "NPU", default AUTO',
         "",
         'for r in model("photo.jpg", conf=0.25):',
         "    for box, score, cls in zip(r.boxes.xyxy, r.boxes.conf, r.boxes.cls):",
@@ -237,16 +240,16 @@ def model_card(facts: dict) -> str:
         "From the command line, once downloaded:",
         "",
         "```bash",
-        f"rtdetr predict model=<download folder>/{path} source=photo.jpg conf=0.25",
+        f"easydetect predict model=<download folder>/{path} source=photo.jpg conf=0.25",
         "```",
     ]
     if "best.pt" in files:
         out += [
             "",
-            "Train further on more data (needs `pip install \"rtdetr[train]\"`):",
+            "Train further on more data (needs `pip install \"easydetect[train]\"`):",
             "",
             "```python",
-            f'model = RTDETR(f"{{root}}/{folder + "/" if folder else ""}best.pt")',
+            f'model = Detector(f"{{root}}/{folder + "/" if folder else ""}best.pt")',
             'model.train(data="data.yaml", epochs=30)',
             "```",
         ]

@@ -2,7 +2,7 @@
 <html lang="ko">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rtdetr platform</title>
+<title>easydetect platform</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233b6cf6'/%3E%3Crect x='7' y='10' width='18' height='14' rx='2.5' fill='none' stroke='white' stroke-width='2.4'/%3E%3Crect x='7' y='6' width='10' height='5' rx='1.5' fill='white'/%3E%3Ccircle cx='16' cy='17' r='2.2' fill='white'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -251,7 +251,7 @@
 <header class="top">
   <div class="brand">
     <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#3b6cf6"/><rect x="7" y="10" width="18" height="14" rx="2.5" fill="none" stroke="white" stroke-width="2.4"/><rect x="7" y="6" width="10" height="5" rx="1.5" fill="white"/><circle cx="16" cy="17" r="2.2" fill="white"/></svg>
-    rtdetr <span>platform</span>
+    easydetect <span>platform</span>
   </div>
   <nav id="nav">
     <button data-view="data">데이터셋 <span class="n" id="n-data">0</span></button>
@@ -345,8 +345,8 @@
           <div class="hint" id="preset-hint"></div>
         </div>
         <div class="field"><label class="f">시작 모델</label>
-          <select id="job-model"><option>rtdetr-r18</option><option>rtdetr-r34</option><option>rtdetr-r50</option></select>
-          <div class="hint">r18 빠름 · r34 중간 · r50 가장 정확</div></div>
+          <select id="job-model"><option>dfine-s</option><option>dfine-m</option><option>dfine-l</option></select>
+          <div class="hint">n 가장 가벼움 · s 기본 · m · l · x 가장 정확</div></div>
         <div class="grid2">
           <div><label class="f">에폭</label><input id="job-epochs" type="number" value="50" min="1"></div>
           <div><label class="f">배치</label><input id="job-batch" type="number" value="4" min="1"></div>
@@ -429,7 +429,7 @@
 
       <h3>코드에서 쓰기</h3>
       <div class="card">
-        <div class="small dim">어느 PC에서든 <code>pip install rtdetr</code> 하나면 됩니다 — 추론에는 PyTorch가 필요 없습니다.
+        <div class="small dim">어느 PC에서든 <code>pip install easydetect</code> 하나면 됩니다 — 추론에는 PyTorch가 필요 없습니다.
           학습한 모델의 경로가 채워진 코드는 작업을 열면 나옵니다.</div>
         <div class="code"><button class="btn copy">복사</button><pre id="code-general"></pre></div>
       </div>
@@ -1007,7 +1007,7 @@ function renderInfo(job) {
   const o = run.optimizer || {};
   const v = run.versions || {};
   const facts = [
-    ["모델", `RT-DETR ${run.variant} · 파라미터 ${m(run.params)}`],
+    ["모델", `D-FINE-${String(run.variant).toUpperCase()} · 파라미터 ${m(run.params)}`],
     ["시작 가중치", start],
     ["학습 데이터", count(tr)],
     ["검증 데이터", count(va)],
@@ -1019,7 +1019,7 @@ function renderInfo(job) {
     ["조기 종료", `patience ${run.patience}${run.stopped_early ? " · 일찍 멈춤" : ""}`],
     run.best_epoch ? ["최고 에폭", `${run.best_epoch}${run.epoch_seconds ? ` · 에폭당 ${duration(run.epoch_seconds)}` : ""}`] : null,
     run.final ? ["마지막 loss", Object.entries(run.final).map(([k, x]) => `${k} ${x.toFixed(3)}`).join(" · ")] : null,
-    ["버전", [v.rtdetr && `rtdetr ${v.rtdetr}`, v.torch && `torch ${v.torch}`, v.cuda && `CUDA ${v.cuda}`].filter(Boolean).join(" · ")],
+    ["버전", [v.easydetect && `easydetect ${v.easydetect}`, v.torch && `torch ${v.torch}`, v.cuda && `CUDA ${v.cuda}`].filter(Boolean).join(" · ")],
     run.resumed_at_epoch ? ["이어서 학습", `${run.resumed_at_epoch}에폭부터`] : null,
   ].filter(Boolean);
   $("info-facts").innerHTML = facts.map(([k, x]) => `<div><span>${k}</span>${esc(x)}</div>`).join("");
@@ -1120,12 +1120,12 @@ function chart(rows, total) {
 const hl = (code) => esc(code)
   .replace(/(#[^\n]*)/g, '<span class="c">$1</span>')
   .replace(/(r?&quot;[^\n]*?&quot;)/g, '<span class="s">$1</span>')
-  .replace(/\b(from|import|for|in|print|pip|install|rtdetr predict)\b/g, '<span class="k">$1</span>');
+  .replace(/\b(from|import|for|in|print|pip|install|easydetect predict)\b/g, '<span class="k">$1</span>');
 
 function pythonSnippet(path, device) {
-  return `from rtdetr import RTDETR
+  return `from easydetect import Detector
 
-model = RTDETR(r"${path}"${device ? `, device="${device}"` : ""})   # AUTO · CPU · GPU · NPU
+model = Detector(r"${path}"${device ? `, device="${device}"` : ""})   # AUTO · CPU · GPU · NPU
 results = model("photo.jpg", conf=0.25)
 
 for r in results:
@@ -1150,18 +1150,18 @@ function renderCode(job) {
   const snippets = {
     python: pythonSnippet(path),
     cli: `# 이미지 · 폴더 · 영상 — 결과는 runs/detect/predict/
-rtdetr predict model="${path}" source=photo.jpg conf=0.25
+easydetect predict model="${path}" source=photo.jpg conf=0.25
 
 # 웹캠 창으로 (q 또는 Esc로 종료)
-rtdetr predict model="${path}" source=0 show=true save=false`,
+easydetect predict model="${path}" source=0 show=true save=false`,
     elsewhere: `# 1) 다운로드 → OpenVINO IR 로 zip을 받아 풉니다 (${ir} · .bin · labels.txt)
 # 2) 그 PC에는 추론용만 설치 — PyTorch 없이 됩니다
-pip install rtdetr
+pip install easydetect
 
 # 3) 파이썬에서
-from rtdetr import RTDETR
+from easydetect import Detector
 
-model = RTDETR(r"job${job.id}-openvino/${ir}", device="AUTO")   # Intel NPU면 "NPU"
+model = Detector(r"job${job.id}-openvino/${ir}", device="AUTO")   # Intel NPU면 "NPU"
 model.predict("photo.jpg", save=True)`,
   };
   document.querySelectorAll("#code-tabs button").forEach((b) => b.setAttribute("aria-pressed", b.dataset.code === codeTab));
@@ -1199,10 +1199,10 @@ hf upload ${repo} ./${name} ${folder}
 
 # 받는 쪽 (README에도 같은 코드가 들어 있습니다)
 from huggingface_hub import snapshot_download
-from rtdetr import RTDETR
+from easydetect import Detector
 
 root = snapshot_download("${repo}", allow_patterns="${folder}/*")
-model = RTDETR(f"{root}/${folder}/${(hub.files.find((f) => f.endsWith(".xml")) || "best.xml")}")`;
+model = Detector(f"{root}/${folder}/${(hub.files.find((f) => f.endsWith(".xml")) || "best.xml")}")`;
   $("code").innerHTML = hub.showReadme ? esc(text) : hl(text);
   $("code").dataset.raw = text;
 }
@@ -1214,15 +1214,15 @@ $("hub-zip").onclick = () => location.assign(`/api/jobs/${current}/download/hugg
 document.querySelectorAll("#code-tabs button").forEach((b) => b.onclick = () => {
   codeTab = b.dataset.code; if (currentJob) renderCode(currentJob);
 });
-const general = `pip install rtdetr
+const general = `pip install easydetect
 
-from rtdetr import RTDETR
+from easydetect import Detector
 
-model = RTDETR("rtdetr-r18")        # 처음 한 번 가중치를 받습니다 (COCO 80 클래스)
+model = Detector("dfine-s")        # 처음 한 번 가중치를 받습니다 (COCO 80 클래스)
 model("photo.jpg", conf=0.25)[0].save("result.jpg")
 
 # 학습한 모델은 그 경로를 그대로 넣습니다
-model = RTDETR(r"runs/job3/openvino/best.xml")`;
+model = Detector(r"runs/job3/openvino/best.xml")`;
 $("code-general").innerHTML = hl(general);
 $("code-general").dataset.raw = general;
 

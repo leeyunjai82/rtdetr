@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 @pytest.fixture
 def studio(tmp_path, monkeypatch):
     """A platform rooted in a temp folder, with the worker left asleep."""
-    monkeypatch.setenv("RTDETR_PLATFORM_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("EASYDETECT_PLATFORM_HOME", str(tmp_path / "home"))
     import app as module
 
     module = importlib.reload(module)
@@ -57,7 +57,7 @@ def upload(client, files, name="set"):
 
 def test_the_pages_are_served(studio):
     client, _ = studio
-    assert "rtdetr platform" in client.get("/").text
+    assert "easydetect platform" in client.get("/").text
 
     upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
     assert "<canvas" in client.get("/label/1").text
@@ -138,7 +138,7 @@ def test_queueing_a_job_and_cancelling_it_before_it_runs(studio):
 
     job_id = client.post(
         "/api/jobs",
-        json={"dataset_id": dataset_id, "model": "rtdetr-r18", "epochs": 2, "freeze": "backbone"},
+        json={"dataset_id": dataset_id, "model": "dfine-s", "epochs": 2, "freeze": "backbone"},
     ).json()["id"]
 
     job = client.get(f"/api/jobs/{job_id}").json()
@@ -213,7 +213,7 @@ def test_classes_can_be_renamed_and_the_data_yaml_follows(studio):
 def test_a_batch_autolabel_is_queued_like_any_other_job(studio):
     client, _ = studio
     upload(client, {"images/a.jpg": image_bytes()})
-    job_id = client.post("/api/datasets/1/autolabel", json={"model": "rtdetr-r18"}).json()["id"]
+    job_id = client.post("/api/datasets/1/autolabel", json={"model": "dfine-s"}).json()["id"]
 
     job = client.get(f"/api/jobs/{job_id}").json()
     assert job["kind"] == "autolabel" and job["status"] == "queued"
@@ -506,12 +506,12 @@ def test_a_trained_run_can_be_registered_as_a_named_model(studio, tmp_path):
     assert client.post("/api/models", json={"job_id": job_id, "name": "v1"}).json()["id"] == 1
     registry = client.get("/api/models").json()
     assert registry["models"][0]["name"] == "v1"
-    assert "rtdetr-r18" in registry["builtin"]
+    assert "dfine-s" in registry["builtin"]
 
     # and a job can name it instead of a path
     assert module._resolve_model("v1") == str(run / "best.pt")
     assert module._resolve_model("1") == str(run / "best.pt")
-    assert module._resolve_model("rtdetr-r34") == "rtdetr-r34"
+    assert module._resolve_model("dfine-m") == "dfine-m"
 
     assert client.request("DELETE", "/api/models/1").json()["deleted"] is True
     assert client.get("/api/models").json()["models"] == []
@@ -537,10 +537,10 @@ def test_a_model_file_can_be_brought_in_from_outside(studio):
 
 def test_batch_prediction_needs_something_to_run_on(studio, tmp_path):
     client, _ = studio
-    assert client.post("/api/predict", data={"model": "rtdetr-r18"}).status_code == 400
+    assert client.post("/api/predict", data={"model": "dfine-s"}).status_code == 400
 
     missing = client.post(
-        "/api/predict", data={"model": "rtdetr-r18", "path": str(tmp_path / "nowhere")}
+        "/api/predict", data={"model": "dfine-s", "path": str(tmp_path / "nowhere")}
     )
     assert missing.status_code == 400 and "does not exist" in missing.json()["error"]
 
@@ -549,7 +549,7 @@ def test_batch_prediction_over_a_dataset_is_queued_as_a_job(studio):
     client, _ = studio
     upload(client, {"images/a.jpg": image_bytes()})
     job = client.post(
-        "/api/predict", data={"model": "rtdetr-r18", "dataset_id": "1", "conf": "0.4"}
+        "/api/predict", data={"model": "dfine-s", "dataset_id": "1", "conf": "0.4"}
     ).json()
 
     row = client.get(f"/api/jobs/{job['id']}").json()
@@ -559,10 +559,10 @@ def test_batch_prediction_over_a_dataset_is_queued_as_a_job(studio):
 
 def test_the_preview_endpoint_refuses_what_it_cannot_read(studio):
     client, _ = studio
-    assert client.post("/api/preview", data={"model": "rtdetr-r18"}).status_code == 400
+    assert client.post("/api/preview", data={"model": "dfine-s"}).status_code == 400
     unreadable = client.post(
         "/api/preview",
-        data={"model": "rtdetr-r18"},
+        data={"model": "dfine-s"},
         files={"image": ("x.jpg", b"not an image", "image/jpeg")},
     )
     assert unreadable.status_code == 400
@@ -575,7 +575,7 @@ def test_a_job_without_a_dataset_still_shows_in_the_list(studio, tmp_path):
     folder.mkdir()
     (folder / "a.jpg").write_bytes(image_bytes())
 
-    job = client.post("/api/predict", data={"model": "rtdetr-r18", "path": str(folder)}).json()
+    job = client.post("/api/predict", data={"model": "dfine-s", "path": str(folder)}).json()
     listed = client.get("/api/jobs").json()
     assert [row["id"] for row in listed] == [job["id"]]
     assert listed[0]["dataset"] is None and listed[0]["source"] == str(folder)
@@ -761,7 +761,7 @@ def test_a_labelling_service_export_uploads_and_is_ready_to_train(studio, wrap):
 
     # and the trainer reads exactly those two splits, labels included
     pytest.importorskip("torch")
-    from rtdetr.data.dataset import DetDataset
+    from easydetect.data.dataset import DetDataset
 
     root = module.Path(client.get("/api/datasets/1").json()["path"])
     train = DetDataset(root / "data.yaml", "train", imgsz=64, augment=False)
@@ -818,7 +818,7 @@ def test_an_export_comes_back_with_its_layout_labels_and_split(studio):
 def test_an_uploaded_copy_trains_on_itself_not_on_the_folder_it_came_from(studio, tmp_path):
     """A zip made on this machine carries path: pointing at the original folder."""
     pytest.importorskip("torch")
-    from rtdetr.data.dataset import DetDataset
+    from easydetect.data.dataset import DetDataset
 
     client, module = studio
     original = tmp_path / "original"
@@ -871,9 +871,9 @@ def test_status_says_whether_there_is_a_gpu(studio):
 def test_loader_workers_and_time_left_read_sensibly(monkeypatch):
     import worker
 
-    monkeypatch.setenv("RTDETR_WORKERS", "0")
+    monkeypatch.setenv("EASYDETECT_WORKERS", "0")
     assert worker._loader_workers() == 0
-    monkeypatch.delenv("RTDETR_WORKERS")
+    monkeypatch.delenv("EASYDETECT_WORKERS")
     assert 1 <= worker._loader_workers() <= 8
     assert [worker._duration(s) for s in (42, 125, 3725)] == ["42초", "2분", "1시간 2분"]
 
@@ -952,7 +952,7 @@ def test_auto_labelling_drafts_with_the_datasets_own_run(studio):
     that run is what pre-labels it unless someone picks otherwise."""
     client, module = studio
     upload(client, {"images/a.jpg": image_bytes()})
-    assert module._default_model(1) == "rtdetr-r18"
+    assert module._default_model(1) == "dfine-s"
 
     job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 1})
     assert job.status_code == 400                      # unlabelled: nothing to train yet
@@ -1030,7 +1030,7 @@ def _finished_run(client, module):
     for name, body in {"best.xml": "<net/>", "best.bin": "b", "labels.txt": "rock\n",
                        "best.names.json": "{}", "best.onnx": "big"}.items():
         (run / "openvino" / name).write_text(body)
-    setup = {"variant": "r34", "names": {"0": "rock"}, "start": {"kind": "coco"},
+    setup = {"variant": "m", "names": {"0": "rock"}, "start": {"kind": "coco"},
              "params": 31_000_000, "trainable_params": 20_000_000, "freeze": "backbone",
              "optimizer": {"name": "AdamW", "lr": 1e-4, "lr_backbone": 1e-5, "weight_decay": 1e-4,
                            "warmup_epochs": 1, "grad_clip": 0.1},
@@ -1039,7 +1039,8 @@ def _finished_run(client, module):
                  "train": {"images": 8, "boxes": 12, "background_images": 1, "per_class": [12]},
                  "val": {"images": 2, "boxes": 3, "background_images": 0, "per_class": [3]}},
              "device": "cuda:0", "gpu": "NVIDIA GeForce RTX 5090",
-             "versions": {"rtdetr": "0.6.9", "torch": "2.9.0", "cuda": "12.8", "python": "3.12.3"}}
+             "versions": {"easydetect": "0.1.0", "torch": "2.9.0", "cuda": "12.8",
+                          "python": "3.12.3"}}
     (run / "run.json").write_text(json.dumps(setup))
     (run / "summary.json").write_text(json.dumps({
         "best_map50_95": 0.762, "epochs_run": 3, "imgsz": 640, "names": {"0": "rock"},
@@ -1060,7 +1061,7 @@ def test_a_trained_run_writes_its_own_model_card(studio):
     assert card["folder"] == "models/rock-paper-scissors" and "/" in card["repo"]
     readme = card["readme"]
     assert readme.startswith("---\nlicense: apache-2.0")
-    for fact in ("RT-DETR r34", "PResNet-34", "**rock**", "**0.762**", "best at epoch 2",
+    for fact in ("D-FINE-M", "HGNetv2-B2", "**rock**", "**0.762**", "best at epoch 2",
                  "COCO-pretrained", "8 training images (12 boxes), 2 validation images (3 boxes)",
                  "| 0 | rock | 12 | 3 |", "RTX 5090", "AdamW", "20.0M of 31.0M", "on (CUDA AMP)",
                  'allow_patterns="models/rock-paper-scissors/*"',

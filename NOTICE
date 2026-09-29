@@ -1,14 +1,28 @@
-rtdetr
-Copyright 2026 rtdetr contributors
+easydetect
+Copyright 2026 easydetect contributors
 
-This product includes software developed as part of RT-DETR
-(https://github.com/lyuwenyu/RT-DETR), Copyright 2023 lyuwenyu, licensed under
-the Apache License, Version 2.0.
+This product includes software adapted from the following projects, each
+licensed under the Apache License, Version 2.0:
 
-The network definition under rtdetr/nn/ (PResNet backbone, HybridEncoder,
-RTDETRTransformer and their building blocks) is adapted from that project so
-that the RT-DETR COCO checkpoints released under Apache-2.0 load unchanged.
-Module names and numerics follow the reference implementation; the packaging,
-API, trainer, validator, exporter, predictor and CLI are this project's own.
+* D-FINE (https://github.com/Peterande/D-FINE), Copyright (c) 2024 The D-FINE
+  Authors. The detector under easydetect/nn/ (HGNetv2 backbone, hybrid encoder,
+  D-FINE decoder with fine-grained distribution refinement, denoising queries)
+  and the training loss in easydetect/utils/loss.py are adapted from it, with
+  module names and numerics kept so the D-FINE COCO checkpoints load unchanged.
+  The pretrained weights easydetect downloads are those COCO checkpoints,
+  converted without retraining.
 
-No code or weights from AGPL-licensed projects are included.
+* RT-DETR (https://github.com/lyuwenyu/RT-DETR), Copyright (c) 2023 lyuwenyu,
+  from which D-FINE itself is modified.
+
+* PaddleDetection (https://github.com/PaddlePaddle/PaddleDetection), Copyright
+  (c) PaddlePaddle Authors — the PP-HGNetV2 backbone design.
+
+* DETR (https://github.com/facebookresearch/detr), Copyright (c) Facebook, Inc.
+  and its affiliates — box utilities.
+
+The packaging, API, trainer, validator, exporter, predictor, CLI and the web
+platform are this project's own.
+
+No code or weights from AGPL-licensed projects are included. Only D-FINE's
+COCO-trained checkpoints are used; checkpoints pretrained on Objects365 are not.

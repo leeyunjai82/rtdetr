@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from rtdetr import RTDETR
-from rtdetr.metrics import DetMetrics
+from easydetect import Detector
+from easydetect.metrics import DetMetrics
 
 from .conftest import needs_ov, needs_torch
 
@@ -21,7 +21,7 @@ TRAIN_KWARGS = dict(epochs=1, imgsz=64, batch=2, workers=0, device="cpu", val=Fa
 @pytest.fixture(scope="module")
 def trained(dataset, tmp_path_factory):
     """One real (one-epoch, 64px) training run, reused by the tests below."""
-    model = RTDETR("rtdetr-r18", verbose=False)
+    model = Detector("dfine-n", verbose=False)
     model.net = _blank_net(1)
     runs = str(tmp_path_factory.mktemp("runs"))
     best = model.train(data=str(dataset), project=runs, **TRAIN_KWARGS)
@@ -29,9 +29,9 @@ def trained(dataset, tmp_path_factory):
 
 
 def _blank_net(nc):
-    from rtdetr.nn.rtdetr_net import RTDETRNet
+    from easydetect.nn import DFINENet
 
-    return RTDETRNet("r18", nc, pretrained_backbone=False)
+    return DFINENet("n", nc, pretrained_backbone=False)
 
 
 def test_training_writes_last_and_best_with_everything_needed_to_resume(trained):
@@ -41,15 +41,15 @@ def test_training_writes_last_and_best_with_everything_needed_to_resume(trained)
     weights = best.parent
     assert best.exists() and (weights / "last.pt").exists()
     ckpt = torch.load(best, map_location="cpu", weights_only=False)
-    assert ckpt["variant"] == "r18" and ckpt["num_classes"] == 1
+    assert ckpt["variant"] == "n" and ckpt["num_classes"] == 1
     assert ckpt["names"] == {0: "box"} and ckpt["imgsz"] == 64
     assert "optimizer" in ckpt and ckpt["epoch"] == 0
 
 
 def test_the_model_reloads_its_own_checkpoint(trained):
     _, best = trained
-    reloaded = RTDETR(str(best), verbose=False)
-    assert reloaded.variant == "r18" and reloaded.names == {0: "box"}
+    reloaded = Detector(str(best), verbose=False)
+    assert reloaded.variant == "n" and reloaded.names == {0: "box"}
     assert "1 classes" in reloaded.info()
 
 
@@ -62,11 +62,11 @@ def test_val_reports_map_through_a_metrics_object(trained, dataset):
 
 
 def test_resuming_continues_the_same_run_directory(dataset, tmp_path):
-    model = RTDETR("rtdetr-r18", verbose=False)
+    model = Detector("dfine-n", verbose=False)
     model.net = _blank_net(1)
     first = model.train(data=str(dataset), project=str(tmp_path), **TRAIN_KWARGS)
 
-    resumed = RTDETR(str(first), verbose=False)
+    resumed = Detector(str(first), verbose=False)
     again = resumed.train(
         data=str(dataset), project=str(tmp_path), resume=True, **{**TRAIN_KWARGS, "epochs": 2}
     )
@@ -78,7 +78,7 @@ def test_resuming_continues_the_same_run_directory(dataset, tmp_path):
 
 
 def test_a_dataset_with_different_classes_re_heads_the_network(trained):
-    from rtdetr.model import transfer_weights
+    from easydetect.model import transfer_weights
 
     model, _ = trained
     fresh = _blank_net(7)
@@ -88,7 +88,7 @@ def test_a_dataset_with_different_classes_re_heads_the_network(trained):
 
 
 def test_early_stopping_gives_up_after_patience_epochs(dataset, tmp_path, capsys):
-    model = RTDETR("rtdetr-r18", verbose=False)
+    model = Detector("dfine-n", verbose=False)
     model.net = _blank_net(1)
     model.train(
         data=str(dataset),
@@ -109,16 +109,16 @@ def test_training_falls_back_to_an_imagenet_start_when_the_mirror_is_unreachable
     dataset, tmp_path, monkeypatch
 ):
     """No mirror, no crash: the run just starts from a fresh backbone."""
-    from rtdetr import downloads
-    from rtdetr.errors import ModelNotFoundError as NotFound
+    from easydetect import downloads
+    from easydetect.errors import ModelNotFoundError as NotFound
 
     monkeypatch.setattr(
         downloads,
         "download_checkpoint",
         lambda name: (_ for _ in ()).throw(NotFound("offline")),
     )
-    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
-    model = RTDETR("rtdetr-r18", verbose=False)
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
+    model = Detector("dfine-n", verbose=False)
     best = model.train(data=str(dataset), project=str(tmp_path), **TRAIN_KWARGS)
     assert best.exists() and model.net.num_classes == 1
 
@@ -137,7 +137,7 @@ def test_export_writes_an_ir_that_predicts(trained, tmp_path, image):
     assert xml.exists() and xml.with_suffix(".bin").exists()
     assert (tmp_path / "labels.txt").read_text().splitlines() == ["box"]
 
-    results = RTDETR(str(xml), device="CPU", verbose=False)(image, conf=0.0, max_det=2)
+    results = Detector(str(xml), device="CPU", verbose=False)(image, conf=0.0, max_det=2)
     assert results[0].names == {0: "box"}
     assert results[0].boxes.xyxy.shape == (2, 4)
 
@@ -146,8 +146,8 @@ def test_export_writes_an_ir_that_predicts(trained, tmp_path, image):
 def test_predicting_from_a_pt_exports_an_ir_behind_the_scenes(
     trained, image, tmp_path, monkeypatch
 ):
-    monkeypatch.setenv("RTDETR_HOME", str(tmp_path / "cache"))
-    model = RTDETR(str(trained[1]), device="CPU", verbose=False)
+    monkeypatch.setenv("EASYDETECT_HOME", str(tmp_path / "cache"))
+    model = Detector(str(trained[1]), device="CPU", verbose=False)
     results = model(image, conf=0.0, max_det=1)
     assert model.ir_path is not None and model.ir_path.exists()
     assert results[0].names == {0: "box"}
@@ -158,7 +158,7 @@ def test_a_trained_model_still_decodes_its_own_probabilities_once(trained, tmp_p
     """End to end: the IR emits probabilities, so conf filtering must be honest."""
     model, _ = trained
     xml = model.export(format="openvino", imgsz=64, out_dir=tmp_path / "ir")
-    from rtdetr.predictor import OVPredictor
+    from easydetect.predictor import OVPredictor
 
     predictor = OVPredictor(xml, device="CPU")
     _, scores = predictor.infer(predictor.preprocess(np.zeros((64, 64, 3), np.uint8)))
@@ -169,31 +169,33 @@ def test_a_trained_model_still_decodes_its_own_probabilities_once(trained, tmp_p
 
 @needs_torch
 def test_freezing_the_backbone_leaves_it_out_of_the_optimiser():
-    from rtdetr.nn import RTDETRNet
-    from rtdetr.trainer import freeze_modules
+    from easydetect.nn import DFINENet
+    from easydetect.trainer import freeze_modules
 
-    net = RTDETRNet("r18", num_classes=2, pretrained_backbone=False)
+    net = DFINENet("n", num_classes=2, pretrained_backbone=False)
     frozen = freeze_modules(net, "backbone")
     assert frozen == [net.backbone]
     assert not any(p.requires_grad for p in net.backbone.parameters())
-    assert all(p.requires_grad for p in net.decoder.parameters())
+    # up and reg_scale are fixed by design; everything else in the decoder learns
+    assert all(p.requires_grad for n, p in net.decoder.named_parameters()
+               if not n.endswith(("up", "reg_scale")))
 
 
 @needs_torch
 def test_freezing_something_that_does_not_exist_is_an_error():
-    from rtdetr.nn import RTDETRNet
-    from rtdetr.trainer import freeze_modules
+    from easydetect.nn import DFINENet
+    from easydetect.trainer import freeze_modules
 
-    net = RTDETRNet("r18", num_classes=2, pretrained_backbone=False)
+    net = DFINENet("n", num_classes=2, pretrained_backbone=False)
     with pytest.raises(ValueError, match="nothing called"):
         freeze_modules(net, "neck")
 
 
 @needs_torch
 def test_training_reports_every_epoch_to_a_callback_and_a_csv(dataset, tmp_path, monkeypatch):
-    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
     rows = []
-    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    model = Detector("dfine-n", verbose=False, pretrained=False)
     best = model.train(
         data=str(dataset), project=str(tmp_path), epochs=2, imgsz=64, batch=2, workers=0,
         device="cpu", val=False, amp=False, freeze="backbone", on_epoch_end=rows.append,
@@ -212,20 +214,21 @@ def test_training_reports_every_epoch_to_a_callback_and_a_csv(dataset, tmp_path,
 
     # the record a model card is written from: how it was set up, and how it went
     setup = json.loads((run / "run.json").read_text())
-    assert setup["variant"] == "r18" and setup["start"] == {"kind": "scratch"}
+    assert setup["variant"] == "n" and setup["start"] == {"kind": "scratch"}
     assert setup["freeze"] == "backbone" and 0 < setup["trainable_params"] < setup["params"]
     assert setup["optimizer"]["name"] == "AdamW" and setup["amp"] is False
     train = setup["data"]["train"]
     assert train["images"] > 0 and sum(train["per_class"]) == train["boxes"] > 0
     assert setup["versions"]["torch"] and setup["device"] == "cpu" and setup["gpu"] is None
-    assert summary["run"]["variant"] == "r18" and summary["stopped_early"] is False
-    assert summary["train_seconds"] > 0 and set(summary["final"]) == {"loss", "vfl", "l1", "giou"}
+    assert summary["run"]["variant"] == "n" and summary["stopped_early"] is False
+    assert summary["train_seconds"] > 0
+    assert set(summary["final"]) == {"loss", "vfl", "l1", "giou", "fgl", "ddf"}
 
 
 @needs_torch
 def test_a_callback_that_stops_the_run_keeps_the_epoch_it_just_saw(dataset, tmp_path, monkeypatch):
     """Cancelling from on_epoch_end must not throw that epoch's weights away."""
-    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
 
     class Stop(Exception):
         pass
@@ -237,7 +240,7 @@ def test_a_callback_that_stops_the_run_keeps_the_epoch_it_just_saw(dataset, tmp_
         seen["saved"] = (Path(row["save_dir"]) / "weights" / "last.pt").exists()
         raise Stop()
 
-    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    model = Detector("dfine-n", verbose=False, pretrained=False)
     with pytest.raises(Stop):
         model.train(
             data=str(dataset), project=str(tmp_path), epochs=3, imgsz=64, batch=2, workers=0,
@@ -251,9 +254,9 @@ def test_a_callback_that_stops_the_run_keeps_the_epoch_it_just_saw(dataset, tmp_
 def test_a_long_epoch_reports_where_it_is(dataset, tmp_path, monkeypatch):
     """Progress inside an epoch, then a word before validation — with loader
     workers running, which is how a GPU box trains."""
-    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
     heard = []
-    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    model = Detector("dfine-n", verbose=False, pretrained=False)
     model.train(
         data=str(dataset), project=str(tmp_path), epochs=2, imgsz=64, batch=2, workers=2,
         device="cpu", amp=False, freeze="backbone", on_progress=heard.append,
@@ -270,15 +273,15 @@ def test_a_resumed_optimizer_lives_on_the_training_device(dataset, tmp_path, mon
     """Resuming on a GPU failed on its first step with "cuda:0 and cpu": the
     optimizer state was loaded while the network was still on the CPU. The
     "meta" device stands in for the GPU this machine may not have."""
-    from rtdetr.nn.rtdetr_net import RTDETRNet
-    from rtdetr.trainer import Trainer
+    from easydetect.nn import DFINENet
+    from easydetect.trainer import Trainer
 
-    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
-    RTDETR("rtdetr-r18", verbose=False, pretrained=False).train(
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
+    Detector("dfine-n", verbose=False, pretrained=False).train(
         data=str(dataset), project=str(tmp_path), name="run", epochs=1, imgsz=64, batch=2,
         workers=0, device="cpu", val=False, amp=False,
     )
-    net = RTDETRNet("r18", num_classes=1, pretrained_backbone=False)
+    net = DFINENet("n", num_classes=1, pretrained_backbone=False)
     trainer = Trainer(net, str(dataset), epochs=2, imgsz=64, batch=2, device="meta",
                       project=str(tmp_path), name="run", resume=True, amp=False, workers=0)
     assert trainer.start_epoch == 1
@@ -292,13 +295,13 @@ def test_a_resumed_optimizer_lives_on_the_training_device(dataset, tmp_path, mon
 
 @needs_torch
 def test_pretrained_false_never_reaches_for_the_mirror(dataset, tmp_path, monkeypatch):
-    from rtdetr import downloads
+    from easydetect import downloads
 
-    monkeypatch.setattr("rtdetr.nn.presnet.PResNet.load_imagenet", lambda self, depth: None)
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
     monkeypatch.setattr(
         downloads, "download_checkpoint", lambda name: pytest.fail("mirror should not be touched")
     )
-    model = RTDETR("rtdetr-r18", verbose=False, pretrained=False)
+    model = Detector("dfine-n", verbose=False, pretrained=False)
     assert model.train(
         data=str(dataset), project=str(tmp_path), epochs=1, imgsz=64, batch=2, workers=0,
         device="cpu", val=False, amp=False,

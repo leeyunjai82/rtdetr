@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("torch")
 
-from rtdetr.data.dataset import DetDataset, label_row_to_box  # noqa: E402
+from easydetect.data.dataset import DetDataset, label_row_to_box  # noqa: E402
 
 
 def _image(path, size=(40, 60)):

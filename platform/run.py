@@ -36,7 +36,7 @@ def _serve_https(application, uvicorn, args, local: str, path: str) -> None:
         print(f"[platform] HTTPS off ({type(exc).__name__}: {exc}); "
               f"pip install -U cryptography serves it — the webcam needs it")
         return
-    os.environ["RTDETR_HTTPS_PORT"] = str(args.https_port)
+    os.environ["EASYDETECT_HTTPS_PORT"] = str(args.https_port)
     config = uvicorn.Config(
         application.app, host=args.host, port=args.https_port, log_level="warning",
         ssl_certfile=str(cert), ssl_keyfile=str(key),
@@ -46,24 +46,25 @@ def _serve_https(application, uvicorn, args, local: str, path: str) -> None:
           f"the browser warns once about the certificate)")
 
 
-#: The oldest rtdetr this platform works with. Checked against the code that is
+#: The oldest easydetect this platform works with. Checked against the code that is
 #: actually imported — an editable install's metadata can lag behind a git pull.
-RTDETR_AT_LEAST = "0.6.9"
+EASYDETECT_AT_LEAST = "0.1.0"
 
 
-def _check_rtdetr() -> None:
+def _check_easydetect() -> None:
     try:
-        import rtdetr
+        import easydetect
     except ImportError:
-        raise SystemExit('rtdetr is not installed: pip install "rtdetr[train]" '
+        raise SystemExit('easydetect is not installed: pip install "easydetect[train]" '
                          '(or, in a clone of the repository, pip install -e ".[train]")') from None
-    have = tuple(int(x) for x in rtdetr.__version__.split(".")[:3])
-    need = tuple(int(x) for x in RTDETR_AT_LEAST.split("."))
+    have = tuple(int(x) for x in easydetect.__version__.split(".")[:3])
+    need = tuple(int(x) for x in EASYDETECT_AT_LEAST.split("."))
     if have < need:
         raise SystemExit(
-            f"the platform needs rtdetr >= {RTDETR_AT_LEAST}, found {rtdetr.__version__} at "
-            f"{Path(rtdetr.__file__).parent}.\n"
-            f'  pip install -U "rtdetr[train]"      # or, in a clone: pip install -e ".[train]"'
+            f"the platform needs easydetect >= {EASYDETECT_AT_LEAST}, "
+            f"found {easydetect.__version__} at "
+            f"{Path(easydetect.__file__).parent}.\n"
+            f'  pip install -U "easydetect[train]"      # or, in a clone: pip install -e ".[train]"'
         )
 
 
@@ -86,9 +87,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.data:
-        os.environ["RTDETR_PLATFORM_HOME"] = str(Path(args.data).expanduser())
+        os.environ["EASYDETECT_PLATFORM_HOME"] = str(Path(args.data).expanduser())
 
-    _check_rtdetr()
+    _check_easydetect()
     import app as application
     import uvicorn
 

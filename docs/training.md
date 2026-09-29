@@ -16,7 +16,7 @@ names:
 ```
 
 ```python
-model = RTDETR("rtdetr-r18")
+model = Detector("dfine-s")
 best = model.train(
     data="data.yaml", epochs=100, imgsz=640, batch=8,
     device=0, workers=4, project="runs", name="train",
@@ -25,13 +25,18 @@ best = model.train(
 # runs/train/weights/best.pt  (last.pt too — resume=True picks the run back up)
 ```
 
-AdamW with a 10× lower LR on the backbone, linear warmup into cosine decay, AMP
-on CUDA, mAP50-95 after every epoch, early stop on `patience`.
+D-FINE's recipe, one process: AdamW with the backbone at its own slower rate
+(half for n/s, a tenth for m, less for l/x), no weight decay on norms and biases,
+linear warmup into cosine decay, AMP on CUDA, and an exponential moving average
+of the weights that is what gets validated and saved. The loss is D-FINE's —
+varifocal classification, L1 + GIoU boxes, fine-grained localisation and
+decoupled distillation, over every decoder layer and the denoising queries.
+mAP50-95 after every epoch, early stop on `patience`.
 
 `device=0` uses the first CUDA GPU, `device="cpu"` forces CPU, and leaving it
-out picks a GPU when there is one. CPU training is slow but real: on 4 cores,
-r18 at 640 runs about 1 image/s — 500 images × 50 epochs is a few hours, and
-fine-tuning from the COCO weights is what makes that enough.
+out picks a GPU when there is one. CPU training is slow but real — at 320 px,
+dfine-s manages an epoch of 240 images in a few minutes on 4 cores — and
+fine-tuning from the COCO weights is what makes a short run enough.
 
 No dataset yet? `python tools/make_toyset.py toyset` writes 300 labelled images of
 squares and circles — enough to see a run learn, and to try every step below.
@@ -58,7 +63,7 @@ message rather than validated on its training images.
 
 ```bash
 unzip shapes.v1i.yolov11.zip -d shapes
-rtdetr train model=rtdetr-r18 data=shapes/data.yaml epochs=50 device=0
+easydetect train model=dfine-s data=shapes/data.yaml epochs=50 device=0
 ```
 
 In the [platform](../platform/README.md), the same zip goes in through
@@ -66,12 +71,12 @@ In the [platform](../platform/README.md), the same zip goes in through
 
 ## Starting point
 
-`RTDETR("rtdetr-r18")` warm-starts from the mirror's COCO weights. For a domain
+`Detector("dfine-s")` warm-starts from the mirror's COCO weights. For a domain
 COCO says nothing about (thermal, medical, satellite), or for a clean baseline,
-start from the ImageNet backbone instead:
+start from the ImageNet-pretrained HGNetv2 backbone instead:
 
 ```python
-RTDETR("rtdetr-r18", pretrained=False).train(data="data.yaml", epochs=200)
+Detector("dfine-s", pretrained=False).train(data="data.yaml", epochs=200)
 ```
 
 ## Freezing
@@ -102,7 +107,7 @@ model.train(data="data.yaml", epochs=100, on_epoch_end=lambda row: print(row))
 ## Exporting and deploying
 
 ```python
-model = RTDETR("runs/train/weights/best.pt")
+model = Detector("runs/train/weights/best.pt")
 xml = model.export(format="openvino", half=True, imgsz=640)
 ```
 
@@ -111,17 +116,17 @@ next to the IR — that is how downstream runtimes discover class names.
 
 The exported graph emits **probabilities, not logits**. Anything that decodes it
 must not apply a sigmoid a second time; this package checks the score range and
-skips it (`rtdetr/predictor.py`).
+skips it (`easydetect/predictor.py`).
 
 ## CLI
 
 `key=value` arguments:
 
 ```bash
-rtdetr predict model=rtdetr-r18 source=bus.jpg conf=0.5
-rtdetr train   model=rtdetr-r18 data=data.yaml epochs=100
-rtdetr val     model=best.pt data=data.yaml
-rtdetr export  model=best.pt format=openvino half=true
-rtdetr track   model=best.pt source=clip.mp4
+easydetect predict model=dfine-s source=bus.jpg conf=0.5
+easydetect train   model=dfine-s data=data.yaml epochs=100
+easydetect val     model=best.pt data=data.yaml
+easydetect export  model=best.pt format=openvino half=true
+easydetect track   model=best.pt source=clip.mp4
 ```
 

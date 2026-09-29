@@ -3,18 +3,18 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "rtdetr"
-version = "0.6.9"
-description = "Real-time object detection you can ship: RT-DETR with PyTorch training, OpenVINO inference, and a browser app. Apache-2.0 throughout."
+name = "easydetect"
+version = "0.1.0"
+description = "Easy real-time object detection you can ship: D-FINE with PyTorch training, OpenVINO inference on CPU/GPU/NPU, and a browser app to label and train. Apache-2.0 throughout."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "leeyunjai", email = "leeyunjai1982@gmail.com" }]
 keywords = [
-    "rt-detr", "rtdetr", "object-detection", "detr", "transformer",
-    "openvino", "pytorch", "computer-vision", "real-time", "edge-ai",
-    "inference", "annotation", "labeling", "apache-2.0",
+    "object-detection", "easydetect", "d-fine", "detr", "rt-detr", "transformer",
+    "openvino", "npu", "pytorch", "computer-vision", "real-time", "edge-ai",
+    "yolo-alternative", "education", "annotation", "labeling", "apache-2.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -51,19 +51,19 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/leeyunjai82/rtdetr"
-Source = "https://github.com/leeyunjai82/rtdetr"
-Documentation = "https://github.com/leeyunjai82/rtdetr/blob/main/docs/usage.md"
-Issues = "https://github.com/leeyunjai82/rtdetr/issues"
+Homepage = "https://github.com/themakerrobot/easydetect"
+Source = "https://github.com/themakerrobot/easydetect"
+Documentation = "https://github.com/themakerrobot/easydetect/blob/main/docs/usage.md"
+Issues = "https://github.com/themakerrobot/easydetect/issues"
 
 [project.scripts]
-rtdetr = "rtdetr.cli:main"
+easydetect = "easydetect.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["rtdetr"]
+packages = ["easydetect"]
 
 [tool.hatch.build.targets.sdist]
-include = ["rtdetr", "tools", "tests", "README.md", "LICENSE", "NOTICE", "pyproject.toml"]
+include = ["easydetect", "tools", "tests", "README.md", "LICENSE", "NOTICE", "pyproject.toml"]
 
 [tool.ruff]
 line-length = 100
@@ -72,6 +72,12 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "W"]
 ignore = ["B008", "E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# adapted from D-FINE and kept close to it, so fixes there port over cleanly:
+# style rules only — correctness checks still apply
+"easydetect/nn/{decoder,denoising,encoder,hgnetv2,ops}.py" = ["E501", "B905", "UP", "B006", "B007"]
+"easydetect/utils/loss.py" = ["E501", "B905", "UP", "B006", "B007"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "platform/tests"]

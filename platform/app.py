@@ -1,11 +1,11 @@
 # Apache-2.0
-"""rtdetr platform — label, train, watch, download, in a browser.
+"""easydetect platform — label, train, watch, download, in a browser.
 
     pip install -r platform/requirements.txt
     python platform/run.py                 # http://127.0.0.1:8080
 
-One process, one SQLite file, one folder (``rtdetr-platform/`` where you start
-it; ``--data`` or ``$RTDETR_PLATFORM_HOME`` moves it). It is built for a single
+One process, one SQLite file, one folder (``easydetect-platform/`` where you start
+it; ``--data`` or ``$EASYDETECT_PLATFORM_HOME`` moves it). It is built for a single
 box — a workstation, a mini PC beside a line — where the data must not leave the
 machine and there is nobody to run a queue broker. Users, permissions and
 schedulers are deliberately absent; see the README for what to do when you need
@@ -42,15 +42,16 @@ from labeling import (
 from modelcard import model_card, slug
 from worker import Worker
 
-from rtdetr.data.labels import label_path as shared_label_path
+from easydetect.data.labels import label_path as shared_label_path
 
 ROOT = Path(__file__).resolve().parent
-DATA = Path(os.environ.get("RTDETR_PLATFORM_HOME", Path.cwd() / "rtdetr-platform")).expanduser()
+DATA = Path(os.environ.get("EASYDETECT_PLATFORM_HOME",
+                           Path.cwd() / "easydetect-platform")).expanduser()
 DATASETS, RUNS = DATA / "datasets", DATA / "runs"
 
 db = Database(DATA / "platform.db")
 worker = Worker(db, RUNS)
-app = FastAPI(title="rtdetr platform")
+app = FastAPI(title="easydetect platform")
 _models: dict[str, object] = {}
 
 
@@ -485,7 +486,7 @@ def list_models():
     rows = db.query("SELECT * FROM models ORDER BY id DESC")
     for row in rows:
         row["classes"] = json.loads(row["classes"])
-    from rtdetr.downloads import MODEL_NAMES
+    from easydetect.downloads import MODEL_NAMES
 
     return {"models": rows, "builtin": list(MODEL_NAMES)}
 
@@ -606,7 +607,7 @@ def create_job(payload: dict):
         kind="train",
         detail=note,
         dataset_id=dataset["id"],
-        model=_resolve_model(payload.get("model", "rtdetr-r18")),
+        model=_resolve_model(payload.get("model", "dfine-s")),
         epochs=int(payload.get("epochs", 50)),
         imgsz=int(payload.get("imgsz", 640)),
         batch=int(payload.get("batch", 4)),
@@ -931,10 +932,10 @@ def download(job_id: int, kind: str, repo: str | None = None, folder: str | None
 
 def _hub_repo() -> str:
     """The repo this install downloads its weights from — the natural place to share more."""
-    from rtdetr.downloads import assets_url
+    from easydetect.downloads import assets_url
 
     found = re.search(r"huggingface\.co/([^/]+/[^/]+)/resolve", assets_url())
-    return found.group(1) if found else "your-name/rtdetr-models"
+    return found.group(1) if found else "your-name/easydetect-models"
 
 
 def _hub_folder(job: dict) -> str:
@@ -954,7 +955,7 @@ def _card_facts(job: dict, repo: str, folder: str, files: list[str]) -> dict:
     named = sorted(summary.get("names", {}).items(), key=lambda kv: int(kv[0]))
     variant, names = None, [v for _, v in named]
     model = str(job["model"])
-    if re.fullmatch(r"rtdetr-r(18|34|50)", model):
+    if re.fullmatch(r"dfine-[nsmlx]", model):
         variant = model.rsplit("-", 1)[-1]
     weights = run_dir / "weights" / "best.pt"
     if (variant is None or not names) and weights.exists():
@@ -997,7 +998,7 @@ def _card_facts(job: dict, repo: str, folder: str, files: list[str]) -> dict:
     report = run_dir / "eval" / "report.json"
     report = json.loads(report.read_text(encoding="utf-8")) if report.exists() else {}
 
-    import rtdetr
+    import easydetect
 
     return {
         "title": dataset["name"] if dataset else f"job{job['id']}",
@@ -1017,7 +1018,7 @@ def _card_facts(job: dict, repo: str, folder: str, files: list[str]) -> dict:
         "seconds": job["finished"] - job["started"]
         if job.get("finished") and job.get("started") else None,
         "date": time.strftime("%Y-%m-%d", time.localtime(job.get("finished") or time.time())),
-        "version": (run.get("versions") or {}).get("rtdetr") or rtdetr.__version__,
+        "version": (run.get("versions") or {}).get("easydetect") or easydetect.__version__,
         "curve": rows,
         "run": run,
         "stopped_early": summary.get("stopped_early"),
@@ -1137,7 +1138,7 @@ async def preview(model: str = Form(...), conf: float = Form(0.35), image: Uploa
 def status():
     return {
         "gpu": _gpu(),
-        "https_port": int(os.environ.get("RTDETR_HTTPS_PORT") or 0) or None,
+        "https_port": int(os.environ.get("EASYDETECT_HTTPS_PORT") or 0) or None,
         "running_job": worker.current,
         "queued": len(db.query("SELECT id FROM jobs WHERE status = 'queued'")),
         "datasets": len(db.query("SELECT id FROM datasets")),
@@ -1286,7 +1287,7 @@ def _default_model(dataset_id: int) -> str:
     )
     if run and (Path(run["run_dir"]) / "weights" / "best.pt").exists():
         return str(Path(run["run_dir"]) / "weights" / "best.pt")
-    return "rtdetr-r18"
+    return "dfine-s"
 
 
 def _resolve_model(name: str) -> str:
@@ -1302,10 +1303,10 @@ def _resolve_model(name: str) -> str:
 
 def _model(name: str):
     """Compiled models are expensive; keep one per name for the session."""
-    from rtdetr import RTDETR
+    from easydetect import Detector
 
     if name not in _models:
-        _models[name] = RTDETR(name, verbose=False)
+        _models[name] = Detector(name, verbose=False)
     return _models[name]
 
 
@@ -1417,7 +1418,7 @@ def _split_lists(dataset: dict, arcname: dict[Path, PurePosixPath]) -> dict[str,
     absolute paths written for this machine — it leaves as relative paths
     inside the zip. Nothing, rather than a wrong split, when it cannot be read.
     """
-    from rtdetr.data.dataset import _list_images, load_data_yaml
+    from easydetect.data.dataset import _list_images, load_data_yaml
 
     yaml_file = Path(dataset["path"]) / "data.yaml"
     if not yaml_file.exists():

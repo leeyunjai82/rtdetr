@@ -1,7 +1,7 @@
 # Apache-2.0
 """Live detection from a webcam (or any stream), drawn in an OpenCV window.
 
-    python examples/webcam.py                        # camera 0, rtdetr-r18
+    python examples/webcam.py                        # camera 0, dfine-s
     python examples/webcam.py --source 1 --track     # camera 1, with track ids
     python examples/webcam.py --model best.pt --conf 0.4
     python examples/webcam.py --source rtsp://cam/live --save
@@ -16,12 +16,12 @@ import time
 
 import cv2
 
-from rtdetr import RTDETR
+from easydetect import Detector
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--model", default="rtdetr-r18", help="name, .pt, or .xml")
+    parser.add_argument("--model", default="dfine-s", help="name, .pt, or .xml")
     parser.add_argument("--source", default="0", help="camera index, video file, or stream url")
     parser.add_argument("--conf", type=float, default=0.5)
     parser.add_argument("--device", default="AUTO", help="OpenVINO device: AUTO, CPU, GPU, NPU")
@@ -30,7 +30,7 @@ def main() -> int:
     args = parser.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source
-    model = RTDETR(args.model, device=args.device, verbose=False)
+    model = Detector(args.model, device=args.device, verbose=False)
     run = model.track if args.track else model.predict
 
     fps, last = 0.0, time.perf_counter()
@@ -50,7 +50,7 @@ def main() -> int:
             2,
             cv2.LINE_AA,
         )
-        cv2.imshow("rtdetr", frame)
+        cv2.imshow("easydetect", frame)
         if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
             break
 

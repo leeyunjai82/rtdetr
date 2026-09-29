@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 # Apache-2.0
-"""Turn an official RT-DETR release checkpoint into an rtdetr one.
+"""Turn an official D-FINE COCO checkpoint into an easydetect one.
 
-    python tools/convert_official.py --variant r18 --out weights/rtdetr-r18.pt
+    python tools/convert_dfine.py --size s --out weights/dfine-s.pt
 
 With no --weights it downloads the matching Apache-2.0 COCO checkpoint from
-the original release (https://github.com/lyuwenyu/RT-DETR) and caches it under
-~/.rtdetr/official/.
+the D-FINE release (https://github.com/Peterande/D-FINE) and caches it under
+~/.easydetect/official/. Only the COCO-trained checkpoints are used: the
+Objects365-pretrained ones may carry that dataset's terms.
 
-Since this package's network matches the reference layout module for module,
-the weights load with ``strict=True`` — no remapping, no re-training, and the
-outputs agree with the reference implementation to float noise. All this script
-adds is our metadata (variant, class names, imgsz) so ``RTDETR("x.pt")``,
-``val()`` and ``export()`` work straight away.
+This package's network matches the reference module for module, so the weights
+load with ``strict=True``. The only tensors left behind are the anchor grid the
+reference caches for a fixed 640 input — here it is computed from the input, so
+any size works. The script adds our metadata (size, class names, imgsz) so
+``Detector("x.pt")``, ``val()`` and ``export()`` work straight away.
 """
 
 from __future__ import annotations
@@ -24,13 +25,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-#: Official COCO checkpoints, by our variant name.
-OFFICIAL = {
-    "r18": "rtdetr_r18vd_dec3_6x_coco_from_paddle.pth",
-    "r34": "rtdetr_r34vd_dec4_6x_coco_from_paddle.pth",
-    "r50": "rtdetr_r50vd_6x_coco_from_paddle.pth",
-}
-RELEASE_URL = "https://github.com/lyuwenyu/storage/releases/download/v0.1"
+#: Official COCO-only checkpoints, by size.
+OFFICIAL = {size: f"dfine_{size}_coco.pth" for size in "nsmlx"}
+RELEASE_URL = "https://github.com/Peterande/storage/releases/download/dfinev1.0"
+
+#: Cached by the reference for a fixed 640 input; recomputed here instead.
+DROPPED = ("decoder.anchors", "decoder.valid_mask")
 
 COCO_NAMES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -59,31 +59,31 @@ def official_state_dict(path: Path) -> dict:
             break
     if not isinstance(blob, dict):
         raise SystemExit(f"{path} does not contain a state_dict")
-    return {k: v for k, v in blob.items() if hasattr(v, "shape")}
+    return {k: v for k, v in blob.items() if hasattr(v, "shape") and k not in DROPPED}
 
 
 def resolve_weights(args) -> Path:
-    from rtdetr.downloads import cache_dir, download
+    from easydetect.downloads import cache_dir, download
 
     if args.weights:
         if str(args.weights).startswith(("http://", "https://")):
             name = str(args.weights).rsplit("/", 1)[-1]
             return download(str(args.weights), cache_dir() / "official" / name)
         return Path(args.weights)
-    name = OFFICIAL[args.variant]
+    name = OFFICIAL[args.size]
     return download(f"{RELEASE_URL}/{name}", cache_dir() / "official" / name)
 
 
 def convert(args: argparse.Namespace) -> int:
     import torch
 
-    from rtdetr.nn import RTDETRNet
+    from easydetect.nn import DFINENet
 
     weights = resolve_weights(args)
     state = official_state_dict(weights)
     names = _read_names(args.names)
 
-    net = RTDETRNet(args.variant, num_classes=len(names), pretrained_backbone=False)
+    net = DFINENet(args.size, num_classes=len(names), pretrained_backbone=False)
     missing, unexpected = net.load_state_dict(state, strict=not args.allow_partial)
     if missing or unexpected:
         print(f"warning: {len(missing)} missing, {len(unexpected)} unexpected tensors")
@@ -97,12 +97,12 @@ def convert(args: argparse.Namespace) -> int:
     torch.save(
         {
             "model": net.state_dict(),
-            "variant": args.variant,
+            "variant": args.size,
             "num_classes": len(names),
             "names": dict(enumerate(names)),
             "epoch": -1,
             "imgsz": args.imgsz,
-            "source": f"lyuwenyu/RT-DETR {weights.name} (Apache-2.0)",
+            "source": f"Peterande/D-FINE {weights.name} (Apache-2.0)",
         },
         out,
     )
@@ -124,9 +124,9 @@ def _read_names(spec: str | None) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--variant", default="r18", choices=tuple(OFFICIAL))
+    parser.add_argument("--size", default="s", choices=tuple(OFFICIAL))
     parser.add_argument("--weights", help="official .pth path or URL (default: download it)")
-    parser.add_argument("--out", default="rtdetr-converted.pt")
+    parser.add_argument("--out", default="dfine-converted.pt")
     parser.add_argument("--names", help="labels.txt or names.json (default: COCO 80)")
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument(

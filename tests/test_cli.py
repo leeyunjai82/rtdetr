@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from rtdetr.cli import HELP, main, parse_args, parse_value
+from easydetect.cli import HELP, main, parse_args, parse_value
 
 
 @pytest.mark.parametrize(
@@ -33,11 +33,11 @@ def test_the_mode_can_be_positional_or_a_key():
 
 def test_train_style_arguments_land_as_python_types():
     mode, overrides = parse_args(
-        ["train", "model=rtdetr-r18", "data=data.yaml", "epochs=100", "resume=true", "lr0=1e-4"]
+        ["train", "model=dfine-s", "data=data.yaml", "epochs=100", "resume=true", "lr0=1e-4"]
     )
     assert mode == "train"
     assert overrides == {
-        "model": "rtdetr-r18",
+        "model": "dfine-s",
         "data": "data.yaml",
         "epochs": 100,
         "resume": True,
@@ -52,9 +52,9 @@ def test_a_stray_positional_argument_is_a_clear_error():
 
 def test_help_and_version_exit_cleanly(capsys):
     assert main(["--help"]) == 0
-    assert "rtdetr predict model=" in capsys.readouterr().out
+    assert "easydetect predict model=" in capsys.readouterr().out
     assert main(["version"]) == 0
-    from rtdetr import __version__
+    from easydetect import __version__
 
     assert capsys.readouterr().out.strip() == __version__
 
@@ -65,9 +65,9 @@ def test_an_unknown_mode_is_rejected_with_the_usage_text(capsys):
 
 
 def test_modes_that_need_data_or_source_say_which_key_is_missing(capsys):
-    assert main(["val", "model=rtdetr-r18"]) == 2
+    assert main(["val", "model=dfine-s"]) == 2
     assert "data=" in capsys.readouterr().err
-    assert main(["predict", "model=rtdetr-r18"]) == 2
+    assert main(["predict", "model=dfine-s"]) == 2
     assert "source=" in capsys.readouterr().err
 
 

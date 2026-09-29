@@ -1,33 +1,33 @@
 ---
 license: apache-2.0
-library_name: rtdetr
+library_name: easydetect
 pipeline_tag: object-detection
 tags:
   - object-detection
-  - rt-detr
+  - d-fine
   - detr
   - openvino
   - npu
   - coco
 ---
 
-# RT-DETR weights for `pip install rtdetr`
+# easydetect weights — D-FINE for `pip install easydetect`
 
-Real-time DETR detectors, ready to run: **OpenVINO IR** for inference on a CPU,
+Real-time object detectors, ready to run: **OpenVINO IR** for inference on a CPU,
 an Intel GPU or an NPU, and the **PyTorch checkpoint** to fine-tune from. These
-are the files the [rtdetr](https://github.com/leeyunjai82/rtdetr) package
-downloads on first use — you never have to fetch them by hand.
+are the files the [easydetect](https://github.com/themakerrobot/easydetect)
+package downloads on first use — you never have to fetch them by hand.
 
 Apache-2.0 end to end: the code, the COCO weights, and the models fine-tuned here.
 
 ```bash
-pip install rtdetr
+pip install easydetect
 ```
 
 ```python
-from rtdetr import RTDETR
+from easydetect import Detector
 
-model = RTDETR("rtdetr-r18")                # downloads rtdetr-r18/ from this repo once
+model = Detector("dfine-s")                 # downloads dfine-s/ from this repo once
 results = model("photo.jpg", conf=0.25)
 results[0].save("result.jpg")
 
@@ -35,34 +35,35 @@ for r in model.predict(0, stream=True, show=True):   # webcam; q or Esc quits
     pass
 ```
 
-No NMS step to tune: RT-DETR predicts its set of boxes end to end, and the
+No NMS step to tune: D-FINE predicts its set of boxes end to end, and the
 package handles resize, decode and drawing.
 
 ## COCO models — 80 classes
 
 | folder | backbone | decoder | params | COCO mAP50-95 |
 | --- | --- | --- | --- | --- |
-| [`rtdetr-r18`](./rtdetr-r18) | PResNet-18 (ResNet-18-vd) | 3 layers | 20M | 46.4 |
-| [`rtdetr-r34`](./rtdetr-r34) | PResNet-34 (ResNet-34-vd) | 4 layers | 31M | 48.9 |
-| [`rtdetr-r50`](./rtdetr-r50) | PResNet-50 (ResNet-50-vd) | 6 layers | 43M | 53.1 |
+| [`dfine-n`](./dfine-n) | HGNetv2-B0 | 3 layers | 4M | 42.8 |
+| [`dfine-s`](./dfine-s) | HGNetv2-B0 | 3 layers | 10M | 48.5 |
+| [`dfine-m`](./dfine-m) | HGNetv2-B2 | 4 layers | 19M | 52.3 |
+| [`dfine-l`](./dfine-l) | HGNetv2-B4 | 6 layers | 31M | 54.0 |
+| [`dfine-x`](./dfine-x) | HGNetv2-B5 | 6 layers | 62M | 55.8 |
 
 Every folder holds the same four files:
 
 | file | what it is |
 | --- | --- |
-| `<name>.xml` + `<name>.bin` | OpenVINO IR — what `RTDETR("<name>")` runs |
+| `<name>.xml` + `<name>.bin` | OpenVINO IR — what `Detector("<name>")` runs |
 | `<name>.pt` | PyTorch checkpoint — the starting point for `model.train(...)` |
 | `labels.txt` | class names, one per line |
 
-`rtdetr-r18` at 640 × 640, whole pipeline (preprocess, inference, decode):
+`dfine-s` at 640 × 640 on a Core Ultra 5 250K Plus, network only:
 
-| machine | device | latency |
-| --- | --- | --- |
-| 4 CPU cores with bfloat16 | `CPU` | 42 ms (23.6 FPS) |
-| Core Ultra 5 250K Plus | `NPU` | 41 ms (24.3 FPS) — the CPU stays free |
-| Core Ultra 5 250K Plus | `CPU` | 85 ms (11.8 FPS) |
+| device | latency |
+| --- | --- |
+| `CPU` | 34 ms (29 FPS) |
+| `NPU` | 37 ms (27 FPS) — the CPU stays free |
 
-More in [performance](https://github.com/leeyunjai82/rtdetr/blob/main/docs/performance.md).
+More in [performance](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md).
 
 ## Fine-tuned models — [`models/`](./models)
 
@@ -71,7 +72,6 @@ it learned from, and how it was trained.
 
 | folder | finds | base | val mAP50-95 |
 | --- | --- | --- | --- |
-| [`models/rock-paper-scissors`](./models/rock-paper-scissors) | rock, paper, scissors | r18 | see its README |
 
 <!-- add a row per model folder; its README.md already has the numbers -->
 
@@ -79,61 +79,65 @@ Use one with `huggingface_hub`:
 
 ```python
 from huggingface_hub import snapshot_download
-from rtdetr import RTDETR
+from easydetect import Detector
 
-root = snapshot_download("leeyunjai/rtdetr", allow_patterns="models/rock-paper-scissors/*")
-model = RTDETR(f"{root}/models/rock-paper-scissors/best.xml", device="AUTO")   # CPU · GPU · NPU
+root = snapshot_download("leeyunjai/easydetect", allow_patterns="models/<name>/*")
+model = Detector(f"{root}/models/<name>/best.xml", device="AUTO")   # CPU · GPU · NPU
 model.predict("photo.jpg", save=True)
 ```
 
 ## Train your own
 
 ```bash
-pip install "rtdetr[train]"
+pip install "easydetect[train]"
 ```
 
 ```python
-from rtdetr import RTDETR
+from easydetect import Detector
 
-model = RTDETR("rtdetr-r18")                       # starts from the COCO weights above
-model.train(data="data.yaml", epochs=50, imgsz=640, freeze="backbone")
+model = Detector("dfine-s")                        # starts from the COCO weights above
+model.train(data="data.yaml", epochs=50, imgsz=640)
 model.export(format="openvino")                    # best.xml + best.bin + labels.txt
 ```
 
 `data.yaml` is the common images/ + labels/ layout — a Roboflow export works as
 it is. Or do it all in a browser: the
-[platform](https://github.com/leeyunjai82/rtdetr/tree/main/platform) collects and
-labels images, trains, shows the numbers, and writes the upload folder for
+[platform](https://github.com/themakerrobot/easydetect/tree/main/platform) collects
+and labels images, trains, shows the numbers, and writes the upload folder for
 `models/` with its README filled in from the run.
 
 ## Layout
 
 ```
-rtdetr-r18/   rtdetr-r18.xml  rtdetr-r18.bin  rtdetr-r18.pt  labels.txt
-rtdetr-r34/   …
-rtdetr-r50/   …
+dfine-n/   dfine-n.xml  dfine-n.bin  dfine-n.pt  labels.txt
+dfine-s/   …
+dfine-m/   …
+dfine-l/   …
+dfine-x/   …
 models/
-  rock-paper-scissors/   best.xml  best.bin  labels.txt  README.md
+  <name>/   best.xml  best.bin  labels.txt  README.md
 ```
 
 Keep these names: the package builds its download URLs from them
 (`<repo>/resolve/main/<name>/<name>.xml`). To host a copy elsewhere, mirror the
-same layout and point `$RTDETR_ASSETS_URL` at it.
+same layout and point `$EASYDETECT_ASSETS_URL` at it.
 
 ## License and credit
 
-* The COCO weights are the official RT-DETR checkpoints by Wenyu Lv et al.,
-  released under Apache-2.0 at [lyuwenyu/RT-DETR](https://github.com/lyuwenyu/RT-DETR),
-  converted unchanged. COCO annotations are CC BY 4.0.
+* The COCO weights are the official D-FINE checkpoints by Yansong Peng et al.,
+  released under Apache-2.0 at [Peterande/D-FINE](https://github.com/Peterande/D-FINE),
+  converted unchanged. Only the COCO-trained checkpoints are used. COCO
+  annotations are CC BY 4.0.
 * The package and the fine-tuned models are Apache-2.0. Each model's README says
   where its training images came from; those images keep their own license.
 
 ```bibtex
-@inproceedings{zhao2024rtdetr,
-  title     = {DETRs Beat YOLOs on Real-time Object Detection},
-  author    = {Zhao, Yian and Lv, Wenyu and Xu, Shangliang and Wei, Jinman and
-               Wang, Guanzhong and Dang, Qingqing and Liu, Yi and Chen, Jie},
-  booktitle = {CVPR},
-  year      = {2024}
+@misc{peng2024dfine,
+  title         = {D-FINE: Redefine Regression Task in DETRs as Fine-grained Distribution Refinement},
+  author        = {Yansong Peng and Hebei Li and Peixi Wu and Yueyi Zhang and Xiaoyan Sun and Feng Wu},
+  year          = {2024},
+  eprint        = {2410.13842},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CV}
 }
 ```
