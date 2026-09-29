@@ -124,6 +124,40 @@ exact fp32 instead of the CPU's default bfloat16.
 | `rtdetr-r34` | 31M | 48.9 | |
 | `rtdetr-r50` | 43M | 53.1 | most accurate |
 
+## Compared with YOLO
+
+Published COCO val2017 numbers at 640 px, as each project reports them — not
+re-measured here:
+
+| model | params | COCO mAP50-95 | NMS | license |
+| --- | --- | --- | --- | --- |
+| RT-DETR r18 | 20M | 46.5 (paper), 46.4 (these weights) | none | Apache-2.0 |
+| RT-DETR r34 | 31M | 48.9 | none | Apache-2.0 |
+| RT-DETR r50 | 43M | 53.1 | none | Apache-2.0 |
+| YOLOv8 s / m / l | | 44.9 / 50.2 / 52.9 | needed | AGPL-3.0 |
+| YOLO11 s / m / l | 9.4M / 20.1M / 25.3M | 47.0 / 51.5 / 53.4 | needed | AGPL-3.0 |
+
+Read it plainly:
+
+* **On COCO accuracy per parameter, recent YOLO is ahead.** RT-DETR beat
+  YOLOv8 when it came out; YOLO11-s reaches r18's score with half the
+  parameters, and YOLO11-l matches r50 with about 60% of them.
+* **The license is the difference that usually decides.** Ultralytics YOLO is
+  AGPL-3.0: a product that ships it, or serves it over a network, must publish
+  its source or buy a commercial license. Everything here is Apache-2.0 — code
+  and weights — so it goes into closed products as it is.
+* **No NMS.** RT-DETR emits one box per object, so there is no IoU threshold to
+  tune and latency does not climb with the number of objects in the frame.
+  Published speed tables often leave NMS out, and the two projects measure
+  on different setups, so their FPS figures do not compare directly.
+* **The whole model runs on an Intel NPU** — 24 FPS for r18 on a Core Ultra,
+  leaving the CPU free ([measured](https://github.com/leeyunjai82/rtdetr/blob/main/docs/performance.md#on-a-desktop-with-an-npu)).
+* **Where YOLO fits better:** nano-size models for very small devices,
+  segmentation and pose in the same tool, and a far larger ecosystem.
+
+COCO is a guide, not your answer. Fine-tune both on your own data, then compare
+mAP on the same validation images and latency on the same device, NMS included.
+
 ## Command line
 
 ```bash
@@ -164,6 +198,11 @@ model.export(format="openvino", half=True) # 배포용 IR + labels.txt
 CPU 4코어에서 640px 기준 24 FPS. GPU 없이 산업용 미니 PC에서 바로 돌아갑니다.
 라벨링부터 학습·추론까지 브라우저로 하려면 `python platform/run.py`.
 가중치 캐시는 `~/.rtdetr/`, 사내 미러는 `RTDETR_ASSETS_URL` 환경변수로 지정합니다.
+
+YOLO와 비교하면: COCO 정확도는 최신 YOLO(YOLO11)가 같은 크기에서 조금 앞서지만,
+코드·가중치가 모두 Apache-2.0이라 AGPL 걱정 없이 상용 제품에 넣을 수 있고, NMS가
+없어 물체가 많아도 지연이 늘지 않으며, Intel NPU에서 모델 전체가 돕니다. 자세한
+수치는 위의 [Compared with YOLO](#compared-with-yolo)를 보세요.
 
 ## Credits
 
