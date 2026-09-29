@@ -118,15 +118,16 @@ COCO numbers are D-FINE's own for these checkpoints (640 px, val2017).
 ## Speed
 
 `dfine-s` at 640 on one desktop — a Core Ultra 5 250K Plus with an RTX 5090 —
-network only, median of 30 runs:
+whole pipeline (resize, inference, decode), median of 30 calls, from
+`python tools/bench.py`:
 
 | `device=` | latency | FPS |
 | --- | --- | --- |
-| `"CPU"` | 34 ms | 29 |
-| `"NPU"` | 37 ms | 27 — and the CPU stays free |
-| `"GPU"` (the RTX 5090 through OpenCL) | 13 ms | 74 |
+| `"CPU"` | 36 ms | 28 |
+| `"NPU"` | 38 ms | 26 — and the CPU stays free |
+| `"GPU"` (the RTX 5090 through OpenCL) | 14 ms | 72 |
 
-Every device returns the same boxes as PyTorch (the NPU to a mean IoU of 0.98).
+The GPU returns the CPU's boxes exactly, the NPU to a mean IoU of 0.98.
 [performance.md](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md)
 covers measuring your own machine and what makes it faster.
 

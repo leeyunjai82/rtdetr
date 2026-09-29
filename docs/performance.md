@@ -30,13 +30,17 @@ device's boxes checked against the CPU's.
 ## Measured
 
 `dfine-s` at 640 on a Core Ultra 5 250K Plus (18 cores, no bfloat16) with an RTX
-5090 — network only, median of 30 runs, each device checked against PyTorch:
+5090, `python tools/bench.py` — whole pipeline, median of 30 calls, each device
+checked against the CPU:
 
-| `device=` | latency | FPS | vs PyTorch |
+| `device=` | latency | FPS | vs CPU |
 | --- | --- | --- | --- |
-| `"CPU"` | 34 ms | 29 | identical |
-| `"NPU"` | 37 ms | 27 | mean IoU 0.985, conf within 0.04 |
-| `"GPU"` (the RTX 5090, see below) | 13 ms | 74 | identical |
+| `"CPU"` | 35.7 ms | 28.0 | reference |
+| `"NPU"` | 37.8 ms | 26.5 | mean IoU 0.984 (worst 0.946) |
+| `"GPU"` (the RTX 5090, see below) | 13.8 ms | 72.3 | identical |
+
+The network alone is about 2 ms of that less (34 / 37 / 13 ms): resizing and
+decoding cost little.
 
 Against RT-DETR r18, which this package used to ship, timed the same way
 (network only) on a 4-core cloud CPU without bfloat16: `dfine-s` 116 ms, r18
@@ -49,7 +53,8 @@ Against RT-DETR r18, which this package used to ship, timed the same way
 * **The `"GPU"` row is the 5090 reached through NVIDIA's OpenCL driver**,
   because OpenVINO found no Intel GPU on that machine. It works and matches the
   CPU, but it is not a supported combination and leaves most of the card unused
-  — expect OpenCL build warnings on first load. For inference on an NVIDIA card,
+  — expect lines of `105 warnings generated.` from the OpenCL compiler on first
+  load; they are harmless. For inference on an NVIDIA card,
   export to ONNX (`format="onnx"`) and use onnxruntime-gpu or TensorRT.
 
 ## Precision

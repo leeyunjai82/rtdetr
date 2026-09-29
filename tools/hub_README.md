@@ -56,12 +56,12 @@ Every folder holds the same four files:
 | `<name>.pt` | PyTorch checkpoint — the starting point for `model.train(...)` |
 | `labels.txt` | class names, one per line |
 
-`dfine-s` at 640 × 640 on a Core Ultra 5 250K Plus, network only:
+`dfine-s` at 640 × 640 on a Core Ultra 5 250K Plus, whole pipeline:
 
 | device | latency |
 | --- | --- |
-| `CPU` | 34 ms (29 FPS) |
-| `NPU` | 37 ms (27 FPS) — the CPU stays free |
+| `CPU` | 36 ms (28 FPS) |
+| `NPU` | 38 ms (26 FPS) — the CPU stays free |
 
 More in [performance](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md).
 
