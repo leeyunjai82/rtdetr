@@ -57,6 +57,9 @@
     "에폭": "Epochs", "배치": "Batch", "고급 설정": "Advanced", "입력 크기": "Input size", "검증 비율": "Validation share",
     "백본 고정": "Freeze backbone", "예 (빨라요)": "Yes (faster)", "아니오": "No", "장치": "Device", "학습 시작": "Start training",
     "{0}에폭": "{0} epochs", "배치 {0}": "batch {0}",
+    "안 나아지면 멈추기": "Stop when it stops improving", "에폭 동안 mAP가 그대로면 멈춰요": "epochs with no better mAP, then stop",
+    "가장 좋았던 가중치가 남아요. 0이면 끝까지 해요.": "The best weights are kept. 0 runs every epoch.",
+    "{0}에폭 정체 시 멈춤": "stop after {0} flat epochs",
     "데이터셋을 골라 주세요": "Pick a dataset",
     "이 데이터셋은 #{0}이(가) 벌써 대기 중이에요. 하나 더 넣을까요?": "#{0} is already queued for this dataset.\nQueue another?",
     "이 데이터셋은 #{0}이(가) 벌써 학습 중이에요. 하나 더 넣을까요?": "#{0} is already training on this dataset.\nQueue another?",
@@ -167,7 +170,7 @@
     [/프레임 (\d+)\/(\d+)/g, "frame $1/$2"], [/이미지 (\d+)\/(\d+)/g, "image $1/$2"],
     [/상자 (\d+)개/g, "$1 boxes"], [/(\d+)장 미리보기/g, "$1 previews"], [/(\d+)장/g, "$1 images"],
     [/모델 불러오는 중…/g, "loading the model…"], [/#(\d+) 이어서 \+(\d+)에폭/g, "#$1 continued, +$2 epochs"],
-    [/이미 학습은 끝났고 내보내는 중입니다/g, "training is over; exporting"], [/^업로드$/, "uploaded"],
+    [/이미 학습은 끝났고 내보내는 중입니다/g, "training is over; exporting"], [/^업로드$/, "uploaded"], [/^서버가 다시 켜지면서 끊겼어요$/, "interrupted by a restart"],
   ];
 
   const HANGUL = /[가-힣]/;

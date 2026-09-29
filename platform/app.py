@@ -67,7 +67,7 @@ def _start() -> None:
 
     It runs from every server's startup (HTTP and HTTPS both) and from label
     mode before them. A second pass would find the job the worker had just
-    started and mark it "interrupted by a restart".
+    started and mark it interrupted by a restart.
     """
     if not _started.acquire(blocking=False):
         return
@@ -615,9 +615,20 @@ def create_job(payload: dict):
         imgsz=int(payload.get("imgsz", 640)),
         batch=int(payload.get("batch", 4)),
         freeze=payload.get("freeze") or None,
+        patience=_patience(payload.get("patience")),
         device=payload.get("device") or None,
     )
     return {"id": job_id}
+
+
+def _patience(value) -> int | None:
+    """Epochs without a better mAP before the run stops; 0 means run them all."""
+    if value in (None, ""):
+        return None                       # the trainer's own default
+    value = int(value)
+    if value < 0:
+        raise HTTPException(400, "patience must be 0 (off) or more")
+    return value
 
 
 @app.get("/api/jobs")
@@ -705,6 +716,7 @@ def resume_job(job_id: int, payload: dict = None):
         imgsz=job["imgsz"],
         batch=job["batch"],
         freeze=job["freeze"],
+        patience=job["patience"],
         device=job["device"],
         detail=f"#{root} 이어서 +{max(add, 1)}에폭",
     )

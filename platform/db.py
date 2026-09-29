@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     imgsz INTEGER,
     batch INTEGER,
     freeze TEXT,
+    patience INTEGER,
     device TEXT,
     conf REAL,
     resume_of INTEGER,
@@ -68,6 +69,9 @@ CREATE TABLE IF NOT EXISTS epochs (
 """
 
 
+ADDED_JOB_COLUMNS = {"patience": "INTEGER"}
+
+
 class Database:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
@@ -75,6 +79,12 @@ class Database:
         self._lock = threading.Lock()
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            # columns added since the first release: a database made before
+            # them gets them here, and CREATE IF NOT EXISTS above leaves it be
+            have = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+            for column, kind in ADDED_JOB_COLUMNS.items():
+                if column not in have:
+                    conn.execute(f"ALTER TABLE jobs ADD COLUMN {column} {kind}")
 
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, timeout=30, check_same_thread=False)

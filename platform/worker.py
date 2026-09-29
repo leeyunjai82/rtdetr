@@ -96,10 +96,33 @@ class Worker(threading.Thread):
             self.db.update_job(
                 job["id"],
                 status="failed",
-                detail="interrupted by a restart",
+                detail="서버가 다시 켜지면서 끊겼어요",
                 finished=time.time(),
             )
+        # and any stopped run whose weights were never pointed at, from before
+        # salvage() existed: its best.pt is still there to evaluate or keep
+        for job in self.db.query("SELECT id FROM jobs WHERE kind = 'train' AND run_dir IS NULL"
+                                 " AND status IN ('failed', 'cancelled')"):
+            self.salvage(job["id"])
         return len(stale)
+
+    def salvage(self, job_id: int) -> None:
+        """A training run that stopped early still has its best epoch on disk.
+
+        The run directory is only recorded when training finishes, so a run
+        cancelled, crashed or cut off by a restart looked empty: no evaluate,
+        no download, no register — for weights that may be an hour's work.
+        """
+        job = self.db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        if job is None or job["kind"] != "train" or job["run_dir"]:
+            return
+        run_dir = self.runs_dir / f"job{job['resume_of'] or job_id}"
+        best = run_dir / "weights" / "best.pt"
+        # a folder left by an older database with the same job number is not this run
+        if not best.exists() or best.stat().st_mtime < (job["started"] or 0) - 1:
+            return
+        row = self.db.one("SELECT MAX(map50_95) AS best FROM epochs WHERE job_id = ?", (job_id,))
+        self.db.update_job(job_id, run_dir=str(run_dir), best_map=(row or {}).get("best"))
 
     def run(self) -> None:
         while not self._stopping.is_set():
@@ -119,6 +142,7 @@ class Worker(threading.Thread):
                     self._train(job)
             except Cancelled:
                 self.db.update_job(job["id"], status="cancelled", finished=time.time())
+                self.salvage(job["id"])
             except Exception as exc:
                 previous = self.db.one("SELECT detail FROM jobs WHERE id = ?", (job["id"],))
                 context = (previous or {}).get("detail") or ""
@@ -128,6 +152,7 @@ class Worker(threading.Thread):
                     detail=f"{type(exc).__name__}: {exc}" + (f" — {context}" if context else ""),
                     finished=time.time(),
                 )
+                self.salvage(job["id"])
                 traceback.print_exc()
             finally:
                 self.cancelled.discard(job["id"])
@@ -195,6 +220,7 @@ class Worker(threading.Thread):
                     batch=job["batch"],
                     freeze=job["freeze"] or None,
                     device=job["device"] or None,
+                    **({} if job["patience"] is None else {"patience": job["patience"]}),
                     project=str(self.runs_dir),
                     name=run_name,
                     resume=bool(job["resume_of"]),

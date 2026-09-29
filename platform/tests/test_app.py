@@ -7,6 +7,7 @@ import importlib
 import io
 import json
 import os
+import time
 import zipfile
 from pathlib import Path
 
@@ -244,7 +245,7 @@ def test_jobs_left_running_by_a_dead_process_are_marked_failed(studio):
 
     assert module.worker.reap_stale() == 1
     job = client.get(f"/api/jobs/{job_id}").json()
-    assert job["status"] == "failed" and "restart" in job["detail"]
+    assert job["status"] == "failed" and "다시 켜지면서" in job["detail"]
 
 
 def test_a_dataset_can_be_exported_and_imported_again(studio):
@@ -628,7 +629,70 @@ def test_a_restart_clears_jobs_left_exporting(studio):
 
     assert module.worker.reap_stale() == 1
     row = module.db.one("SELECT * FROM jobs WHERE id = ?", (job,))
-    assert row["status"] == "failed" and "restart" in row["detail"]
+    assert row["status"] == "failed" and "다시 켜지면서" in row["detail"]
+
+
+def test_a_run_cut_off_by_a_restart_keeps_its_best_weights(studio):
+    """Nineteen epochs in and the machine restarts: best.pt is still worth having."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 20}).json()["id"]
+    module.db.update_job(job, status="running", started=time.time() - 60)
+    for epoch, score in ((1, 0.17), (2, 0.42), (3, 0.40)):
+        module.db.add_epoch(job, {"epoch": epoch, "loss": 1.0, "map50_95": score, "seconds": 1.0})
+    weights = module.RUNS / f"job{job}" / "weights"
+    weights.mkdir(parents=True)
+    (weights / "best.pt").write_bytes(b"x")
+    (weights / "last.pt").write_bytes(b"x")
+
+    assert module.worker.reap_stale() == 1
+    body = client.get(f"/api/jobs/{job}").json()
+    assert body["status"] == "failed"
+    assert "weights" in body["artifacts"] and body["best_map"] == 0.42
+    # so the page offers evaluate and register, and resume still works
+    assert client.post(f"/api/jobs/{job}/evaluate", json={}).status_code == 200
+    assert client.post(f"/api/jobs/{job}/resume", json={"add_epochs": 5}).status_code == 200
+
+
+def test_early_stopping_is_set_per_run(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    def patience(**extra):
+        job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 50, **extra}).json()["id"]
+        return module.db.one("SELECT patience FROM jobs WHERE id = ?", (job,))["patience"]
+
+    assert patience(patience=10) == 10
+    assert patience(patience=0) == 0          # 0 = run every epoch, not "unset"
+    assert patience() is None                 # the trainer's default
+    assert client.post("/api/jobs", json={"dataset_id": 1, "patience": -1}).status_code == 400
+
+
+def test_a_database_from_before_early_stopping_gets_the_column(tmp_path):
+    import sqlite3
+
+    from db import Database
+
+    path = tmp_path / "old.db"
+    with sqlite3.connect(path) as conn:
+        conn.execute("CREATE TABLE jobs (id INTEGER PRIMARY KEY, kind TEXT, dataset_id INTEGER,"
+                     " model TEXT, status TEXT, created REAL)")
+    Database(path)
+    with sqlite3.connect(path) as conn:
+        assert "patience" in {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+
+
+def test_salvage_ignores_a_folder_older_than_the_run(studio):
+    """A job number reused after the database was reset must not adopt old weights."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    job = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 5}).json()["id"]
+    weights = module.RUNS / f"job{job}" / "weights"
+    weights.mkdir(parents=True)
+    (weights / "best.pt").write_bytes(b"x")
+    module.db.update_job(job, status="running", started=time.time() + 3600)
+
+    module.worker.reap_stale()
+    assert module.db.one("SELECT run_dir FROM jobs WHERE id = ?", (job,))["run_dir"] is None
 
 
 def test_autolabelling_an_image_that_is_not_there(studio):
