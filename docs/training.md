@@ -91,6 +91,22 @@ starts from are already good. `freeze` also takes `"encoder"`,
 `"backbone+encoder"`, or a list of module prefixes. Frozen batch norms are held
 in eval mode so their running statistics stop drifting.
 
+## Augmentation
+
+Training pictures go through D-FINE's recipe, each step on its own coin flip:
+colour jitter (brightness, contrast, saturation, hue), a zoom-out that puts the
+picture on a canvas up to 4× larger, an IoU-constrained random crop, and a
+horizontal flip. Zoom-out teaches small objects and crop teaches large, partly
+visible ones, so the model does not learn only the framing your photos had. The
+last tenth of the epochs trains on plain pictures (flip only) so it settles on
+what it will actually see; the log says when that starts.
+
+```python
+model.train(data="data.yaml", epochs=50, augment=False)   # flip only
+```
+
+`run.json` lists what a run used. Validation pictures are never augmented.
+
 ## Watching a run
 
 Every epoch appends a row to `runs/train/results.csv` and, if you pass one, calls

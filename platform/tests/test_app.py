@@ -667,6 +667,18 @@ def test_early_stopping_is_set_per_run(studio):
     assert client.post("/api/jobs", json={"dataset_id": 1, "patience": -1}).status_code == 400
 
 
+def test_augmentation_is_chosen_per_run(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+
+    def augment(**extra):
+        job = client.post("/api/jobs", json={"dataset_id": 1, **extra}).json()["id"]
+        return module.db.one("SELECT augment FROM jobs WHERE id = ?", (job,))["augment"]
+
+    assert augment(augment=True) == 1 and augment(augment=False) == 0
+    assert augment() is None                  # the package's default
+
+
 def test_a_database_from_before_early_stopping_gets_the_column(tmp_path):
     import sqlite3
 

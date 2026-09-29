@@ -59,7 +59,10 @@
     "{0}에폭": "{0} epochs", "배치 {0}": "batch {0}",
     "안 나아지면 멈추기": "Stop when it stops improving", "에폭 동안 mAP가 그대로면 멈춰요": "epochs with no better mAP, then stop",
     "가장 좋았던 가중치가 남아요. 0이면 끝까지 해요.": "The best weights are kept. 0 runs every epoch.",
-    "{0}에폭 정체 시 멈춤": "stop after {0} flat epochs",
+    "{0}에폭 정체 시 멈춤": "stop after {0} flat epochs", "증강": "augment",
+    "확대·축소·자르기 증강": "Zoom, crop and colour augmentation",
+    "크기와 위치가 다른 사진을 만들어 배워요. 에폭이 많을 때 도움이 되고, 짧은 학습에서는 느려져요.":
+      "Trains on pictures at other sizes and positions. Helps longer runs; slows short ones.",
     "데이터셋을 골라 주세요": "Pick a dataset",
     "이 데이터셋은 #{0}이(가) 벌써 대기 중이에요. 하나 더 넣을까요?": "#{0} is already queued for this dataset.\nQueue another?",
     "이 데이터셋은 #{0}이(가) 벌써 학습 중이에요. 하나 더 넣을까요?": "#{0} is already training on this dataset.\nQueue another?",

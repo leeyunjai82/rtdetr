@@ -19,6 +19,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from .data import augment as aug
 from .data.dataset import DetDataset, load_data_yaml
 from .utils.loss import DetectionLoss
 
@@ -165,11 +166,13 @@ class Trainer:
         patience=50,
         seed=0,
         freeze=None,
+        augment=True,
         on_epoch_end=None,
         on_progress=None,
         origin=None,
     ):
         seed_everything(seed)
+        self.augment = augment
         self.seed, self.freeze, self.origin = seed, freeze, origin
         self.lr, self.lr_backbone_mult, self.weight_decay = lr, lr_backbone_mult, weight_decay
         self.net = net
@@ -292,8 +295,7 @@ class Trainer:
                 "grad_clip": 0.1,
             },
             "amp": self.amp,
-            "augment": ["horizontal flip (p=0.5)", "HSV jitter (hue ±8, sat ±30, value ±30)",
-                        f"resize to {self.imgsz}×{self.imgsz}"],
+            "augment": self._augment_lines(),
             "data": {"train": _split_counts(ds, self.net.num_classes)},
             "device": str(self.device),
             "gpu": torch.cuda.get_device_name(self.device) if self.device.type == "cuda" else None,
@@ -348,9 +350,21 @@ class Trainer:
         for g, base in zip(self.opt.param_groups, self.base_lrs, strict=False):
             g["lr"] = base * scale
 
-    def train(self, val_fn=None):
-        ds = DetDataset(self.data_yaml, "train", self.imgsz, augment=True)
-        dl = DataLoader(
+    def _augment_lines(self) -> list[str]:
+        """What the pictures go through, for run.json and the model card."""
+        *strong, flip = aug.DESCRIPTION
+        lines = list(strong) if self.augment else []
+        if lines and self.clean_from < self.epochs:
+            lines.append(f"those three off for the last {self.epochs - self.clean_from} epoch(s)")
+        return lines + [flip, f"resize to {self.imgsz}×{self.imgsz}"]
+
+    @property
+    def clean_from(self) -> int:
+        """The epoch the strong augmentation stops: the last tenth trains on plain pictures."""
+        return self.epochs - (max(1, round(self.epochs * 0.1)) if self.epochs >= 4 else 0)
+
+    def _loader(self, ds):
+        return DataLoader(
             ds,
             batch_size=self.batch,
             shuffle=True,
@@ -364,6 +378,11 @@ class Trainer:
             persistent_workers=self.workers > 0,
             worker_init_fn=_one_thread_per_worker if self.workers > 0 else None,
         )
+
+    def train(self, val_fn=None):
+        ds = DetDataset(self.data_yaml, "train", self.imgsz, augment=True)
+        ds.strong = self.augment and self.start_epoch < self.clean_from
+        dl = self._loader(ds)
         net = self.net.to(self.device)
         since_improved = 0
         if self.start_epoch >= self.epochs:
@@ -383,6 +402,13 @@ class Trainer:
 
         logs = dict.fromkeys(LOGGED, 0.0)
         for epoch in range(self.start_epoch, self.epochs):
+            if ds.strong and epoch >= self.clean_from:
+                # persistent workers hold their own copy of the dataset: a
+                # new loader is how they hear that the strong augments are off
+                ds.strong = False
+                dl = self._loader(ds)
+                print(f"[easydetect] epoch {epoch + 1}: zoom, crop and colour jitter off "
+                      "for the last epochs")
             net.train()
             for module in self.frozen:  # frozen batch norms must not keep adapting
                 module.eval()

@@ -321,6 +321,7 @@ class Detector:
         val: bool = True,
         amp: bool = True,
         freeze: Any = None,
+        augment: bool = True,
         on_epoch_end: Any = None,
         on_progress: Any = None,
         **kwargs: Any,
@@ -328,8 +329,11 @@ class Detector:
         """Train on a data.yaml dataset. Returns the path of ``best.pt``.
 
         ``freeze="backbone"`` trains about twice as fast on CPU and helps when
-        the dataset is small. ``on_epoch_end`` is called with a dict of the
-        epoch's numbers — the same row that lands in ``results.csv``.
+        the dataset is small. ``augment=True`` trains on zoomed-out, cropped
+        and colour-jittered pictures (D-FINE's recipe) and on plain ones for
+        the last tenth of the epochs; ``False`` keeps only the flip.
+        ``on_epoch_end`` is called with a dict of the epoch's numbers — the
+        same row that lands in ``results.csv``.
         ``on_progress`` hears about once a second inside an epoch —
         ``{"phase": "train", "epoch", "epochs", "step", "steps", "seconds"}`` —
         and once more with ``"phase": "val"`` before validation starts, so a
@@ -376,6 +380,7 @@ class Detector:
             seed=seed,
             amp=amp,
             freeze=freeze,
+            augment=augment,
             on_epoch_end=on_epoch_end,
             on_progress=on_progress,
             origin=origin,

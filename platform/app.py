@@ -616,6 +616,7 @@ def create_job(payload: dict):
         batch=int(payload.get("batch", 4)),
         freeze=payload.get("freeze") or None,
         patience=_patience(payload.get("patience")),
+        augment=None if payload.get("augment") is None else int(bool(payload["augment"])),
         device=payload.get("device") or None,
     )
     return {"id": job_id}
@@ -717,6 +718,7 @@ def resume_job(job_id: int, payload: dict = None):
         batch=job["batch"],
         freeze=job["freeze"],
         patience=job["patience"],
+        augment=job["augment"],
         device=job["device"],
         detail=f"#{root} 이어서 +{max(add, 1)}에폭",
     )

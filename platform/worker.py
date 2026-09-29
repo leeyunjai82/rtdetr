@@ -221,6 +221,7 @@ class Worker(threading.Thread):
                     freeze=job["freeze"] or None,
                     device=job["device"] or None,
                     **({} if job["patience"] is None else {"patience": job["patience"]}),
+                    **({} if job["augment"] is None else {"augment": bool(job["augment"])}),
                     project=str(self.runs_dir),
                     name=run_name,
                     resume=bool(job["resume_of"]),

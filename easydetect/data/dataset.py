@@ -10,7 +10,6 @@ Labels: <images-dir with 'images' replaced by 'labels'>/<stem>.txt
         each line: cls cx cy w h  (normalized)
 """
 
-import random
 from pathlib import Path
 
 import cv2
@@ -19,6 +18,7 @@ import torch
 import yaml
 from torch.utils.data import Dataset
 
+from . import augment as aug
 from .labels import label_path, label_row_to_box
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -101,6 +101,9 @@ class DetDataset(Dataset):
         self.names, self.nc = cfg["names"], cfg["nc"]
         self.imgsz = imgsz
         self.augment = augment and split == "train"
+        # zoom-out, crop and colour jitter; the trainer turns them off for the
+        # last epochs (the flip stays)
+        self.strong = True
         if cfg[split] is None:
             raise ValueError(
                 f"{data_yaml} has no '{split}:' entry. Add one — it may point at the "
@@ -132,17 +135,7 @@ class DetDataset(Dataset):
         labels = self._load_labels(f)  # cls, cx, cy, w, h (normalized)
 
         if self.augment:
-            # hflip
-            if random.random() < 0.5:
-                img = img[:, ::-1]
-                if len(labels):
-                    labels[:, 1] = 1.0 - labels[:, 1]
-            # HSV jitter
-            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.int16)
-            hsv[..., 0] = (hsv[..., 0] + random.randint(-8, 8)) % 180
-            hsv[..., 1] = np.clip(hsv[..., 1] + random.randint(-30, 30), 0, 255)
-            hsv[..., 2] = np.clip(hsv[..., 2] + random.randint(-30, 30), 0, 255)
-            img = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+            img, labels = aug.apply(img, labels, strong=self.strong)
 
         img = cv2.resize(img, (self.imgsz, self.imgsz))  # plain resize, as D-FINE trains
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0

@@ -122,6 +122,9 @@
             <span class="hint" style="margin-top:0">에폭 동안 mAP가 그대로면 멈춰요</span>
           </div>
           <div class="hint">가장 좋았던 가중치가 남아요. 0이면 끝까지 해요.</div></div>
+        <div class="field">
+          <label class="check"><input type="checkbox" id="job-augment" checked> <b class="pb-label" style="margin:0">확대·축소·자르기 증강</b></label>
+          <div class="hint">크기와 위치가 다른 사진을 만들어 배워요. 에폭이 많을 때 도움이 되고, 짧은 학습에서는 느려져요.</div></div>
         <details id="adv">
           <summary>고급 설정</summary>
           <div class="grid2">
@@ -635,13 +638,14 @@ async function autolabelAll(datasetId) {
 }
 
 // ---------------------------------------------------------------- training
-const PRESETS = { fast: { imgsz: 320, epochs: 30, batch: 8, freeze: "backbone", patience: 10 },
-                  balanced: { imgsz: 640, epochs: 50, batch: 4, freeze: "backbone", patience: 15 },
-                  accurate: { imgsz: 640, epochs: 150, batch: 2, freeze: "", patience: 30 } };
+const PRESETS = { fast: { imgsz: 320, epochs: 30, batch: 8, freeze: "backbone", patience: 10, augment: false },
+                  balanced: { imgsz: 640, epochs: 50, batch: 4, freeze: "backbone", patience: 15, augment: true },
+                  accurate: { imgsz: 640, epochs: 150, batch: 2, freeze: "", patience: 30, augment: true } };
 function presetHint() {
   $("preset-hint").textContent = [`${$("job-imgsz").value}px`, T`${$("job-epochs").value}에폭`,
     T`배치 ${$("job-batch").value}`, $("job-freeze").value ? T("백본 고정") : "",
-    Number($("job-patience").value) ? T`${$("job-patience").value}에폭 정체 시 멈춤` : "", gpu ? gpu.name : "CPU"]
+    Number($("job-patience").value) ? T`${$("job-patience").value}에폭 정체 시 멈춤` : "",
+    $("job-augment").checked ? T("증강") : "", gpu ? gpu.name : "CPU"]
     .filter(Boolean).join(" · ");
 }
 document.querySelectorAll("#presets button").forEach((b) => {
@@ -651,11 +655,11 @@ document.querySelectorAll("#presets button").forEach((b) => {
     $("job-imgsz").value = p.imgsz; $("job-epochs").value = p.epochs;
     // the CPU batches, times four on a GPU — 16 GB+ holds them at 640
     $("job-batch").value = gpu ? p.batch * 4 : p.batch; $("job-freeze").value = p.freeze;
-    $("job-patience").value = p.patience;
+    $("job-patience").value = p.patience; $("job-augment").checked = p.augment;
     presetHint();
   };
 });
-["job-imgsz", "job-epochs", "job-batch", "job-freeze", "job-patience"].forEach((id) => $(id).addEventListener("input", presetHint));
+["job-imgsz", "job-epochs", "job-batch", "job-freeze", "job-patience", "job-augment"].forEach((id) => $(id).addEventListener("input", presetHint));
 presetHint();
 
 $("job-start").onclick = async () => {
@@ -674,6 +678,7 @@ $("job-start").onclick = async () => {
         epochs: Number($("job-epochs").value), imgsz: Number($("job-imgsz").value),
         batch: Number($("job-batch").value), freeze: $("job-freeze").value,
         patience: $("job-patience").value === "" ? null : Number($("job-patience").value),
+        augment: $("job-augment").checked,
         val_ratio: Number($("job-val").value), device: $("job-device").value })});
     say("job-msg", T`#${res.id}을(를) 대기열에 넣었어요`, "ok");
     await select(res.id);

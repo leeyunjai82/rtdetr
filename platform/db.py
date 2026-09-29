@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     batch INTEGER,
     freeze TEXT,
     patience INTEGER,
+    augment INTEGER,
     device TEXT,
     conf REAL,
     resume_of INTEGER,
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS epochs (
 """
 
 
-ADDED_JOB_COLUMNS = {"patience": "INTEGER"}
+ADDED_JOB_COLUMNS = {"patience": "INTEGER", "augment": "INTEGER"}
 
 
 class Database:
