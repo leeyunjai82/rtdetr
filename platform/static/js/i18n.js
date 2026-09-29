@@ -114,6 +114,7 @@
     "몇 에폭 더 학습할까요?": "How many more epochs?",
     "\"{0}\"(으)로 등록했어요. 모델 탭과 추론에서 골라요": "Registered as \"{0}\". Pick it under Models and Predict.",
     "#{0} 작업과 결과 파일(가중치, IR, 로그)을 지울까요?": "Delete job #{0} and its files (weights, IR, log)?",
+    "이어서 학습·평가 {0}개도 같이 지워져요.": "Its {0} continuations and evaluations go with it.",
     "시험할 이미지를 골라 주세요": "Pick an image to try", "추론 중…": "Predicting…",
     // run details
     "시작 가중치": "Started from", "학습 데이터": "Training data", "검증 데이터": "Validation data",
@@ -171,6 +172,9 @@
     [/상자 (\d+)개/g, "$1 boxes"], [/(\d+)장 미리보기/g, "$1 previews"], [/(\d+)장/g, "$1 images"],
     [/모델 불러오는 중…/g, "loading the model…"], [/#(\d+) 이어서 \+(\d+)에폭/g, "#$1 continued, +$2 epochs"],
     [/이미 학습은 끝났고 내보내는 중입니다/g, "training is over; exporting"], [/^업로드$/, "uploaded"], [/^서버가 다시 켜지면서 끊겼어요$/, "interrupted by a restart"],
+    [/^#(\d+)이\(가\) 아직 돌고 있어요\. 먼저 멈춰 주세요$/, "#$1 is still running — stop it first"],
+    [/^등록한 모델 '(.+)'이\(가\) 이 결과를 써요\. 모델 탭에서 먼저 빼 주세요$/,
+     "registered model '$1' uses this run — remove it under Models first"],
   ];
 
   const HANGUL = /[가-힣]/;

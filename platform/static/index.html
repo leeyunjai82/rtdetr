@@ -1083,7 +1083,15 @@ $("register").onclick = async () => {
 };
 
 $("delete-job").onclick = async () => {
-  if (!confirm(T`#${current} 작업과 결과 파일(가중치, IR, 로그)을 지울까요?`)) return;
+  // a run takes what was resumed or scored from it along (the server does the same)
+  const along = new Set([current]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const j of allJobs) if (j.resume_of && along.has(j.resume_of) && !along.has(j.id)) { along.add(j.id); grew = true; }
+  }
+  const kind = allJobs.find((j) => j.id === current)?.kind;
+  const extra = kind === "train" && along.size > 1 ? `\n${T`이어서 학습·평가 ${along.size - 1}개도 같이 지워져요.`}` : "";
+  if (!confirm(T`#${current} 작업과 결과 파일(가중치, IR, 로그)을 지울까요?` + extra)) return;
   try {
     await api(`/api/jobs/${current}`, { method: "DELETE" });
     closeDetail();

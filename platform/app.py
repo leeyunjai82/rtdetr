@@ -807,40 +807,52 @@ def eval_image(job_id: int, name: str):
 
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: int):
-    """Forget a job and the files it produced — unless something still needs them.
+    """Forget a job, what was built on it, and the files nothing else uses.
 
-    A running job must be stopped first. A training run's folder is shared with
-    the runs that resumed it and the evaluations of it, and a registered model
-    may point into it: while any of those exist, the job stays.
+    Deleting a training run takes its continuations ("이어서 학습") and its
+    evaluations with it: they live in the same folder and mean nothing
+    without it. Deleting only a continuation keeps the folder for the run
+    it continued. A registered model inside the folder still has to be
+    removed first, and nothing is deleted while any of it is running.
     """
     job = db.one("SELECT * FROM jobs WHERE id = ?", (job_id,))
     if job is None:
         raise HTTPException(404, "no such job")
-    if job["status"] in ("running", "exporting"):
-        raise HTTPException(400, "it is still running — stop it first")
-    run_dir = Path(job["run_dir"]) if job["run_dir"] else None
-    owns_dir = run_dir is not None and job["kind"] in ("train", "predict")
-    if owns_dir:
-        sharing = db.query(
-            "SELECT id FROM jobs WHERE id != ? AND (run_dir = ? OR resume_of = ?)",
-            (job_id, str(run_dir), job_id),
-        )
-        if sharing:
-            ids = ", ".join(f"#{row['id']}" for row in sharing)
-            raise HTTPException(400, f"{ids} use this run's files — delete those first")
+    ids = [job_id]
+    if job["kind"] == "train":                 # everything resumed or scored from it, any depth
+        frontier = [job_id]
+        while frontier:
+            marks = ",".join("?" * len(frontier))
+            frontier = [row["id"] for row in db.query(
+                f"SELECT id FROM jobs WHERE resume_of IN ({marks})", tuple(frontier))
+                if row["id"] not in ids]
+            ids += frontier
+    marks = ",".join("?" * len(ids))
+    going = [row["id"] for row in db.query(
+        f"SELECT id FROM jobs WHERE id IN ({marks}) AND status IN ('running', 'exporting')",
+        tuple(ids))]
+    if going:
+        raise HTTPException(400, f"#{going[0]}이(가) 아직 돌고 있어요. 먼저 멈춰 주세요")
+
+    run_dir = Path(job["run_dir"]) if job["run_dir"] and job["kind"] in ("train", "predict") \
+        else None
+    # the folder goes only when no job outside this set still points at it
+    removes = run_dir is not None and not db.query(
+        f"SELECT id FROM jobs WHERE run_dir = ? AND id NOT IN ({marks})", (str(run_dir), *ids))
+    if removes:
         for model in db.query("SELECT name, path FROM models"):
             if Path(model["path"]).resolve().is_relative_to(run_dir.resolve()):
-                raise HTTPException(
-                    400, f"registered model '{model['name']}' uses this run — remove it first"
-                )
+                raise HTTPException(400, f"등록한 모델 '{model['name']}'이(가) 이 결과를 써요."
+                                         " 모델 탭에서 먼저 빼 주세요")
     removed = False
-    if owns_dir and run_dir.resolve().is_relative_to(RUNS.resolve()) and run_dir.is_dir():
+    if removes and run_dir.resolve().is_relative_to(RUNS.resolve()) and run_dir.is_dir():
         shutil.rmtree(run_dir, ignore_errors=True)   # only ever inside the platform's runs/
         removed = True
-    (RUNS / f"job{job_id}-failed.log").unlink(missing_ok=True)
-    db.execute("DELETE FROM epochs WHERE job_id = ?", (job_id,))
-    db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-    return {"deleted": True, "files_removed": removed}
+    for gone in ids:
+        (RUNS / f"job{gone}-failed.log").unlink(missing_ok=True)
+        db.execute("DELETE FROM epochs WHERE job_id = ?", (gone,))
+        db.execute("DELETE FROM jobs WHERE id = ?", (gone,))
+    return {"deleted": True, "jobs": ids, "files_removed": removed}
 
 
 @app.post("/api/jobs/{job_id}/cancel")

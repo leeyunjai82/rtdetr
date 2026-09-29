@@ -964,7 +964,8 @@ def test_a_finished_run_can_be_deleted_with_its_files(studio):
     module.db.update_job(job, status="done", run_dir=str(run))
     module.db.add_epoch(job, {"epoch": 1, "loss": 1.0, "map50_95": 0.1, "seconds": 1})
 
-    assert client.delete(f"/api/jobs/{job}").json() == {"deleted": True, "files_removed": True}
+    assert client.delete(f"/api/jobs/{job}").json() == {"deleted": True, "jobs": [job],
+                                                         "files_removed": True}
     assert not run.exists() and client.get(f"/api/jobs/{job}").status_code == 404
     assert module.db.query("SELECT * FROM epochs WHERE job_id = ?", (job,)) == []
 
@@ -978,11 +979,11 @@ def test_a_run_something_still_needs_is_kept(studio):
     (run / "weights" / "best.pt").write_bytes(b"w")
 
     module.db.update_job(job, status="running", run_dir=str(run))
-    assert "stop it first" in client.delete(f"/api/jobs/{job}").json()["error"]
+    assert "멈춰 주세요" in client.delete(f"/api/jobs/{job}").json()["error"]
 
     module.db.update_job(job, status="done")
     evaluation = client.post(f"/api/jobs/{job}/evaluate", json={}).json()["id"]
-    assert f"#{evaluation}" in client.delete(f"/api/jobs/{job}").json()["error"]
+    module.db.update_job(evaluation, status="done", run_dir=str(run))
     assert client.delete(f"/api/jobs/{evaluation}").json()["files_removed"] is False
     assert run.exists()                          # an evaluation never takes the run with it
 
@@ -990,6 +991,48 @@ def test_a_run_something_still_needs_is_kept(studio):
     assert "'v1'" in client.delete(f"/api/jobs/{job}").json()["error"]
     client.delete("/api/models/1")
     assert client.delete(f"/api/jobs/{job}").json()["files_removed"] is True
+
+
+def test_a_resumed_run_and_its_original_can_both_be_deleted(studio):
+    """They share one folder; each used to refuse because of the other."""
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    first = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 2}).json()["id"]
+    run = module.RUNS / f"job{first}"
+    (run / "weights").mkdir(parents=True)
+    for name in ("best.pt", "last.pt"):
+        (run / "weights" / name).write_bytes(b"w")
+    module.db.update_job(first, status="done", run_dir=str(run))
+    more = client.post(f"/api/jobs/{first}/resume", json={"add_epochs": 2}).json()["id"]
+    module.db.update_job(more, status="done", run_dir=str(run))
+    scored = client.post(f"/api/jobs/{more}/evaluate", json={}).json()["id"]
+    module.db.update_job(scored, status="done", run_dir=str(run))
+
+    # the continuation alone: its record goes, the folder stays for the original
+    assert client.delete(f"/api/jobs/{more}").json() == {"deleted": True, "jobs": [more, scored],
+                                                          "files_removed": False}
+    assert run.exists()
+    assert client.delete(f"/api/jobs/{first}").json()["files_removed"] is True
+    assert not run.exists()
+
+
+def test_deleting_a_run_takes_its_continuations_and_evaluations(studio):
+    client, module = studio
+    upload(client, {"images/a.jpg": image_bytes(), "labels/a.txt": b"0 .5 .5 .2 .2\n"})
+    first = client.post("/api/jobs", json={"dataset_id": 1, "epochs": 2}).json()["id"]
+    run = module.RUNS / f"job{first}"
+    (run / "weights").mkdir(parents=True)
+    (run / "weights" / "last.pt").write_bytes(b"w")
+    module.db.update_job(first, status="failed", run_dir=str(run))
+    more = client.post(f"/api/jobs/{first}/resume", json={"add_epochs": 2}).json()["id"]
+    scored = client.post(f"/api/jobs/{first}/evaluate", json={}).json()["id"]
+    module.db.update_job(more, status="running")
+    assert f"#{more}" in client.delete(f"/api/jobs/{first}").json()["error"]
+
+    module.db.update_job(more, status="cancelled")
+    body = client.delete(f"/api/jobs/{first}").json()
+    assert sorted(body["jobs"]) == sorted([first, more, scored]) and body["files_removed"]
+    assert client.get("/api/jobs").json() == []
 
 
 def test_startup_runs_once_per_process(studio):
