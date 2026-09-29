@@ -144,7 +144,7 @@ re-measured here:
 | YOLO11 n / s / m / l / x | 2.6M / 9.4M / 20.1M / 25.3M / 56.9M | 39.5 / 47.0 / 51.5 / 53.4 / 54.7 | needed | AGPL-3.0 |
 
 ¹ The model has no NMS step; `predict` drops a box overlapping a better one
-by IoU > 0.7, the rare duplicate — see [performance](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md#duplicate-boxes).
+by more than `iou=0.7`, the rare duplicate — see [performance](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md#duplicate-boxes).
 
 Read it plainly:
 

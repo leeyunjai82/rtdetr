@@ -57,9 +57,9 @@ def test_conf_max_det_and_classes_all_filter():
     boxes = np.full((5, 4), 0.5, np.float32)
     scores = np.array([[0.9, 0.1], [0.8, 0.1], [0.1, 0.7], [0.05, 0.0], [0.6, 0.0]], np.float32)
     # five boxes on one spot: the duplicate filter would keep one, so it is off here
-    assert len(decode(boxes, scores, conf=0.5, overlap=None)) == 4
-    assert len(decode(boxes, scores, conf=0.5, max_det=2, overlap=None)) == 2
-    only_car = decode(boxes, scores, conf=0.5, classes=[1], overlap=None)
+    assert len(decode(boxes, scores, conf=0.5, iou=None)) == 4
+    assert len(decode(boxes, scores, conf=0.5, max_det=2, iou=None)) == 2
+    only_car = decode(boxes, scores, conf=0.5, classes=[1], iou=None)
     assert only_car[:, 5].tolist() == [1.0]
 
 
@@ -72,7 +72,7 @@ def test_one_object_found_twice_under_two_classes_keeps_the_better_box():
     scores = np.array([[0.83, 0.0], [0.0, 0.57], [0.60, 0.0]], np.float32)
     det = decode(boxes, scores, conf=0.25)
     assert det[:, 4].tolist() == pytest.approx([0.83, 0.60])
-    assert len(decode(boxes, scores, conf=0.25, overlap=None)) == 3
+    assert len(decode(boxes, scores, conf=0.25, iou=None)) == 3
 
 
 def test_neighbours_that_only_touch_are_both_kept():

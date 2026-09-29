@@ -112,7 +112,7 @@ class Detector:
         device: str | None = None,
         max_det: int = 300,
         classes: list[int] | None = None,
-        overlap: float | None = 0.7,
+        iou: float | None = 0.7,
         stream: bool = False,
         save: bool = False,
         show: bool = False,
@@ -126,8 +126,8 @@ class Detector:
         """Run detection on any supported source.
 
         Returns a ``list[Results]``, or a generator when ``stream=True`` (the
-        only sane option for a long video or a live camera). ``overlap`` drops
-        a box covering a higher-scoring one by more than that IoU — the same
+        only sane option for a long video or a live camera). ``iou`` drops a
+        box covering a higher-scoring one by more than that IoU — the same
         object found twice, sometimes under two classes; ``None`` keeps all.
         """
         if source is None:
@@ -144,7 +144,7 @@ class Detector:
             device=device,
             max_det=max_det,
             classes=classes,
-            overlap=overlap,
+            iou=iou,
             save=save,
             show=show,
             project=project,
@@ -160,24 +160,31 @@ class Detector:
         self,
         source: Any = None,
         conf: float = 0.25,
-        iou: float = 0.3,
+        iou: float | None = 0.7,
+        match_iou: float = 0.3,
         max_age: int = 30,
         persist: bool = False,
         stream: bool = False,
         **kwargs: Any,
     ) -> Any:
-        """Predict, and keep an id on each box across frames (``boxes.id``)."""
+        """Predict, and keep an id on each box across frames (``boxes.id``).
+
+        ``iou`` is the duplicate filter, as in :meth:`predict`. ``match_iou``
+        is how much a box must overlap a track in the previous frame to carry
+        its id on; ``max_age`` is how many frames a track waits for its object.
+        """
         from .tracker import IoUTracker
 
         if self.tracker is None or not persist:
-            self.tracker = IoUTracker(iou=iou, max_age=max_age)
+            self.tracker = IoUTracker(iou=match_iou, max_age=max_age)
         kwargs.setdefault("name", "track")
-        gen = self._run(source, conf=conf, tracker=self.tracker, **self._track_kwargs(kwargs))
+        gen = self._run(source, conf=conf, iou=iou, tracker=self.tracker,
+                        **self._track_kwargs(kwargs))
         return _Stream(gen, "track") if stream else list(gen)
 
     def _track_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         allowed = {
-            "imgsz", "device", "max_det", "classes", "overlap", "save", "show",
+            "imgsz", "device", "max_det", "classes", "save", "show",
             "project", "name", "vid_stride", "verbose", "line_width",
         }
         unexpected = set(kwargs) - allowed
@@ -194,7 +201,7 @@ class Detector:
         device: str | None = None,
         max_det: int = 300,
         classes: list[int] | None = None,
-        overlap: float | None = 0.7,
+        iou: float | None = 0.7,
         save: bool = False,
         show: bool = False,
         project: str = "runs",
@@ -216,7 +223,7 @@ class Detector:
         try:
             for frame in loader:
                 det, speed = predictor(frame.img, conf=conf, max_det=max_det, classes=classes,
-                                       overlap=overlap)
+                                       iou=iou)
                 if tracker is not None:
                     det = tracker.update(det)
                 result = Results(

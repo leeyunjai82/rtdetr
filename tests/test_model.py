@@ -238,3 +238,36 @@ class TestAgainstARealModel:
         assert len(results) == 3
         assert all(r.boxes.id is not None for r in results)
         assert results[0].boxes.id.tolist() == results[-1].boxes.id.tolist()
+
+    def test_track_takes_iou_as_the_duplicate_filter_and_match_iou_for_the_tracker(
+            self, tiny_ir, tmp_path, monkeypatch):
+        """As in Ultralytics, track(iou=) means what predict(iou=) means."""
+        import cv2
+
+        from easydetect import tracker as tracker_module
+
+        clip = tmp_path / "clip.mp4"
+        writer = cv2.VideoWriter(str(clip), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (48, 48))
+        writer.write(np.zeros((48, 48, 3), np.uint8))
+        writer.release()
+        made = {}
+        real = tracker_module.IoUTracker
+
+        def spy(**kw):
+            made.update(kw)
+            return real(**kw)
+
+        monkeypatch.setattr(tracker_module, "IoUTracker", spy)
+        model = Detector(str(tiny_ir), device="CPU", verbose=False)
+        model.track(clip, conf=0.0, iou=0.5, match_iou=0.2)
+        assert made == {"iou": 0.2, "max_age": 30}
+        seen = []
+        predictor = model._ensure_predictor()
+        original = type(predictor).__call__
+        def watch(self, img, **kw):
+            seen.append(kw["iou"])
+            return original(self, img, **kw)
+
+        monkeypatch.setattr(type(predictor), "__call__", watch)
+        model.track(clip, conf=0.0, iou=0.5)
+        assert seen == [0.5]

@@ -117,14 +117,15 @@ boxes with 20 pairs overlapping by more than IoU 0.7 — one vehicle as `truck`
 one object twice. Raising `conf` to 0.5 cleared the same-class pairs but not
 the truck/car ones.
 
-So `predict` keeps the best box and drops any box that covers it by more than
-IoU 0.7, whatever the class: 194 boxes became 176 with no pair left, and at
+So `predict` (and `track`) keep the best box and drop any box that covers it by
+more than `iou=0.7`, whatever the class — the same name and default as
+Ultralytics' NMS threshold, applied here to D-FINE's rare duplicates: 194 boxes became 176 with no pair left, and at
 0.5, 66 became 60. Separate objects rarely overlap that much; for a scene where
 they do, change or switch it off:
 
 ```python
-model.predict("crowd.jpg", overlap=0.85)   # only near-identical boxes merge
-model.predict("crowd.jpg", overlap=None)   # every box the model gave
+model.predict("crowd.jpg", iou=0.85)   # only near-identical boxes merge
+model.predict("crowd.jpg", iou=None)   # every box the model gave
 ```
 
 `val` and the mAP a run reports use the unfiltered boxes, as D-FINE's own

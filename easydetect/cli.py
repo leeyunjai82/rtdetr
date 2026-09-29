@@ -28,7 +28,7 @@ Modes:
 
 Common keys:
   model=dfine-n|s|m|l|x|best.pt|model.xml   source=bus.jpg|dir|video.mp4|0|url
-  data=data.yaml  epochs=100  imgsz=640  batch=8  conf=0.25  device=0|cpu|AUTO
+  data=data.yaml  epochs=100  imgsz=640  batch=8  conf=0.25  iou=0.7|none  device=0|cpu|AUTO
   project=runs  name=predict  save=true  show=false  format=openvino  half=true
 
 Examples:
