@@ -40,13 +40,16 @@ class Evaluator:
         self.records = []  # per image: (pred xyxy, pred conf, pred cls, gt xyxy, gt cls)
 
     def add(self, pred_boxes, pred_conf, pred_cls, gt_boxes, gt_cls):
+        # copies, never views: an array that views a tensor from a DataLoader
+        # worker keeps that worker's shared-memory file open, two per image —
+        # 10,000 for COCO val, past Linux's usual limit of 1,024 descriptors
         self.records.append(
             (
-                np.asarray(pred_boxes, np.float32).reshape(-1, 4),
-                np.asarray(pred_conf, np.float32).reshape(-1),
-                np.asarray(pred_cls, np.int64).reshape(-1),
-                np.asarray(gt_boxes, np.float32).reshape(-1, 4),
-                np.asarray(gt_cls, np.int64).reshape(-1),
+                np.array(pred_boxes, np.float32).reshape(-1, 4),
+                np.array(pred_conf, np.float32).reshape(-1),
+                np.array(pred_cls, np.int64).reshape(-1),
+                np.array(gt_boxes, np.float32).reshape(-1, 4),
+                np.array(gt_cls, np.int64).reshape(-1),
             )
         )
 
