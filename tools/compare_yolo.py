@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+# Apache-2.0
+"""yolo11s.onnx and a D-FINE checkpoint on the same val images, scored by one evaluator.
+
+    python tools/compare_yolo.py --data ~/datasets/coco/data.yaml \
+        --yolo yolo11s.onnx --dfine runs/dfine-n-320/weights/best.pt
+
+Both run on OpenVINO (CPU by default), each with the preprocessing it was
+trained for: YOLO letterboxed (aspect kept, grey padding) then class-wise NMS
+at IoU 0.7; D-FINE plain-resized, no NMS. Boxes from both go through
+easydetect's Evaluator (COCO-style mAP50 / mAP50-95, the same code as
+`easydetect val`), at conf 0.001 and up to 300 boxes a picture.
+
+The YOLO side reads the exported ONNX's published layout (boxes as centre,
+width, height in letterboxed input pixels, then one score per class); it is
+written here from that description, with no Ultralytics code. Its numbers
+can differ a little from Ultralytics' own `val`, which batches pictures of
+similar shape; the point is that both models are measured the same way.
+"""
+
+from __future__ import annotations
+
+import argparse
+import statistics
+import time
+
+import cv2
+import numpy as np
+
+
+def letterbox(img, size):
+    h, w = img.shape[:2]
+    r = min(size / h, size / w)
+    nw, nh = round(w * r), round(h * r)
+    px, py = (size - nw) / 2, (size - nh) / 2
+    out = cv2.copyMakeBorder(cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR),
+                             round(py - 0.1), round(py + 0.1), round(px - 0.1), round(px + 0.1),
+                             cv2.BORDER_CONSTANT, value=(114, 114, 114))
+    return out, r, px, py
+
+
+class Yolo:
+    """An exported YOLO ONNX: input 1x3xSxS RGB 0..1, output 1 x (4+classes) x anchors."""
+
+    def __init__(self, path, device):
+        import openvino as ov
+
+        core = ov.Core()
+        model = core.read_model(path)
+        self.size = int(model.input(0).get_partial_shape()[2].get_length())
+        self.compiled = core.compile_model(model, device)
+        self.request = self.compiled.create_infer_request()
+
+    def __call__(self, img, conf=0.001, iou=0.7, max_det=300):
+        h, w = img.shape[:2]
+        boxed, r, px, py = letterbox(img, self.size)
+        x = cv2.cvtColor(boxed, cv2.COLOR_BGR2RGB).transpose(2, 0, 1)[None].astype(np.float32) / 255
+        t = time.perf_counter()
+        out = self.request.infer({0: x})[self.compiled.output(0)][0]      # (4+nc, anchors)
+        infer_ms = (time.perf_counter() - t) * 1000
+        scores = out[4:].T
+        cls = scores.argmax(1)
+        best = scores[np.arange(len(cls)), cls]
+        keep = best >= conf
+        cx, cy, bw, bh = out[:4, keep]
+        best, cls = best[keep], cls[keep]
+        xywh = np.stack([cx - bw / 2, cy - bh / 2, bw, bh], 1)
+        picked = cv2.dnn.NMSBoxesBatched(xywh.tolist(), best.tolist(), cls.tolist(), conf, iou)
+        picked = np.asarray(picked, int).reshape(-1)[:max_det]
+        xywh, best, cls = xywh[picked], best[picked], cls[picked]
+        xyxy = np.stack([(xywh[:, 0] - px) / r, (xywh[:, 1] - py) / r,
+                         (xywh[:, 0] + xywh[:, 2] - px) / r, (xywh[:, 1] + xywh[:, 3] - py) / r], 1)
+        xyxy = np.clip(xyxy, 0, [w, h, w, h])
+        return xyxy / [w, h, w, h], best, cls, infer_ms
+
+
+class Dfine:
+    def __init__(self, path, device):
+        from easydetect import Detector
+
+        self.model = Detector(path, device=device, verbose=False)
+        self.model(np.zeros((64, 64, 3), np.uint8))                          # build the IR once
+        self.size = self.model.predictor.imgsz
+
+    def __call__(self, img, conf=0.001, max_det=300):
+        h, w = img.shape[:2]
+        r = self.model.predict(img, conf=conf, max_det=max_det, iou=None, verbose=False)[0]
+        return (r.boxes.xyxy / [w, h, w, h], r.boxes.conf, r.boxes.cls.astype(int),
+                r.speed["inference"])
+
+
+def evaluate(name, runner, files, truth, nc):
+    from easydetect.validator import Evaluator
+
+    ev, times = Evaluator(nc), []
+    for i, (f, (gt_xyxy, gt_cls)) in enumerate(zip(files, truth, strict=True)):
+        boxes, conf, cls, ms = runner(cv2.imread(str(f)))
+        times.append(ms)
+        ev.add(boxes, conf, cls, gt_xyxy, gt_cls)
+        if (i + 1) % 1000 == 0:
+            print(f"  {name}: {i + 1}/{len(files)}", flush=True)
+    m = ev.compute()
+    return m["map50"], m["map"], statistics.median(times[5:] or times)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--data", required=True)
+    parser.add_argument("--yolo", help="yolo .onnx")
+    parser.add_argument("--dfine", nargs="*", default=[], help="D-FINE .pt / .xml (one or more)")
+    parser.add_argument("--device", default="CPU")
+    parser.add_argument("--limit", type=int, help="only the first N pictures (a quick look)")
+    args = parser.parse_args()
+
+    from pathlib import Path
+
+    from easydetect.data.dataset import DetDataset
+
+    ds = DetDataset(Path(args.data).expanduser(), "val", 64, augment=False)
+    files = ds.files[:args.limit] if args.limit else ds.files
+    truth = []
+    for f in files:
+        lab = ds._load_labels(f)
+        cx, cy, bw, bh = lab[:, 1], lab[:, 2], lab[:, 3], lab[:, 4]
+        truth.append((np.stack([cx - bw / 2, cy - bh / 2, cx + bw / 2, cy + bh / 2], 1),
+                      lab[:, 0].astype(int)))
+    print(f"{len(files)} pictures, {sum(len(t[1]) for t in truth)} boxes, device {args.device}")
+
+    rows = []
+    if args.yolo:
+        runner = Yolo(args.yolo, args.device)
+        rows.append((Path(args.yolo).name, runner.size,
+                     *evaluate("yolo", runner, files, truth, ds.nc)))
+    for path in args.dfine:
+        runner = Dfine(path, args.device)
+        rows.append((str(Path(path)), runner.size, *evaluate("dfine", runner, files, truth, ds.nc)))
+
+    print(f"\n{'model':<40} {'input':>5} {'mAP50':>7} {'mAP50-95':>9} {'model ms':>9}")
+    for name, size, m50, m, ms in rows:
+        print(f"{name[-40:]:<40} {size:>5} {m50:7.3f} {m:9.3f} {ms:9.1f}")
+
+
+if __name__ == "__main__":
+    main()
