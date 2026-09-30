@@ -9,8 +9,9 @@ For each size this downloads the Apache-2.0 COCO checkpoint from the D-FINE
 release, loads it (strict — this package's layout matches), and writes::
 
     mirror/dfine-s/dfine-s.pt      torch weights, for train/val/export
-    mirror/dfine-s/dfine-s.xml     OpenVINO IR, what predict downloads
+    mirror/dfine-s/dfine-s.xml     OpenVINO IR, what predict downloads on OpenVINO
     mirror/dfine-s/dfine-s.bin
+    mirror/dfine-s/dfine-s.onnx    the same network for ONNX Runtime (the light install)
     mirror/dfine-s/labels.txt      COCO class names, one per line
 
 The GitHub Actions workflow ``mirror.yml`` runs this and uploads the result.
@@ -38,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import convert_dfine  # noqa: E402  (same directory)
 
 
-def build(size: str, out_root: Path, imgsz: int, half: bool, keep_onnx: bool) -> Path:
+def build(size: str, out_root: Path, imgsz: int, half: bool, onnx: bool) -> Path:
     from easydetect import Detector
 
     name = f"dfine-{size}"
@@ -50,7 +51,7 @@ def build(size: str, out_root: Path, imgsz: int, half: bool, keep_onnx: bool) ->
 
     model = Detector(str(checkpoint), verbose=False)
     xml = model.export(format="openvino", imgsz=imgsz, half=half, out_dir=out)
-    if not keep_onnx:
+    if not onnx:     # the export writes it on the way to the IR
         (out / f"{name}.onnx").unlink(missing_ok=True)
     print(f"{name}: {', '.join(sorted(p.name for p in out.iterdir()))}")
     return xml
@@ -64,12 +65,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument("--half", action="store_true", help="FP16 IR (smaller, same accuracy)")
-    parser.add_argument("--keep-onnx", action="store_true", help="leave the intermediate .onnx")
+    parser.add_argument("--no-onnx", action="store_true",
+                        help="leave out the .onnx that ONNX Runtime downloads")
     args = parser.parse_args(argv)
 
     out_root = Path(args.out)
     for size in args.sizes:
-        build(size, out_root, args.imgsz, args.half, args.keep_onnx)
+        build(size, out_root, args.imgsz, args.half, not args.no_onnx)
     # the repo's front page travels with the weights
     shutil.copyfile(Path(__file__).with_name("hub_README.md"), out_root / "README.md")
     print(f"\nmirror ready at {out_root}/ — upload it keeping these directory names:")

@@ -43,6 +43,9 @@ train = [
     "scipy>=1.9",
     "onnx>=1.14",
 ]
+onnxruntime = [
+    "onnxruntime>=1.16",
+]
 dev = [
     "pytest>=7.0",
     "httpx>=0.24",

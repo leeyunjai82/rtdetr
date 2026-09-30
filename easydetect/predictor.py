@@ -1,5 +1,10 @@
 # Apache-2.0
-"""OpenVINO inference for an exported D-FINE IR (or ONNX).
+"""Inference for an exported D-FINE model, on OpenVINO or ONNX Runtime.
+
+OpenVINO runs an IR (``.xml``) or an ``.onnx`` on a CPU, an Intel GPU or an
+Intel NPU. ONNX Runtime runs the ``.onnx`` only, and is the lighter install
+(67 MB against 180 MB) for a CPU-only box such as a Raspberry Pi. Both share
+the same preprocessing and decoding, so the boxes come out the same.
 
 The exported graph is ``images -> (boxes cxcywh 0..1, scores)``. The scores it
 emits are **already sigmoid'd** — squashing them a second time silently turns a
@@ -79,72 +84,73 @@ def drop_duplicates(xyxy: np.ndarray, iou: float = IOU) -> np.ndarray:
     return np.nonzero(alive)[0]
 
 
-class OVPredictor:
-    """Compiles an IR once, then runs images through it."""
+def _split_outputs(arrays: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """``(boxes, scores)`` for the one image in a batch, whatever order they come in."""
+    boxes = next((a for a in arrays if a.shape[-1] == 4), None)
+    scores = next((a for a in arrays if a is not boxes), None)
+    if boxes is None or scores is None:
+        shapes = [a.shape for a in arrays]
+        raise ValueError(f"unexpected model outputs {shapes}; expected boxes + scores")
+    return boxes[0], scores[0]
 
-    def __init__(
-        self,
-        model_path: str | Path,
-        device: str = "AUTO",
-        imgsz: int | None = None,
-        names: dict[int, str] | None = None,
-        precision: str | None = None,
-    ) -> None:
-        """``precision`` overrides what OpenVINO runs the graph in.
 
-        Left alone, OpenVINO picks: on a CPU that supports it that means
-        bfloat16, which is much faster but shifts scores slightly. Pass
-        ``"f32"`` when you want output that matches PyTorch exactly.
-        """
-        import openvino as ov
+def installed(backend: str) -> bool:
+    import importlib.util
 
-        self.model_path = Path(model_path)
-        self.device = device
-        self.precision = precision
-        core = ov.Core()
-        model = core.read_model(str(self.model_path))
-        config = {"INFERENCE_PRECISION_HINT": precision} if precision else {}
-        self.compiled = core.compile_model(model, device, config)
-        self.input = self.compiled.input(0)
-        # CompiledModel.__call__ reuses one InferRequest, so a second thread
-        # calling it gets "Infer Request is busy". One request per thread.
-        self._local = threading.local()
-        self.names = names if names else read_names(self.model_path)
-        self.imgsz = imgsz or self._input_size()
+    module = {"openvino": "openvino", "onnxruntime": "onnxruntime"}[backend]
+    return importlib.util.find_spec(module) is not None
 
-    def _input_size(self) -> int:
-        shape = self.input.partial_shape
-        try:
-            h, w = shape[2], shape[3]
-            if h.is_static and w.is_static:
-                return int(max(h.get_length(), w.get_length()))
-        except Exception:  # dynamic or unusual layout
-            pass
-        return 640
 
-    # -- pipeline -----------------------------------------------------------
+BACKENDS = ("openvino", "onnxruntime")
+
+
+def pick_backend(requested: str | None = None, model_path: str | Path | None = None,
+                 device: str = "AUTO") -> str:
+    """Which runtime to use: the one asked for, else OpenVINO when it is there.
+
+    An ``.xml`` is OpenVINO's own format, and an Intel GPU or NPU is only
+    reachable through OpenVINO; anything else falls back to ONNX Runtime
+    when OpenVINO is not installed. ``$EASYDETECT_BACKEND`` sets the default.
+    """
+    import os
+
+    requested = (requested or os.environ.get("EASYDETECT_BACKEND") or "").lower() or None
+    if requested and requested not in BACKENDS:
+        raise ValueError(f"backend must be one of {BACKENDS}, not {requested!r}")
+    suffix = Path(model_path).suffix.lower() if model_path else ""
+    intel_only = str(device).upper().split(".")[0] in ("GPU", "NPU")
+    if requested == "onnxruntime" and suffix == ".xml":
+        raise ValueError("ONNX Runtime cannot read an OpenVINO .xml; pass the .onnx exported "
+                         "beside it, or use backend='openvino'")
+    if requested == "onnxruntime" and intel_only:
+        raise ValueError(f"device {device!r} is an OpenVINO device; ONNX Runtime runs on the CPU")
+    backend = requested or ("openvino" if installed("openvino") or suffix == ".xml" or intel_only
+                            else "onnxruntime" if installed("onnxruntime") else "openvino")
+    if not installed(backend):
+        why = (" (an .xml needs it)" if suffix == ".xml" else
+               f" (device {device} needs it)" if intel_only else "")
+        raise ImportError(f"{backend} is not installed{why}: pip install {backend}"
+                          + ("" if why else "  — or pip install onnxruntime for the lighter one"))
+    return backend
+
+
+class Predictor:
+    """What every runtime shares: resize in, boxes out. Subclasses run the graph."""
+
+    model_path: Path
+    device: str
+    precision: str | None
+    backend: str
+    names: dict[int, str]
+    imgsz: int
+
+    def infer(self, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """``(boxes (Q,4) cxcywh 0..1, scores (Q,K))`` for one image — per runtime."""
+        raise NotImplementedError
 
     def preprocess(self, img: np.ndarray) -> np.ndarray:
         """BGR HWC uint8 -> NCHW float32 RGB 0..1, plain-resized to imgsz."""
         return preprocess_image(img, self.imgsz)
-
-    def infer(self, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Returns ``(boxes (Q,4) cxcywh 0..1, scores (Q,K))`` for one image."""
-        request = getattr(self._local, "request", None)
-        if request is None:
-            request = self._local.request = self.compiled.create_infer_request()
-        request.infer({0: tensor})
-        # copy: the tensor data is the request's own buffer, overwritten next call
-        arrays = [
-            np.array(request.get_output_tensor(i).data)
-            for i in range(len(self.compiled.outputs))
-        ]
-        boxes = next((a for a in arrays if a.shape[-1] == 4), None)
-        scores = next((a for a in arrays if a is not boxes), None)
-        if boxes is None or scores is None:
-            shapes = [a.shape for a in arrays]
-            raise ValueError(f"unexpected model outputs {shapes}; expected boxes + scores")
-        return boxes[0], scores[0]
 
     def postprocess(
         self,
@@ -211,3 +217,108 @@ class OVPredictor:
             "postprocess": (t3 - t2) * 1e3,
         }
         return det, speed
+
+
+class OVPredictor(Predictor):
+    """Compiles an IR once, then runs images through it."""
+
+    backend = "openvino"
+
+    def __init__(
+        self,
+        model_path: str | Path,
+        device: str = "AUTO",
+        imgsz: int | None = None,
+        names: dict[int, str] | None = None,
+        precision: str | None = None,
+    ) -> None:
+        """``precision`` overrides what OpenVINO runs the graph in.
+
+        Left alone, OpenVINO picks: on a CPU that supports it that means
+        bfloat16, which is much faster but shifts scores slightly. Pass
+        ``"f32"`` when you want output that matches PyTorch exactly.
+        """
+        import openvino as ov
+
+        self.model_path = Path(model_path)
+        self.device = device
+        self.precision = precision
+        core = ov.Core()
+        model = core.read_model(str(self.model_path))
+        config = {"INFERENCE_PRECISION_HINT": precision} if precision else {}
+        self.compiled = core.compile_model(model, device, config)
+        self.input = self.compiled.input(0)
+        # CompiledModel.__call__ reuses one InferRequest, so a second thread
+        # calling it gets "Infer Request is busy". One request per thread.
+        self._local = threading.local()
+        self.names = names if names else read_names(self.model_path)
+        self.imgsz = imgsz or self._input_size()
+
+    def _input_size(self) -> int:
+        shape = self.input.partial_shape
+        try:
+            h, w = shape[2], shape[3]
+            if h.is_static and w.is_static:
+                return int(max(h.get_length(), w.get_length()))
+        except Exception:  # dynamic or unusual layout
+            pass
+        return 640
+
+    def infer(self, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Returns ``(boxes (Q,4) cxcywh 0..1, scores (Q,K))`` for one image."""
+        request = getattr(self._local, "request", None)
+        if request is None:
+            request = self._local.request = self.compiled.create_infer_request()
+        request.infer({0: tensor})
+        # copy: the tensor data is the request's own buffer, overwritten next call
+        arrays = [
+            np.array(request.get_output_tensor(i).data)
+            for i in range(len(self.compiled.outputs))
+        ]
+        return _split_outputs(arrays)
+
+
+class ORTPredictor(Predictor):
+    """An ``.onnx`` on ONNX Runtime: the light CPU runtime, no OpenVINO needed."""
+
+    backend = "onnxruntime"
+
+    def __init__(
+        self,
+        model_path: str | Path,
+        device: str = "CPU",
+        imgsz: int | None = None,
+        names: dict[int, str] | None = None,
+        precision: str | None = None,
+        threads: int | None = None,
+    ) -> None:
+        import onnxruntime as ort
+
+        self.model_path = Path(model_path)
+        if self.model_path.suffix.lower() != ".onnx":
+            raise ValueError(f"ONNX Runtime runs .onnx files, not {self.model_path.name}")
+        self.device = device
+        self.precision = precision
+        options = ort.SessionOptions()
+        if threads:
+            options.intra_op_num_threads = threads
+        providers = ["CPUExecutionProvider"]
+        if str(device).upper() in ("CUDA", "GPU0") and \
+                "CUDAExecutionProvider" in ort.get_available_providers():
+            providers.insert(0, "CUDAExecutionProvider")
+        # InferenceSession.run may be called from several threads at once
+        self.session = ort.InferenceSession(str(self.model_path), options, providers=providers)
+        self.input_name = self.session.get_inputs()[0].name
+        self.names = names if names else read_names(self.model_path)
+        self.imgsz = imgsz or self._input_size()
+
+    def _input_size(self) -> int:
+        shape = self.session.get_inputs()[0].shape
+        h, w = (shape[2], shape[3]) if len(shape) == 4 else (None, None)
+        if isinstance(h, int) and isinstance(w, int):
+            return max(h, w)
+        return 640
+
+    def infer(self, tensor: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Returns ``(boxes (Q,4) cxcywh 0..1, scores (Q,K))`` for one image."""
+        return _split_outputs(self.session.run(None, {self.input_name: tensor}))

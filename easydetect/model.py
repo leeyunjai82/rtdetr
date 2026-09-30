@@ -63,13 +63,20 @@ class Detector:
         verbose: bool = True,
         precision: str | None = None,
         pretrained: bool = True,
+        backend: str | None = None,
     ) -> None:
         """``pretrained=False`` starts training from an ImageNet backbone
         instead of the mirror's COCO weights — for domains COCO says nothing
-        about, or for a clean baseline."""
+        about, or for a clean baseline.
+
+        ``backend`` picks the runtime: ``"openvino"`` (CPU, Intel GPU, NPU;
+        reads ``.xml`` and ``.onnx``) or ``"onnxruntime"`` (CPU; ``.onnx``
+        only, the lighter install). Left out, OpenVINO is used when it is
+        installed and ONNX Runtime otherwise."""
         self.model_name = str(model)
         self.device = device
         self.precision = precision
+        self.backend = backend
         self.pretrained = pretrained
         self.verbose = verbose
         self.task = "detect"
@@ -78,7 +85,7 @@ class Detector:
         self.ckpt: dict | None = None
         self.variant: str | None = None
         self.ckpt_path: Path | None = None
-        self.predictor = None  # OVPredictor (lazy)
+        self.predictor = None  # OVPredictor or ORTPredictor (lazy)
         self.ir_path: Path | None = None
         self.tracker = None
 
@@ -251,30 +258,43 @@ class Detector:
                 _close_windows()
 
     def _ensure_predictor(self, device: str | None = None, imgsz: int | None = None):
-        """Compile (downloading or exporting first, if needed) the OpenVINO model."""
-        from .predictor import OVPredictor
+        """Load the model on its runtime (downloading or exporting first, if needed)."""
+        from .predictor import ORTPredictor, OVPredictor, installed, pick_backend
 
         device = device or self.device
+        if (self.ir_path is not None and self.ir_path.suffix.lower() == ".xml"
+                and self.backend != "openvino" and not installed("openvino")
+                and self.ir_path.with_suffix(".onnx").exists()):
+            # every export writes the .onnx beside the .xml: without OpenVINO, run that
+            self.ir_path = self.ir_path.with_suffix(".onnx")
+        backend = pick_backend(self.backend, self.ir_path, device)
         if (
             self.predictor is not None
+            and self.predictor.backend == backend
             and self.predictor.device == device
             and self.predictor.precision == self.precision
             and (imgsz is None or self.predictor.imgsz == imgsz)
         ):
             return self.predictor
 
+        wanted = ".xml" if backend == "openvino" else ".onnx"
+        if self.ir_path is not None and self.ir_path.suffix.lower() not in (wanted, ".onnx"):
+            self.ir_path = None             # an .xml met a runtime that cannot read it
         if self.ir_path is None:
             if self.net is not None:
-                self.ir_path = self.export(out_dir=self._cache_export_dir(), verbose=self.verbose)
-            else:
+                fmt = "openvino" if backend == "openvino" else "onnx"
+                self.ir_path = self.export(format=fmt, out_dir=self._cache_export_dir(),
+                                           verbose=self.verbose)
+            elif backend == "openvino":
                 self.ir_path = downloads.download_ir(self.model_name)
-        self.predictor = OVPredictor(
-            self.ir_path,
-            device=device,
-            imgsz=imgsz,
-            names=self.names or None,
-            precision=self.precision,
-        )
+            else:
+                self.ir_path = downloads.download_onnx(self.model_name)
+        if backend == "openvino":
+            self.predictor = OVPredictor(self.ir_path, device=device, imgsz=imgsz,
+                                         names=self.names or None, precision=self.precision)
+        else:
+            self.predictor = ORTPredictor(self.ir_path, device=device, imgsz=imgsz,
+                                          names=self.names or None, precision=self.precision)
         if not self.names:
             self.names = self.predictor.names
         return self.predictor

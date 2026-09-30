@@ -1,6 +1,6 @@
 name: mirror
 
-# Builds the pretrained D-FINE weights (.pt + OpenVINO IR + labels) from the
+# Builds the pretrained D-FINE weights (.pt + OpenVINO IR + ONNX + labels) from the
 # official Apache-2.0 COCO release and uploads them to the Hugging Face repo
 # the package downloads from. Needs the repository secret HF_TOKEN (write).
 
@@ -29,14 +29,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[train]" "huggingface_hub>=0.25"
+          pip install -e ".[train,onnxruntime]" "huggingface_hub>=0.25"
       - name: Build the weights
         if: ${{ !inputs.readme_only }}
         run: python tools/build_mirror.py --out mirror --sizes ${{ inputs.sizes }}
       - name: README only
         if: ${{ inputs.readme_only }}
         run: mkdir -p mirror && cp tools/hub_README.md mirror/README.md
-      - name: Check the IRs predict before uploading them
+      - name: Check the IRs and ONNX files predict before uploading them
         if: ${{ !inputs.readme_only }}
         run: |
           python - <<'PY'
@@ -45,10 +45,13 @@ jobs:
           urllib.request.urlretrieve(
               "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/basketball1.png", "b.png")
           for xml in sorted(glob.glob("mirror/*/*.xml")):
-              r = Detector(xml, verbose=False)("b.png", conf=0.5)[0]
-              names = [r.names[int(c)] for c in r.boxes.cls]
-              print(xml, names)
-              assert "person" in names, f"{xml} found no person"
+              found = {}
+              for path, backend in ((xml, "openvino"), (xml[:-4] + ".onnx", "onnxruntime")):
+                  r = Detector(path, backend=backend, verbose=False)("b.png", conf=0.5)[0]
+                  found[backend] = sorted(r.names[int(c)] for c in r.boxes.cls)
+                  print(path, backend, found[backend])
+                  assert "person" in found[backend], f"{path} found no person on {backend}"
+              assert found["openvino"] == found["onnxruntime"], f"{xml}: the runtimes disagree"
           PY
       - name: Upload to Hugging Face
         env:
@@ -76,7 +79,8 @@ jobs:
           os.environ["EASYDETECT_HOME"] = tempfile.mkdtemp()
           from easydetect import Detector
           size = "${{ inputs.sizes }}".split()[0]
-          r = Detector(f"dfine-{size}", verbose=False)("b.png", conf=0.5)[0]
-          print(f"dfine-{size} from the hub:", r)
-          assert len(r.boxes)
+          for backend in ("openvino", "onnxruntime"):
+              r = Detector(f"dfine-{size}", backend=backend, verbose=False)("b.png", conf=0.5)[0]
+              print(f"dfine-{size} from the hub on {backend}:", r)
+              assert len(r.boxes)
           PY

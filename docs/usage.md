@@ -35,6 +35,32 @@ for r in model.predict(0, stream=True, show=True):  # webcam window, q or Esc qu
     pass                                           # (a generator only runs when iterated)
 ```
 
+### Runtimes
+
+Two runtimes can run the model, with the same preprocessing and decoding, so
+the boxes match:
+
+| `backend=` | reads | devices | installed size |
+| --- | --- | --- | --- |
+| `"openvino"` | `.xml`, `.onnx` | CPU, Intel GPU, Intel NPU | 180 MB |
+| `"onnxruntime"` | `.onnx` | CPU | 67 MB |
+
+Left out, `Detector` uses OpenVINO when it is installed, ONNX Runtime
+otherwise; `$EASYDETECT_BACKEND` sets the default. A named model downloads the
+`.xml` or the `.onnx` to suit, a `.pt` exports whichever the runtime reads, and
+an `.xml` on a machine without OpenVINO runs from the `.onnx` every export
+writes beside it.
+
+```python
+model = Detector("dfine-s", backend="onnxruntime")
+model = Detector("runs/train/weights/best.onnx")      # either runtime
+```
+
+On an x86 CPU in float32 the two are close (dfine-s at 640: 118 ms OpenVINO,
+132 ms ONNX Runtime, on a 4-core Xeon); OpenVINO's default drops to bfloat16
+where the CPU supports it, 49 ms there. Measure on your own board before
+choosing for speed.
+
 One `Detector` can be shared between threads — a capture thread and a worker,
 say — each gets its own inference request underneath, so calls neither block
 nor collide.

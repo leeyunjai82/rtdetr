@@ -49,11 +49,12 @@ and drawing.
 | [`dfine-l`](./dfine-l) | HGNetv2-B4 | 6 layers | 31M | 54.0 |
 | [`dfine-x`](./dfine-x) | HGNetv2-B5 | 6 layers | 62M | 55.8 |
 
-Every folder holds the same four files:
+Every folder holds the same files:
 
 | file | what it is |
 | --- | --- |
-| `<name>.xml` + `<name>.bin` | OpenVINO IR — what `Detector("<name>")` runs |
+| `<name>.xml` + `<name>.bin` | OpenVINO IR — what `Detector("<name>")` runs on OpenVINO |
+| `<name>.onnx` | the same network for ONNX Runtime — the light install, e.g. a Raspberry Pi |
 | `<name>.pt` | PyTorch checkpoint — the starting point for `model.train(...)` |
 | `labels.txt` | class names, one per line |
 

@@ -123,6 +123,22 @@ def download_ir(name: str) -> Path:
     return xml
 
 
+def download_onnx(name: str) -> Path:
+    """Fetch ``<name>.onnx`` (+ ``labels.txt``) — what ONNX Runtime runs."""
+    name = normalize_name(name)
+    if name not in MODEL_NAMES:
+        raise ModelNotFoundError(_unknown_name_message(name))
+    try:
+        onnx = _asset(name, f"{name}.onnx")
+    except DownloadError as exc:
+        raise ModelNotFoundError(
+            f"'{name}'.onnx is not on the mirror ({exc}). Install openvino to use the IR, "
+            f"or export one: Detector('{name}').export(format='onnx')"
+        ) from exc
+    _asset(name, "labels.txt", required=False)
+    return onnx
+
+
 def download_checkpoint(name: str) -> Path:
     """Fetch ``<name>.pt`` — the torch weights used to fine-tune or validate."""
     name = normalize_name(name)

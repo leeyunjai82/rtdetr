@@ -8,7 +8,8 @@ Back to the [README](../README.md).
 in `~/.easydetect/` (`$EASYDETECT_HOME` to move it, `$EASYDETECT_ASSETS_URL` to
 point at an internal mirror — handy for air-gapped sites). Known names:
 `dfine-n`, `dfine-s`, `dfine-m`, `dfine-l`, `dfine-x`; each mirror entry is
-`<name>/<name>.xml`, `.bin`, `.pt` and `labels.txt`, on
+`<name>/<name>.xml`, `.bin` (OpenVINO), `.onnx` (ONNX Runtime), `.pt` and
+`labels.txt`, on
 [huggingface.co/leeyunjai/easydetect](https://huggingface.co/leeyunjai/easydetect).
 
 The weights are D-FINE's official COCO checkpoints, which their authors release

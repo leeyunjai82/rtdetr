@@ -39,6 +39,18 @@ pip install easydetect              # inference
 pip install "easydetect[train]"     # + training
 ```
 
+Inference never needs PyTorch. On a small CPU-only box — a Raspberry Pi — it can
+skip OpenVINO too and run on ONNX Runtime (about 330 MB installed instead of
+440 MB; the boxes are identical):
+
+```bash
+pip install --no-deps easydetect
+pip install numpy pyyaml opencv-python-headless onnxruntime
+```
+
+`Detector` picks OpenVINO when it is installed and ONNX Runtime otherwise, or
+`Detector("dfine-s", backend="onnxruntime")`. Intel GPUs and NPUs need OpenVINO.
+
 ## Detect
 
 ```python
