@@ -42,12 +42,17 @@ def letterbox(img, size):
 class Yolo:
     """An exported YOLO ONNX: input 1x3xSxS RGB 0..1, output 1 x (4+classes) x anchors."""
 
-    def __init__(self, path, device):
+    def __init__(self, path, device, size=320):
         import openvino as ov
 
         core = ov.Core()
         model = core.read_model(path)
-        self.size = int(model.input(0).get_partial_shape()[2].get_length())
+        shape = model.input(0).get_partial_shape()
+        if shape[2].is_static:                   # exported at a fixed size: that is the size
+            self.size = int(shape[2].get_length())
+        else:                                    # exported with dynamic=True: pin it here
+            self.size = size
+            model.reshape({model.input(0): [1, 3, size, size]})
         self.compiled = core.compile_model(model, device)
         self.request = self.compiled.create_infer_request()
 
@@ -109,6 +114,8 @@ def main():
     parser.add_argument("--yolo", help="yolo .onnx")
     parser.add_argument("--dfine", nargs="*", default=[], help="D-FINE .pt / .xml (one or more)")
     parser.add_argument("--device", default="CPU")
+    parser.add_argument("--size", type=int, default=320,
+                        help="YOLO input size when the ONNX was exported with a dynamic one")
     parser.add_argument("--limit", type=int, help="only the first N pictures (a quick look)")
     args = parser.parse_args()
 
@@ -128,7 +135,7 @@ def main():
 
     rows = []
     if args.yolo:
-        runner = Yolo(args.yolo, args.device)
+        runner = Yolo(args.yolo, args.device, args.size)
         rows.append((Path(args.yolo).name, runner.size,
                      *evaluate("yolo", runner, files, truth, ds.nc)))
     for path in args.dfine:
