@@ -9,7 +9,8 @@ rather than black, so the border is not a cue that says "zoomed".
 Zoom-out makes objects small and crop makes them large, so a model sees each
 class at many sizes and positions instead of only the framing the photos had.
 
-Boxes are pixel ``xyxy`` float arrays; every function returns new ones.
+Boxes are pixel ``xyxy`` float arrays in the original picture's coordinates;
+the geometry moves a rectangle over the picture and renders it once, at the end.
 """
 
 from __future__ import annotations
@@ -33,38 +34,49 @@ DESCRIPTION = [
 ]
 
 
+_LEVELS = np.arange(256, dtype=np.float32)
+
+
 def photometric(img: np.ndarray) -> np.ndarray:
-    """Brightness, contrast, saturation and hue, each on its own coin flip."""
-    out = img.astype(np.float32)
-    if random.random() < PHOTO_P:                        # brightness ×0.875–1.125
-        out *= random.uniform(0.875, 1.125)
-    if random.random() < PHOTO_P:                        # contrast ×0.5–1.5 about the mean grey
-        grey = cv2.cvtColor(np.clip(out, 0, 255).astype(np.uint8), cv2.COLOR_BGR2GRAY).mean()
-        out = grey + (out - grey) * random.uniform(0.5, 1.5)
-    out = np.clip(out, 0, 255).astype(np.uint8)
+    """Brightness, contrast, saturation and hue, each on its own coin flip.
+
+    Each is a per-value mapping, so each is a 256-entry table: brightness
+    and contrast fold into one table for all three channels, saturation and
+    hue into tables for the S and H planes.
+    """
+    brighten, stretch = random.random() < PHOTO_P, random.random() < PHOTO_P
+    if brighten or stretch:
+        table = _LEVELS * (random.uniform(0.875, 1.125) if brighten else 1.0)   # brightness
+        if stretch:                                      # contrast ×0.5–1.5 about the mean grey
+            grey = float(np.clip(table[cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)], 0, 255).mean())
+            table = grey + (np.clip(table, 0, 255) - grey) * random.uniform(0.5, 1.5)
+        img = cv2.LUT(img, np.clip(table, 0, 255).astype(np.uint8))
     saturate, shift = random.random() < PHOTO_P, random.random() < PHOTO_P
     if saturate or shift:
-        hsv = cv2.cvtColor(out, cv2.COLOR_BGR2HSV).astype(np.float32)
+        h, s, v = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
         if saturate:                                     # saturation ×0.5–1.5
-            hsv[..., 1] = np.clip(hsv[..., 1] * random.uniform(0.5, 1.5), 0, 255)
+            s = cv2.LUT(s, np.clip(_LEVELS * random.uniform(0.5, 1.5), 0, 255).astype(np.uint8))
         if shift:                                        # hue ±0.05 of the circle (OpenCV: 0–180)
-            hsv[..., 0] = (hsv[..., 0] + random.uniform(-9, 9)) % 180
-        out = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-    return out
+            h = cv2.LUT(h, ((_LEVELS + random.uniform(-9, 9)) % 180).astype(np.uint8))
+        img = cv2.cvtColor(cv2.merge((h, s, v)), cv2.COLOR_HSV2BGR)
+    return img
 
 
-def zoom_out(img: np.ndarray, boxes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Place the image somewhere on a bigger canvas of its mean colour."""
+def zoom_out(view: np.ndarray) -> np.ndarray:
+    """Widen the view onto a canvas up to 4x the picture, the picture somewhere inside.
+
+    Nothing is drawn here: ``view`` is the rectangle, in the picture's own
+    pixel coordinates, that will become the output. The canvas outside the
+    picture is filled when the view is finally rendered.
+    """
     if random.random() >= ZOOM_OUT_P:
-        return img, boxes
-    h, w = img.shape[:2]
+        return view
+    w, h = view[2] - view[0], view[3] - view[1]
     s = random.uniform(1.0, ZOOM_OUT_MAX)
-    ch, cw = int(h * s), int(w * s)
-    top, left = random.randint(0, ch - h), random.randint(0, cw - w)
-    canvas = np.empty((ch, cw, 3), img.dtype)
-    canvas[:] = img.reshape(-1, 3).mean(0).astype(img.dtype)
-    canvas[top:top + h, left:left + w] = img
-    return canvas, boxes + np.array([left, top, left, top], np.float32)
+    cw, ch = int(w * s), int(h * s)
+    left, top = random.randint(0, int(cw - w)), random.randint(0, int(ch - h))
+    return np.array([view[0] - left, view[1] - top, view[0] - left + cw, view[1] - top + ch],
+                    np.float32)
 
 
 def _iou(region: np.ndarray, boxes: np.ndarray) -> np.ndarray:
@@ -78,28 +90,28 @@ def _iou(region: np.ndarray, boxes: np.ndarray) -> np.ndarray:
     return inter / np.maximum(area + region_area - inter, 1e-9)
 
 
-def iou_crop(img: np.ndarray, boxes: np.ndarray,
+def iou_crop(view: np.ndarray, boxes: np.ndarray,
              classes: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Cut out a region that overlaps some box by at least a random IoU.
+    """Narrow the view to a region that overlaps some box by at least a random IoU.
 
     Boxes whose centre falls outside the region are dropped; the rest are
     clipped to it. A picture with no boxes (a background frame) takes any
-    region. When no region qualifies, the picture stays whole.
+    region. When no region qualifies, the view stays as it was.
     """
     if random.random() >= CROP_P:
-        return img, boxes, classes
-    h, w = img.shape[:2]
+        return view, boxes, classes
+    w, h = view[2] - view[0], view[3] - view[1]
     min_iou = random.choice(CROP_MIN_IOUS)
     if min_iou is None:
-        return img, boxes, classes
+        return view, boxes, classes
     for _ in range(CROP_TRIES):
         cw = w * random.uniform(*CROP_SCALE)
         ch = h * random.uniform(*CROP_SCALE)
         if not CROP_ASPECT[0] <= cw / ch <= CROP_ASPECT[1]:
             continue
-        # whole pixels: the boxes must be cut exactly where the picture is
         cw, ch = max(int(cw), 1), max(int(ch), 1)
-        left, top = random.randint(0, w - cw), random.randint(0, h - ch)
+        left = view[0] + random.randint(0, int(w - cw))
+        top = view[1] + random.randint(0, int(h - ch))
         region = np.array([left, top, left + cw, top + ch], np.float32)
         if len(boxes):
             if _iou(region, boxes).max() < min_iou:
@@ -109,30 +121,54 @@ def iou_crop(img: np.ndarray, boxes: np.ndarray,
             if not inside.any():
                 continue
             kept = boxes[inside].copy()
-            kept[:, [0, 2]] = np.clip(kept[:, [0, 2]], region[0], region[2]) - region[0]
-            kept[:, [1, 3]] = np.clip(kept[:, [1, 3]], region[1], region[3]) - region[1]
+            kept[:, [0, 2]] = np.clip(kept[:, [0, 2]], region[0], region[2])
+            kept[:, [1, 3]] = np.clip(kept[:, [1, 3]], region[1], region[3])
             boxes, classes = kept, classes[inside]
-        return img[top:top + ch, left:left + cw], boxes, classes
-    return img, boxes, classes
+        return region, boxes, classes
+    return view, boxes, classes
 
 
-def hflip(img: np.ndarray, boxes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    if random.random() >= 0.5:
-        return img, boxes
-    w = img.shape[1]
-    flipped = boxes.copy()
-    flipped[:, 0], flipped[:, 2] = w - boxes[:, 2], w - boxes[:, 0]
-    return np.ascontiguousarray(img[:, ::-1]), flipped
+def render(img: np.ndarray, view: np.ndarray, size: tuple[int, int],
+           flip: bool) -> np.ndarray:
+    """Draw ``view`` (picture coordinates, may reach past the picture) at ``size``.
+
+    One affine warp straight to the output, so a 4x zoom-out never builds a
+    canvas 4x the photo. Outside the picture is its mean colour. A big
+    shrink goes through an area resize first, so fine detail averages
+    instead of aliasing.
+    """
+    h, w = img.shape[:2]
+    out_w, out_h = size
+    sx, sy = out_w / (view[2] - view[0]), out_h / (view[3] - view[1])
+    inside = view[0] >= 0 and view[1] >= 0 and view[2] <= w and view[3] <= h
+    if inside and not flip and view[0] == 0 and view[1] == 0 and view[2] == w and view[3] == h:
+        return cv2.resize(img, (out_w, out_h))
+    src, fx, fy = img, 1.0, 1.0
+    if max(sx, sy) < 0.5:                       # shrinking hard: average first
+        nw, nh = max(1, round(w * sx * 2)), max(1, round(h * sy * 2))
+        src = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_AREA)
+        fx, fy = nw / w, nh / h
+    ax, ay = sx / fx, sy / fy
+    if flip:
+        m = np.array([[-ax, 0, view[2] * sx], [0, ay, -view[1] * sy]], np.float32)
+    else:
+        m = np.array([[ax, 0, -view[0] * sx], [0, ay, -view[1] * sy]], np.float32)
+    fill = cv2.mean(img)[:3]
+    return cv2.warpAffine(src, m, (out_w, out_h), flags=cv2.INTER_LINEAR,
+                          borderMode=cv2.BORDER_CONSTANT, borderValue=fill)
 
 
 def apply(img: np.ndarray, labels: np.ndarray, strong: bool = True,
-          min_side: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+          size: int | None = None, min_side: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
     """Augment one picture and its ``cls cx cy w h`` (normalised) labels.
 
+    ``size`` renders the result square at that many pixels (what training
+    wants, and the cheap way); ``None`` keeps the view's own pixel size.
     ``strong=False`` keeps only the flip — what the last epochs train on, as
     in D-FINE, so the model settles on pictures framed like the ones it will
-    see. ``min_side`` drops boxes thinner than that many pixels
-    of the returned image.
+    see. ``min_side`` drops boxes thinner than that many output pixels.
+    Colour jitter runs last, on the small output: it does not care where the
+    pixels came from, and there are far fewer of them there.
     """
     h, w = img.shape[:2]
     classes = labels[:, 0].copy()
@@ -142,19 +178,30 @@ def apply(img: np.ndarray, labels: np.ndarray, strong: bool = True,
     boxes[:, 2] = (labels[:, 1] + labels[:, 3] / 2) * w
     boxes[:, 3] = (labels[:, 2] + labels[:, 4] / 2) * h
 
+    view = np.array([0, 0, w, h], np.float32)
+    if strong:
+        view = zoom_out(view)
+        view, boxes, classes = iou_crop(view, boxes, classes)
+    flip = random.random() < 0.5
+
+    vw, vh = view[2] - view[0], view[3] - view[1]
+    out_size = (size, size) if size else (max(1, round(float(vw))), max(1, round(float(vh))))
+    img = render(img, view, out_size, flip)
     if strong:
         img = photometric(img)
-        img, boxes = zoom_out(img, boxes)
-        img, boxes, classes = iou_crop(img, boxes, classes)
-    img, boxes = hflip(img, boxes)
 
-    h, w = img.shape[:2]
-    keep = ((boxes[:, 2] - boxes[:, 0]) >= min_side) & ((boxes[:, 3] - boxes[:, 1]) >= min_side)
-    boxes, classes = boxes[keep], classes[keep]
-    out = np.empty((len(boxes), 5), np.float32)
+    # boxes into the output: relative to the view, mirrored if flipped
+    rel = boxes - np.array([view[0], view[1], view[0], view[1]], np.float32)
+    if flip:
+        rel[:, [0, 2]] = vw - rel[:, [2, 0]]
+    rel /= np.array([vw, vh, vw, vh], np.float32)
+    ow, oh = out_size
+    keep = ((rel[:, 2] - rel[:, 0]) * ow >= min_side) & ((rel[:, 3] - rel[:, 1]) * oh >= min_side)
+    rel, classes = rel[keep], classes[keep]
+    out = np.empty((len(rel), 5), np.float32)
     out[:, 0] = classes
-    out[:, 1] = (boxes[:, 0] + boxes[:, 2]) / 2 / w
-    out[:, 2] = (boxes[:, 1] + boxes[:, 3]) / 2 / h
-    out[:, 3] = (boxes[:, 2] - boxes[:, 0]) / w
-    out[:, 4] = (boxes[:, 3] - boxes[:, 1]) / h
+    out[:, 1] = (rel[:, 0] + rel[:, 2]) / 2
+    out[:, 2] = (rel[:, 1] + rel[:, 3]) / 2
+    out[:, 3] = rel[:, 2] - rel[:, 0]
+    out[:, 4] = rel[:, 3] - rel[:, 1]
     return img, out

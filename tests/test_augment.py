@@ -86,3 +86,17 @@ def test_the_last_tenth_trains_on_plain_pictures():
     assert any("last 2 epoch" in line for line in stub._augment_lines())
     stub.augment = False
     assert stub._augment_lines() == [aug.DESCRIPTION[-1], "resize to 640×640"]
+
+
+def test_rendered_at_training_size_the_boxes_still_cover_their_objects(no_colour):
+    """The path training takes: zoom, crop and flip drawn straight at 96 x 96."""
+    random.seed(5)
+    for _ in range(300):
+        img, labels = _scene()
+        out, got = aug.apply(img, labels, size=96)
+        assert out.shape == (96, 96, 3)
+        for _, cx, cy, bw, bh in got:
+            x1, x2 = int(np.ceil((cx - bw / 2) * 96)) + 1, int((cx + bw / 2) * 96) - 1
+            y1, y2 = int(np.ceil((cy - bh / 2) * 96)) + 1, int((cy + bh / 2) * 96) - 1
+            if x2 - x1 >= 2 and y2 - y1 >= 2:
+                assert out[y1:y2, x1:x2].mean() > 230, "a box that no longer sits on its object"

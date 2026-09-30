@@ -134,10 +134,10 @@ class DetDataset(Dataset):
             raise FileNotFoundError(f)
         labels = self._load_labels(f)  # cls, cx, cy, w, h (normalized)
 
-        if self.augment:
-            img, labels = aug.apply(img, labels, strong=self.strong)
-
-        img = cv2.resize(img, (self.imgsz, self.imgsz))  # plain resize, as D-FINE trains
+        if self.augment:   # rendered straight at imgsz x imgsz
+            img, labels = aug.apply(img, labels, strong=self.strong, size=self.imgsz)
+        else:
+            img = cv2.resize(img, (self.imgsz, self.imgsz))  # plain resize, as D-FINE trains
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         tensor = torch.from_numpy(img.transpose(2, 0, 1)).contiguous()
 
