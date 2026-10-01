@@ -120,6 +120,7 @@ class Detector:
         max_det: int = 300,
         classes: list[int] | None = None,
         iou: float | None = 0.7,
+        contain: float | None = None,
         stream: bool = False,
         save: bool = False,
         show: bool = False,
@@ -136,6 +137,9 @@ class Detector:
         only sane option for a long video or a live camera). ``iou`` drops a
         box covering a higher-scoring one by more than that IoU — the same
         object found twice, sometimes under two classes; ``None`` keeps all.
+        ``contain=0.8`` also merges a box with 80% of its area inside another
+        of its class — the visible pieces of a half hidden object reported
+        beside the whole of it — into one box. Off by default.
         """
         if source is None:
             raise ValueError("predict() needs a source (image, folder, video, url, camera index)")
@@ -152,6 +156,7 @@ class Detector:
             max_det=max_det,
             classes=classes,
             iou=iou,
+            contain=contain,
             save=save,
             show=show,
             project=project,
@@ -168,6 +173,7 @@ class Detector:
         source: Any = None,
         conf: float = 0.25,
         iou: float | None = 0.7,
+        contain: float | None = None,
         match_iou: float = 0.3,
         max_age: int = 30,
         persist: bool = False,
@@ -176,7 +182,7 @@ class Detector:
     ) -> Any:
         """Predict, and keep an id on each box across frames (``boxes.id``).
 
-        ``iou`` is the duplicate filter, as in :meth:`predict`. ``match_iou``
+        ``iou`` and ``contain`` filter duplicates, as in :meth:`predict`. ``match_iou``
         is how much a box must overlap a track in the previous frame to carry
         its id on; ``max_age`` is how many frames a track waits for its object.
         """
@@ -185,7 +191,7 @@ class Detector:
         if self.tracker is None or not persist:
             self.tracker = IoUTracker(iou=match_iou, max_age=max_age)
         kwargs.setdefault("name", "track")
-        gen = self._run(source, conf=conf, iou=iou, tracker=self.tracker,
+        gen = self._run(source, conf=conf, iou=iou, contain=contain, tracker=self.tracker,
                         **self._track_kwargs(kwargs))
         return _Stream(gen, "track") if stream else list(gen)
 
@@ -209,6 +215,7 @@ class Detector:
         max_det: int = 300,
         classes: list[int] | None = None,
         iou: float | None = 0.7,
+        contain: float | None = None,
         save: bool = False,
         show: bool = False,
         project: str = "runs",
@@ -230,7 +237,7 @@ class Detector:
         try:
             for frame in loader:
                 det, speed = predictor(frame.img, conf=conf, max_det=max_det, classes=classes,
-                                       iou=iou)
+                                       iou=iou, contain=contain)
                 if tracker is not None:
                     det = tracker.update(det)
                 result = Results(

@@ -153,5 +153,21 @@ model.predict("crowd.jpg", iou=0.85)   # only near-identical boxes merge
 model.predict("crowd.jpg", iou=None)   # every box the model gave
 ```
 
+IoU has a blind spot: a piece inside a whole. A chair half hidden behind a
+person came back from `dfine-m` as the whole chair (0.64) plus its two visible
+pieces (0.67, 0.61); each piece overlaps the whole by an IoU of only its share
+of the area, so NMS at any usual threshold keeps all three (YOLO's NMS would
+too — it measures overlap the same way). `contain=0.8` measures it over the
+smaller box instead: a box of the same class with 80% of the smaller one's area
+shared is one object. The inner box goes when the enclosing one is about as
+sure (within 0.1), so the whole chair stays and its pieces go; the enclosing
+one goes when it is much less sure than the box inside, so a loose box around
+two people cannot erase them. It is off by default because a real object
+inside another of its class — a child held by an adult — goes too:
+
+```python
+model.predict(0, stream=True, show=True, contain=0.8)   # one box per chair
+```
+
 `val` and the mAP a run reports use the unfiltered boxes, as D-FINE's own
 numbers do.

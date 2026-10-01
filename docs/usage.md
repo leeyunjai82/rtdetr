@@ -30,6 +30,7 @@ for r in model.predict("clip.mp4", conf=0.4, stream=True):   # generator, O(1) m
 
 model.predict("bus.jpg", save=True)     # writes runs/detect/predict/bus.jpg
 model.predict("bus.jpg", iou=None)      # keep a second box on the same object (default 0.7 drops it)
+model.predict("desk.jpg", contain=0.8)  # also merge the pieces of a half hidden object (off by default)
 model.track("clip.mp4")                 # IoU tracker -> r.boxes.id (match_iou=0.3, max_age=30)
 for r in model.predict(0, stream=True, show=True):  # webcam window, q or Esc quits
     pass                                           # (a generator only runs when iterated)

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.3
+
+- **`contain=0.8` merges the pieces of one object.** A half hidden object can
+  come back as the whole of it plus its visible pieces (a chair behind a
+  person: 0.64 whole, 0.67 and 0.61 pieces), and IoU-based NMS keeps them all
+  because a piece overlaps the whole only by its share of the area. With
+  `contain`, a box sharing at least that much of the smaller box's area with
+  another of its class is one object: the inner box goes when the enclosing one
+  is about as sure (within 0.1), the enclosing one when it is much less sure
+  (a loose box around a group). Off by default — a child held by an adult is
+  also a box inside a box — on `predict`, `track` and the CLI.
+
 ## 0.2.2
 
 - **The learning rate follows the batch size.** `lr0=None`, now the default,

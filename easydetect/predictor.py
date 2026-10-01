@@ -158,6 +158,52 @@ def drop_duplicates(xyxy: np.ndarray, iou: float = IOU) -> np.ndarray:
     return np.nonzero(alive)[0]
 
 
+#: How much less sure an enclosing box may be than the box inside it and still
+#: count as the whole object rather than a loose box around several.
+CONTAIN_MARGIN = 0.1
+
+
+def drop_contained(xyxy: np.ndarray, scores: np.ndarray, cls: np.ndarray,
+                   contain: float) -> np.ndarray:
+    """Indices of the boxes to keep when a box lies inside another of its class.
+
+    IoU cannot see a part inside a whole: a chair half hidden behind a person
+    can come back as the whole chair (0.64) plus its two visible pieces (0.67,
+    0.61), and each piece overlaps the whole by an IoU of only its share of the
+    area. Measured as the overlap over the *smaller* box instead, a piece sits
+    near 1.0, so a pair of one class sharing at least ``contain`` of the
+    smaller box is one object, and one box goes:
+
+    * the inner one, when the enclosing box is about as sure (within
+      ``CONTAIN_MARGIN``) — the whole object and a piece of it;
+    * the enclosing one, when it is much less sure than the box inside — a
+      loose box around a group, which must not erase the members.
+
+    NMS's "keep the best" would not do here: the best box is a piece, and once
+    it has removed the whole, the other piece no longer overlaps anything and
+    stays — two half chairs. Same class only: a cup on a table is not part of
+    the table. The cost is a real object inside another of its class, a child
+    held by an adult, so this is off unless asked for.
+    """
+    x1, y1, x2, y2 = xyxy.T
+    area = np.clip(x2 - x1, 0, None) * np.clip(y2 - y1, 0, None)
+    gone = np.zeros(len(xyxy), bool)
+    for i in range(len(xyxy)):
+        for j in range(i + 1, len(xyxy)):
+            if cls[i] != cls[j]:
+                continue
+            iw = max(0.0, min(x2[i], x2[j]) - max(x1[i], x1[j]))
+            ih = max(0.0, min(y2[i], y2[j]) - max(y1[i], y1[j]))
+            if iw * ih < contain * max(min(area[i], area[j]), 1e-9):
+                continue
+            big, small = (i, j) if area[i] >= area[j] else (j, i)
+            if scores[big] >= scores[small] - CONTAIN_MARGIN:
+                gone[small] = True
+            else:
+                gone[big] = True
+    return np.nonzero(~gone)[0]
+
+
 def _split_outputs(arrays: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     """``(boxes, scores)`` for the one image in a batch, whatever order they come in."""
     boxes = next((a for a in arrays if a.shape[-1] == 4), None)
@@ -235,12 +281,15 @@ class Predictor:
         max_det: int = 300,
         classes: list[int] | None = None,
         iou: float | None = IOU,
+        contain: float | None = None,
     ) -> np.ndarray:
         """-> ``(N, 6)`` array of ``x1 y1 x2 y2 conf cls`` in pixels.
 
         ``iou`` drops a box that covers a higher-scoring one by more than that
         IoU, whatever the two classes (``None`` keeps them all): see
-        :func:`drop_duplicates`.
+        :func:`drop_duplicates`. ``contain`` (off by default) also drops a box
+        lying mostly inside another of its class: see
+        :func:`drop_contained`.
         """
         if _looks_like_logits(scores):
             scores = 1.0 / (1.0 + np.exp(-scores))
@@ -263,6 +312,9 @@ class Predictor:
         if iou is not None and len(xyxy) > 1:
             kept = drop_duplicates(xyxy, iou)
             xyxy, best, cls = xyxy[kept], best[kept], cls[kept]
+        if contain is not None and len(xyxy) > 1:
+            kept = drop_contained(xyxy, best, cls, contain)
+            xyxy, best, cls = xyxy[kept], best[kept], cls[kept]
         return np.concatenate(
             [xyxy, best.astype(np.float32)[:, None], cls.astype(np.float32)[:, None]], axis=1
         )
@@ -274,6 +326,7 @@ class Predictor:
         max_det: int = 300,
         classes: list[int] | None = None,
         iou: float | None = IOU,
+        contain: float | None = None,
     ) -> tuple[np.ndarray, dict[str, float]]:
         """Run one image; returns ``(detections (N,6), speed dict in ms)``."""
         import time
@@ -283,7 +336,8 @@ class Predictor:
         t1 = time.perf_counter()
         boxes, scores = self.infer(tensor)
         t2 = time.perf_counter()
-        det = self.postprocess(boxes, scores, img.shape[:2], conf, max_det, classes, iou)
+        det = self.postprocess(boxes, scores, img.shape[:2], conf, max_det, classes, iou,
+                               contain)
         t3 = time.perf_counter()
         speed = {
             "preprocess": (t1 - t0) * 1e3,
