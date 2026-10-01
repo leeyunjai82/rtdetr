@@ -103,18 +103,21 @@ faster on a small set, and `resume=True` picks a killed run back up.
 
 ## Label, train and watch it in a browser
 
-`platform/` is a web app on top of this package: drop images in, label them (the
-model drafts the boxes, you correct them), queue a training run, watch the curve,
-then run the result over a folder, a video or your webcam — on one machine, with
-nothing leaving it. A finished run hands you copy-ready code and a Hugging Face
-folder whose model card is written from the run.
+[easydetect lab](https://github.com/themakerrobot/easydetect-lab) is a web app on top of this package, in its own
+repository: drop images in, label them (the model drafts the boxes, you correct
+them), queue a training run, watch the curve, then run the result over a folder,
+a video or your webcam — on one machine, with nothing leaving it. A finished run
+hands you copy-ready code and a Hugging Face folder whose model card is written
+from the run.
 
 ```bash
-pip install -r platform/requirements.txt
-python platform/run.py          # http://<this machine>:8080
+git clone https://github.com/themakerrobot/easydetect-lab
+cd easydetect-lab
+pip install -r requirements.txt     # easydetect[train] from PyPI, and the web server
+python run.py                       # http://<this machine>:8080
 ```
 
-![the platform](https://raw.githubusercontent.com/themakerrobot/easydetect/main/docs/assets/platform.jpg)
+![easydetect lab](https://raw.githubusercontent.com/themakerrobot/easydetect-lab/main/docs/lab.jpg)
 
 ## Models
 
@@ -184,7 +187,7 @@ easydetect export  model=best.pt format=openvino half=true
 
 * [Using the model](https://github.com/themakerrobot/easydetect/blob/main/docs/usage.md) — sources, results, tracking, saving
 * [Training](https://github.com/themakerrobot/easydetect/blob/main/docs/training.md) — datasets, validation, export, CLI
-* [Platform](https://github.com/themakerrobot/easydetect/blob/main/platform/README.md) — the browser app: labelling, jobs, sharing
+* [easydetect lab](https://github.com/themakerrobot/easydetect-lab) — the browser app: labelling, jobs, sharing
 * [Weights](https://github.com/themakerrobot/easydetect/blob/main/docs/weights.md) — the mirror, building it, offline use
 * [Performance](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md) — measuring speed and improving it
 * [Design](https://github.com/themakerrobot/easydetect/blob/main/docs/design.md) — architecture and provenance
@@ -217,7 +220,7 @@ Runtime이 함께 들어가고 PyTorch는 없습니다. `pip install "easydetect
 `Detector("dfine-s", backend="onnxruntime")`로 ONNX Runtime(모든 CPU, 라즈베리파이
 포함)을 쓸 수 있습니다. 두 엔진의 결과는 같습니다.
 
-라벨링부터 학습·추론까지 브라우저로 하려면 `python platform/run.py`. 가중치 캐시는
+라벨링부터 학습·추론까지 브라우저로 하려면 [easydetect lab](https://github.com/themakerrobot/easydetect-lab). 가중치 캐시는
 `~/.easydetect/`, 사내 미러는 `EASYDETECT_ASSETS_URL` 환경변수로 지정합니다.
 
 ## Credits

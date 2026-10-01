@@ -13,7 +13,7 @@ ruff check .
 ## Releasing
 
 Bump the version in `pyproject.toml` and `easydetect/__init__.py` (and
-`EASYDETECT_AT_LEAST` in `platform/run.py` when the platform needs it), add an
+`EASYDETECT_AT_LEAST` in [easydetect lab](https://github.com/themakerrobot/easydetect-lab)'s `run.py` when the lab needs it), add an
 entry to `CHANGELOG.md`, then either push a `v*` tag or run the `publish`
 workflow by hand with the version:
 

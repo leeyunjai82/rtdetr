@@ -7,7 +7,7 @@
 
 Every box is exact, shapes barely overlap, backgrounds vary, so a run that
 learns nothing here is broken rather than short of data. For trying the loop
-(train, val, export, predict, the platform), not for judging accuracy.
+(train, val, export, predict, the lab), not for judging accuracy.
 """
 import pathlib
 import random

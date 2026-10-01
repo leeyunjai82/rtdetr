@@ -105,7 +105,7 @@ model.export(format="openvino")                    # best.xml + best.bin + label
 
 `data.yaml` is the common images/ + labels/ layout — a Roboflow export works as
 it is. Or do it all in a browser: the
-[platform](https://github.com/themakerrobot/easydetect/tree/main/platform) collects
+[easydetect lab](https://github.com/themakerrobot/easydetect-lab) collects
 and labels images, trains, shows the numbers, and writes the upload folder for
 `models/` with its README filled in from the run.
 

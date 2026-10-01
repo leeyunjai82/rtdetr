@@ -39,7 +39,7 @@ hf upload leeyunjai/easydetect mirror . --repo-type=model
 ```
 
 Fine-tuned models go under `models/<name>/`, each with its own card — the
-platform's *Hugging Face* tab writes that folder for a finished run.
+[lab](https://github.com/themakerrobot/easydetect-lab)'s *Hugging Face* tab writes that folder for a finished run.
 
 > Until the mirror has a size, `Detector("dfine-x")` raises a
 > `ModelNotFoundError` naming the ways forward — it never silently falls back to

@@ -28,16 +28,6 @@ jobs:
       - name: Test
         run: pytest -q
 
-  design-kit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: The platform's themaker-ui copy matches the kit
-        run: |
-          curl -sSfL -o /tmp/kit.css \
-            https://raw.githubusercontent.com/themakerrobot/themaker-ui/v1.0.0/themaker-ui.css
-          diff -u /tmp/kit.css platform/static/css/themaker-ui.css
-
   build:
     runs-on: ubuntu-latest
     steps:

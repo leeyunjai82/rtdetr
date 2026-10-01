@@ -58,7 +58,7 @@ load without editing:
 
 A label sits where the last `images` folder in the image's path becomes
 `labels`, or beside the image when there is none — one rule, used by training,
-the platform and its exports alike. A dataset with no `val:` is refused with a
+[easydetect lab](https://github.com/themakerrobot/easydetect-lab) and its exports alike. A dataset with no `val:` is refused with a
 message rather than validated on its training images.
 
 ```bash
@@ -66,7 +66,7 @@ unzip shapes.v1i.yolov11.zip -d shapes
 easydetect train model=dfine-s data=shapes/data.yaml epochs=50 device=0
 ```
 
-In the [platform](../platform/README.md), the same zip goes in through
+In [easydetect lab](https://github.com/themakerrobot/easydetect-lab), the same zip goes in through
 *Datasets → zip* without unpacking.
 
 ## Starting point
@@ -110,8 +110,8 @@ model.train(data="data.yaml", epochs=50, augment=False)   # flip only
 ## Early stopping
 
 `patience=50` stops a run once mAP has not improved for that many epochs and
-keeps the best epoch's weights; `patience=0` runs every epoch. In the
-[platform](../platform/README.md) it is the "안 나아지면 멈추기" field, set
+keeps the best epoch's weights; `patience=0` runs every epoch. In
+[easydetect lab](https://github.com/themakerrobot/easydetect-lab) it is the "안 나아지면 멈추기" field, set
 by each preset.
 
 ## Another input size for the COCO models

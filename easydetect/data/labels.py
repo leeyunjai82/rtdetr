@@ -1,10 +1,10 @@
 # Apache-2.0
 """Where a label lives, and how one line of it reads — shared by everything.
 
-The trainer reads labels, the platform writes them, the exporter packs them.
+The trainer reads labels, easydetect lab writes them, the exporter packs them.
 If any two of those disagree on where ``a.jpg``'s boxes are, training runs on
 nothing and nobody is told. So there is one rule, here, and no torch import:
-the platform uses it at startup.
+the lab uses it at startup.
 """
 
 from __future__ import annotations

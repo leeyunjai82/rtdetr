@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- **The browser app moved** to its own repository,
+  [easydetect lab](https://github.com/themakerrobot/easydetect-lab). It runs on
+  this package from PyPI; `platform/` is gone from here. A data folder from
+  `platform/` keeps working: `python run.py --data <easydetect-platform folder>`.
+- `easydetect.data.dataset.list_images` (was `_list_images`): the images of one
+  split of a `data.yaml`, public because the lab uses it.
+
 ## 0.2.0
 
 - **Two runtimes.** `pip install easydetect` now brings ONNX Runtime beside

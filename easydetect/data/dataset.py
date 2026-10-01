@@ -72,10 +72,10 @@ def _locate(root: Path, yaml_dir: Path, spec: str) -> Path:
     )
 
 
-def _list_images(root: Path, spec, yaml_dir: Path | None = None):
+def list_images(root: Path, spec, yaml_dir: Path | None = None):
     """Images for one split: a folder, a .txt list, or a list of either."""
     if isinstance(spec, (list, tuple)):
-        files = [f for s in spec for f in _list_images(root, s, yaml_dir)]
+        files = [f for s in spec for f in list_images(root, s, yaml_dir)]
         return list(dict.fromkeys(files))
     p = _locate(root, yaml_dir or root, str(spec))
     if p.is_dir():
@@ -109,7 +109,7 @@ class DetDataset(Dataset):
                 f"{data_yaml} has no '{split}:' entry. Add one — it may point at the "
                 f"training images, but then mAP only measures memorisation."
             )
-        self.files = _list_images(cfg["root"], cfg[split], cfg["yaml_dir"])
+        self.files = list_images(cfg["root"], cfg[split], cfg["yaml_dir"])
         if not self.files:
             raise FileNotFoundError(f"no images for split '{split}'")
 
