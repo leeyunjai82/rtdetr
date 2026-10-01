@@ -58,6 +58,13 @@ model = Detector("dfine-s", backend="onnxruntime")
 model = Detector("runs/train/weights/best.onnx")      # either runtime
 ```
 
+An exported `.onnx` carries its class names inside it, so the file works on
+its own: one download from a Hugging Face page, `Detector("best.onnx")`, and
+the boxes come back named — on OpenVINO or ONNX Runtime. A
+`<stem>.names.json` beside it still comes first; then the names inside; then a
+`labels.txt` in its folder (the IR's `.xml` + `.bin` read their names from
+there).
+
 On an x86 CPU in float32 the two are close (dfine-s at 640: 118 ms OpenVINO,
 132 ms ONNX Runtime, on a 4-core Xeon); OpenVINO's default drops to bfloat16
 where the CPU supports it, 49 ms there. Measure on your own board before

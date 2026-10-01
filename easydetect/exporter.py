@@ -62,10 +62,28 @@ def export_onnx(net, names, imgsz=640, out_dir=".", fname="easydetect", half=Fal
             opset_version=17,
             dynamo=False,
         )
-    _write_labels(out_dir, fname, names)
+    table = _write_labels(out_dir, fname, names)
+    _embed_names(onnx_path, table)
     if verbose:
         print(f"[easydetect] exported: {onnx_path}")
     return onnx_path
+
+
+def _embed_names(onnx_path: Path, table: dict[int, str]) -> None:
+    """Keep the class names inside the .onnx too, so the file works on its own —
+    one download from a Hugging Face page, no labels.txt to fetch beside it."""
+    import onnx
+
+    from .predictor import ONNX_NAMES_KEY
+
+    model = onnx.load(str(onnx_path))
+    kept = [p for p in model.metadata_props if p.key != ONNX_NAMES_KEY]
+    del model.metadata_props[:]
+    model.metadata_props.extend(kept)
+    entry = model.metadata_props.add()
+    entry.key = ONNX_NAMES_KEY
+    entry.value = json.dumps({str(k): v for k, v in table.items()}, ensure_ascii=False)
+    onnx.save(model, str(onnx_path))
 
 
 def export_openvino(net, names, imgsz=640, out_dir=".", fname="easydetect", half=False,

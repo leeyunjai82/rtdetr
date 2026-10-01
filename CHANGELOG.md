@@ -9,6 +9,10 @@
   **Changed:** a run at the default batch 8 now trains at 1.4e-4 instead of
   1e-4; `lr0=1e-4` keeps the old rate. `run.json` says which rate was used and
   why.
+- **An `.onnx` works on its own.** Export writes the class names into the
+  file (ONNX metadata), and loading reads them back — on OpenVINO and ONNX
+  Runtime, without the `onnx` package — before any `labels.txt` in the folder.
+  So one `best.onnx` downloaded from a Hugging Face page names its classes.
 
 ## 0.2.1
 

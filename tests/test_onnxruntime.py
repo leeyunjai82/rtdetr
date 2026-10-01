@@ -104,3 +104,30 @@ def test_a_named_model_downloads_the_onnx_for_onnxruntime(monkeypatch, tmp_path,
     monkeypatch.setattr(downloads, "_asset", fake_asset)
     assert downloads.download_onnx("D-FINE-S") == tmp_path / "dfine-s.onnx"
     assert fetched == ["dfine-s.onnx", "labels.txt"]
+
+
+def test_an_onnx_carries_its_class_names_so_it_works_alone(tiny_ir, tmp_path):
+    """One file from a Hugging Face page: no labels.txt beside it, or someone else's."""
+    import shutil
+
+    lone = tmp_path / "downloads" / "best.onnx"
+    lone.parent.mkdir()
+    shutil.copy(tiny_ir.with_suffix(".onnx"), lone)
+    (lone.parent / "labels.txt").write_text("person\ncar\nbus\n")   # another model's
+    for backend in ("openvino", "onnxruntime"):
+        model = Detector(str(lone), backend=backend, verbose=False)
+        assert model(draw(), conf=0.0)[0].names == {0: "can", 1: "bottle"}, backend
+
+
+def test_the_names_are_read_without_the_onnx_package(tiny_ir, tmp_path):
+    onnx = pytest.importorskip("onnx")
+    from easydetect.predictor import ONNX_NAMES_KEY, onnx_metadata, read_names
+
+    path = tiny_ir.with_suffix(".onnx")
+    expected = {p.key: p.value for p in onnx.load(str(path)).metadata_props}
+    assert onnx_metadata(path) == expected and ONNX_NAMES_KEY in expected
+
+    # not an ONNX file at all: no names, and no crash
+    junk = tmp_path / "junk.onnx"
+    junk.write_bytes(b"\xff\xff\xff\xff\x0f not a model")
+    assert read_names(junk) == {}

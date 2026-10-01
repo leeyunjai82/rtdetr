@@ -37,13 +37,87 @@ def _looks_like_logits(scores: np.ndarray) -> bool:
     return bool(scores.size) and (scores.min() < 0.0 or scores.max() > 1.0)
 
 
+#: The ONNX metadata key easydetect keeps the class names under.
+ONNX_NAMES_KEY = "easydetect.names"
+
+
+def _varint(f) -> int | None:
+    shift = value = 0
+    while True:
+        byte = f.read(1)
+        if not byte:
+            return None
+        value |= (byte[0] & 0x7F) << shift
+        if byte[0] < 0x80:
+            return value
+        shift += 7
+
+
+def onnx_metadata(path: Path) -> dict[str, str]:
+    """The ``metadata_props`` of an ONNX file, read without the ``onnx`` package.
+
+    ModelProto keeps them as field 14, each a (key = 1, value = 2) pair. Only
+    the top level of the file is walked; the graph and its weights are skipped
+    over with a seek, so a large model costs no more than a small one.
+    """
+    props: dict[str, str] = {}
+    with open(path, "rb") as f:
+        while (tag := _varint(f)) is not None:
+            field, wire = tag >> 3, tag & 7
+            if wire == 0:
+                _varint(f)
+            elif wire == 1:
+                f.seek(8, 1)
+            elif wire == 5:
+                f.seek(4, 1)
+            elif wire == 2:
+                size = _varint(f) or 0
+                if field != 14:
+                    f.seek(size, 1)
+                    continue
+                entry, key, value, i = f.read(size), "", "", 0
+                while i < len(entry):
+                    sub_tag, n = entry[i], 0
+                    i += 1
+                    shift = 0
+                    while True:                       # the length, a varint
+                        n |= (entry[i] & 0x7F) << shift
+                        i += 1
+                        if entry[i - 1] < 0x80:
+                            break
+                        shift += 7
+                    text = entry[i:i + n].decode("utf-8", "replace")
+                    i += n
+                    if sub_tag >> 3 == 1:
+                        key = text
+                    elif sub_tag >> 3 == 2:
+                        value = text
+                props[key] = value
+            else:                                     # not an ONNX file after all
+                break
+    return props
+
+
 def read_names(model_path: Path) -> dict[int, str]:
-    """Class names from ``labels.txt`` or ``<stem>.names.json`` beside the model."""
+    """Class names: ``<stem>.names.json`` beside the model, then the names an
+    ``.onnx`` carries inside it, then ``labels.txt`` in its folder.
+
+    The names inside the file come before a ``labels.txt`` because they belong
+    to that file: a lone ``best.onnx`` downloaded into a folder that holds
+    another model's ``labels.txt`` still names its own classes.
+    """
     model_path = Path(model_path)
     sidecar = model_path.with_suffix(".names.json")
     if sidecar.exists():
         table = json.loads(sidecar.read_text(encoding="utf-8"))
         return {int(k): str(v) for k, v in table.items()}
+    if model_path.suffix.lower() == ".onnx" and model_path.is_file():
+        try:
+            inside = onnx_metadata(model_path).get(ONNX_NAMES_KEY)
+            if inside:
+                return {int(k): str(v) for k, v in json.loads(inside).items()}
+        except (OSError, ValueError, IndexError):
+            pass
     labels = model_path.parent / "labels.txt"
     if labels.exists():
         lines = [ln.strip() for ln in labels.read_text(encoding="utf-8").splitlines()]
