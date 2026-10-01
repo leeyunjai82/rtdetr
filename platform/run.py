@@ -51,12 +51,26 @@ def _serve_https(application, uvicorn, args, local: str, path: str) -> None:
 EASYDETECT_AT_LEAST = "0.2.0"
 
 
-def _check_easydetect() -> None:
+def _which_easydetect(file: str) -> str:
+    """Say which easydetect a path belongs to: an installed package, or a source tree.
+
+    The platform sits in the package's repository but runs on whatever
+    easydetect pip installed, normally the PyPI release. Only an editable
+    install (``pip install -e``) or a PYTHONPATH points it at the clone's
+    own ``easydetect/`` folder; this line makes the difference visible.
+    """
+    where = Path(file).resolve().parent
+    if {"site-packages", "dist-packages"} & set(where.parts):
+        return f"installed package at {where}"
+    return f"editable install, the source at {where}"
+
+
+def _check_easydetect() -> str:
     try:
         import easydetect
     except ImportError:
-        raise SystemExit('easydetect is not installed: pip install "easydetect[train]" '
-                         '(or, in a clone of the repository, pip install -e ".[train]")') from None
+        raise SystemExit('easydetect is not installed: pip install -r platform/requirements.txt '
+                         '(or pip install "easydetect[train]")') from None
     have = tuple(int(x) for x in easydetect.__version__.split(".")[:3])
     need = tuple(int(x) for x in EASYDETECT_AT_LEAST.split("."))
     if have < need:
@@ -66,6 +80,7 @@ def _check_easydetect() -> None:
             f"{Path(easydetect.__file__).parent}.\n"
             f'  pip install -U "easydetect[train]"      # or, in a clone: pip install -e ".[train]"'
         )
+    return f"easydetect {easydetect.__version__}: {_which_easydetect(easydetect.__file__)}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.data:
         os.environ["EASYDETECT_PLATFORM_HOME"] = str(Path(args.data).expanduser())
 
-    _check_easydetect()
+    print(f"[platform] {_check_easydetect()}")
     import app as application
     import uvicorn
 

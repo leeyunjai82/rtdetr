@@ -5,9 +5,27 @@ on one machine. It is a separate application that uses the `easydetect` package;
 package itself stays a library with a CLI and no web dependencies.
 
 ```bash
-pip install -r platform/requirements.txt   # in a clone, also: pip install -e ".[train]"
+pip install -r platform/requirements.txt   # easydetect[train] from PyPI, and the web server
 python platform/run.py                 # http://<this machine>:8080, from any machine
 ```
+
+`easydetect[train]` alone does not bring the web server (FastAPI, uvicorn);
+`platform/requirements.txt` adds it.
+
+The platform lives in the package's repository but runs on the easydetect that
+pip installed — the PyPI release — not on the `easydetect/` folder beside it.
+Platform changes arrive with `git pull`; package changes with
+`pip install -U "easydetect[train]"`. The first line `run.py` prints says which
+one it found:
+
+```
+[platform] easydetect 0.2.0: installed package at .../site-packages/easydetect
+```
+
+`editable install` there means a `pip install -e .` in this clone: the platform
+then runs on the clone's own code, released or not — what you want while
+changing the package, and only then. `pip uninstall easydetect` and
+`pip install -r platform/requirements.txt` go back to the release.
 
 ![the platform](../docs/assets/platform.jpg)
 
