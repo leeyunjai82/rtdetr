@@ -72,10 +72,11 @@ are comparing against a reference or debugging a threshold, use `f32`.
 
 ## Making it faster
 
-1. **Shrink the input.** Compute scales with the pixel count: 320 is about a
-   quarter of 640. `model.export(format="openvino", imgsz=320)`, then load that
-   IR. 320 still sees people and cars at conversational distance; 640 is for
-   small or far objects.
+1. **Shrink the input — after training at that size.** Compute scales with the
+   pixel count: 320 is about a quarter of 640. But the COCO weights were trained
+   at 640, and exporting them at 320 as they are loses most of their accuracy
+   (see [Small inputs](#small-inputs-320) below). Train at the size you will
+   run: `model.train(..., imgsz=320)`, and the IR it exports is 320 too.
 2. **Pick the size.** `dfine-n` is roughly half of `dfine-s`'s work.
 3. **Use another device.** `Detector("dfine-s", device="NPU")` on a Core
    Ultra, `device="GPU"` for Intel graphics. `ov.Core().available_devices`
@@ -84,6 +85,30 @@ are comparing against a reference or debugging a threshold, use `f32`.
 4. **Skip frames.** `predict(0, vid_stride=2, ...)` runs every other frame.
 5. **FP16 is about size, not CPU speed.** `half=True` halves the weight file and
    helps on GPU; on a CPU it makes little difference.
+
+## Small inputs (320)
+
+Measured on COCO val2017 (5,000 pictures, `easydetect val` and
+`tools/compare_yolo.py`, the same evaluator for every row), all at 320:
+
+| model | how | mAP50-95 | mAP50 | model time, Core Ultra 5 CPU |
+| --- | --- | --- | --- | --- |
+| dfine-n | COCO weights (trained at 640), run at 320 | 0.099 | 0.302 | |
+| dfine-n | + fine-tuned 12 epochs on COCO at 320 | 0.324 | 0.482 | 5.5 ms |
+| YOLO11s | its COCO weights, exported at 320 | 0.374 | 0.520 | 7.2 ms + NMS |
+
+For reference, dfine-n at 640 scores 0.419 here. Two lessons:
+
+* **Train at the size you deploy.** Fine-tuning at 320 took the score from
+  0.099 to 0.313 in one epoch; the rest of the twelve added 0.011, so a few
+  epochs are enough. `tools/coco2yolo.py` converts COCO for this.
+* **At 320 on a CPU, a YOLO of similar speed is the more accurate choice.**
+  dfine-n is the smaller model (4M parameters against 9.4M) and a quarter
+  faster here, but 0.05 lower. D-FINE's lead is at 640 and on GPUs and NPUs.
+
+`tools/compare_yolo.py` repeats the comparison for your own YOLO export and
+checkpoints: `python tools/compare_yolo.py --data coco/data.yaml --yolo
+yolo11s.onnx --dfine runs/dfine-n-320/weights/best.pt`.
 
 ## NPU on Linux
 

@@ -107,6 +107,27 @@ model.train(data="data.yaml", epochs=50, augment=False)   # flip only
 
 `run.json` lists what a run used. Validation pictures are never augmented.
 
+## Early stopping
+
+`patience=50` stops a run once mAP has not improved for that many epochs and
+keeps the best epoch's weights; `patience=0` runs every epoch. In the
+[platform](../platform/README.md) it is the "안 나아지면 멈추기" field, set
+by each preset.
+
+## Another input size for the COCO models
+
+The COCO weights are trained at 640. To run them at another size — 320 for a
+small CPU — fine-tune them there on COCO itself:
+
+```bash
+python tools/coco2yolo.py ~/datasets/coco          # images/, annotations/ from cocodataset.org
+easydetect train model=dfine-n data=$HOME/datasets/coco/data.yaml imgsz=320 epochs=4 batch=32
+```
+
+The converter keeps COCO's class order, the one the pretrained head uses, and
+stops if the annotation file says otherwise. What to expect is in
+[performance](performance.md#small-inputs-320).
+
 ## Watching a run
 
 Every epoch appends a row to `runs/train/results.csv` and, if you pass one, calls

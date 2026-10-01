@@ -129,8 +129,8 @@ def pick_backend(requested: str | None = None, model_path: str | Path | None = N
     if not installed(backend):
         why = (" (an .xml needs it)" if suffix == ".xml" else
                f" (device {device} needs it)" if intel_only else "")
-        raise ImportError(f"{backend} is not installed{why}: pip install {backend}"
-                          + ("" if why else "  — or pip install onnxruntime for the lighter one"))
+        raise ImportError(f"{backend} is not installed{why}: pip install {backend} "
+                          f"(pip install easydetect brings both runtimes)")
     return backend
 
 

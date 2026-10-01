@@ -45,6 +45,8 @@ the boxes match:
 | `"openvino"` | `.xml`, `.onnx` | CPU, Intel GPU, Intel NPU | 180 MB |
 | `"onnxruntime"` | `.onnx` | CPU | 67 MB |
 
+Both come with `pip install easydetect`.
+
 Left out, `Detector` uses OpenVINO when it is installed, ONNX Runtime
 otherwise; `$EASYDETECT_BACKEND` sets the default. A named model downloads the
 `.xml` or the `.onnx` to suit, a `.pt` exports whichever the runtime reads, and

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "easydetect"
-version = "0.1.2"
+version = "0.2.0"
 description = "Easy real-time object detection you can ship: D-FINE with PyTorch training, OpenVINO inference on CPU/GPU/NPU, and a browser app to label and train. Apache-2.0 throughout."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -29,10 +29,13 @@ classifiers = [
     "Topic :: Multimedia :: Video",
     "Operating System :: OS Independent",
 ]
+# inference on either runtime: OpenVINO (Intel CPU, GPU, NPU) and ONNX Runtime
+# (any CPU); [train] adds PyTorch for training and export
 dependencies = [
     "numpy>=1.23",
     "opencv-python>=4.6",
     "openvino>=2024.0",
+    "onnxruntime>=1.16",
     "pyyaml>=5.4",
 ]
 
@@ -42,9 +45,6 @@ train = [
     "torchvision>=0.16",
     "scipy>=1.9",
     "onnx>=1.14",
-]
-onnxruntime = [
-    "onnxruntime>=1.16",
 ]
 dev = [
     "pytest>=7.0",
@@ -58,6 +58,7 @@ Homepage = "https://github.com/themakerrobot/easydetect"
 Source = "https://github.com/themakerrobot/easydetect"
 Documentation = "https://github.com/themakerrobot/easydetect/blob/main/docs/usage.md"
 Issues = "https://github.com/themakerrobot/easydetect/issues"
+Changelog = "https://github.com/themakerrobot/easydetect/blob/main/CHANGELOG.md"
 
 [project.scripts]
 easydetect = "easydetect.cli:main"

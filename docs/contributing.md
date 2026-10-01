@@ -12,11 +12,14 @@ ruff check .
 
 ## Releasing
 
-Push a `v*` tag and GitHub Actions builds and uploads to PyPI:
+Bump the version in `pyproject.toml` and `easydetect/__init__.py` (and
+`EASYDETECT_AT_LEAST` in `platform/run.py` when the platform needs it), add an
+entry to `CHANGELOG.md`, then either push a `v*` tag or run the `publish`
+workflow by hand with the version:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 `.github/workflows/publish.yml` uses **PyPI trusted publishing** — no API token

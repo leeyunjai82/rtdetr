@@ -13,15 +13,16 @@ tags:
 
 # easydetect weights — D-FINE for `pip install easydetect`
 
-Real-time object detectors, ready to run: **OpenVINO IR** for inference on a CPU,
-an Intel GPU or an NPU, and the **PyTorch checkpoint** to fine-tune from. These
+Real-time object detectors, ready to run: **ONNX** for ONNX Runtime on any CPU,
+**OpenVINO IR** for an Intel CPU, GPU or NPU, and the **PyTorch checkpoint** to
+fine-tune from. These
 are the files the [easydetect](https://github.com/themakerrobot/easydetect)
 package downloads on first use — you never have to fetch them by hand.
 
 Apache-2.0 end to end: the code, the COCO weights, and the models fine-tuned here.
 
 ```bash
-pip install easydetect
+pip install easydetect          # OpenVINO and ONNX Runtime, no PyTorch
 ```
 
 ```python

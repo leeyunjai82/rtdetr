@@ -54,8 +54,10 @@ Button names below are the English ones.
    *Auto-label all* queues a job over every unlabelled image in the dataset.
    Correcting boxes is far quicker than drawing them, and once you have a
    `best.pt` you can point the auto-labeller at it.
-5. **Train** — a preset (빠름 / 균형 / 정확) or your own model, epochs, image size,
-   batch, backbone freezing and device. The header shows each NVIDIA GPU live —
+5. **Train** — a goal (빠르게 / 균형 / 정확하게) or your own model, epochs,
+   batch, backbone freezing, "stop when it stops improving" (patience) and
+   zoom/crop augmentation; image size and device under 고급 설정. A goal fills
+   only the fields you have not changed yourself. The header shows each NVIDIA GPU live —
    utilisation, memory, temperature, power, read from `nvidia-smi` every two
    seconds — and warns when the driver sees a GPU that PyTorch cannot use (a CPU
    build of torch), since training would then run on the CPU. On a GPU the
@@ -66,8 +68,11 @@ Button names below are the English ones.
    `EASYDETECT_WORKERS` overrides); *Stop* stops within a batch;
    *Train more* continues a finished run with more epochs in the same directory;
    every run keeps a `train.log`, and a failure carries the end of it.
-   *Delete* removes a finished job with its weights, IR and log — refused while a
-   resumed run, an evaluation or a registered model still uses those files.
+   *Delete* removes a finished job with its weights, IR and log, and the runs
+   continued from it and the evaluations of it; it is refused while any of them
+   runs, or while a registered model uses those files. A run cut short — stopped,
+   crashed or interrupted by a restart — keeps its best epoch for evaluating,
+   downloading and registering.
    *Run details* on the job shows what the run was set up with from its first
    batch — starting weights, train/validation images and boxes per class,
    trainable parameters, optimizer and schedule, augmentation, device, versions

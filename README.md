@@ -25,8 +25,9 @@ train and test in a browser. Apache-2.0 from the code to the model you export.
 * **Accurate for its size.** The detector is
   [D-FINE](https://github.com/Peterande/D-FINE), a real-time DETR: D-FINE-S
   scores 48.5 COCO mAP with 10M parameters.
-* **Runs on the machine you have.** OpenVINO runs the model on a CPU, an Intel
-  GPU or an Intel NPU; no CUDA needed to deploy. A GPU makes training quick.
+* **Runs on the machine you have.** OpenVINO runs it on a CPU, an Intel GPU or
+  an Intel NPU; ONNX Runtime on any CPU, a Raspberry Pi included. No CUDA
+  needed to deploy. A GPU makes training quick.
 * **No NMS to tune.** D-FINE is trained to give each object one box. The odd
   second box on the same object — one vehicle as both truck and car — is
   dropped by a fixed overlap filter (IoU 0.7, any class), so there is no
@@ -35,21 +36,19 @@ train and test in a browser. Apache-2.0 from the code to the model you export.
 ## Install
 
 ```bash
-pip install easydetect              # inference
-pip install "easydetect[train]"     # + training
+pip install easydetect              # inference: OpenVINO and ONNX Runtime
+pip install "easydetect[train]"     # + training (PyTorch)
 ```
 
-Inference never needs PyTorch. On a small CPU-only box — a Raspberry Pi — it can
-skip OpenVINO too and run on ONNX Runtime (about 330 MB installed instead of
-440 MB; the boxes are identical):
+Inference never needs PyTorch. Both runtimes come with the plain install and
+return the same boxes; `Detector` uses OpenVINO unless you pass
+`backend="onnxruntime"`. OpenVINO is the faster one on an Intel CPU (dfine-s at
+640 on a 4-core Xeon: 49 ms against 132 ms) and the only way to an Intel GPU or
+NPU; ONNX Runtime is the smaller one, for a box where every megabyte counts:
 
 ```bash
-pip install --no-deps easydetect
-pip install numpy pyyaml opencv-python-headless onnxruntime
+pip install --no-deps easydetect && pip install numpy pyyaml opencv-python onnxruntime
 ```
-
-`Detector` picks OpenVINO when it is installed and ONNX Runtime otherwise, or
-`Detector("dfine-s", backend="onnxruntime")`. Intel GPUs and NPUs need OpenVINO.
 
 ## Detect
 
@@ -194,8 +193,9 @@ easydetect export  model=best.pt format=openvino half=true
 ## What it does not do
 
 Boxes only — no segmentation, pose or classification. One training process, one
-machine; multi-GPU and distributed training are out of scope. Inference targets
-OpenVINO, so a CUDA deployment means exporting to ONNX and taking it from there.
+machine; multi-GPU and distributed training are out of scope. Inference runs on
+OpenVINO or ONNX Runtime; for a CUDA deployment, take the exported ONNX to
+TensorRT from there.
 
 ## 한국어
 
@@ -209,10 +209,16 @@ model.export(format="openvino")            # 배포용 IR + labels.txt
 ```
 
 세 줄이면 물체 검출이 됩니다. 모델은 D-FINE(실시간 DETR)이고, 코드와 가중치가
-모두 Apache-2.0이라 상용 제품이나 교육 현장에 그대로 쓸 수 있습니다. CPU만으로도
-돌고, Intel NPU·GPU에서도 같은 결과가 나옵니다. 라벨링부터 학습·추론까지
-브라우저로 하려면 `python platform/run.py`. 가중치 캐시는 `~/.easydetect/`, 사내
-미러는 `EASYDETECT_ASSETS_URL` 환경변수로 지정합니다.
+모두 Apache-2.0이라 상용 제품이나 교육 현장에 그대로 쓸 수 있습니다.
+
+설치는 두 가지입니다. `pip install easydetect`는 추론용으로 OpenVINO와 ONNX
+Runtime이 함께 들어가고 PyTorch는 없습니다. `pip install "easydetect[train]"`은
+학습까지 합니다. 기본 엔진은 OpenVINO(인텔 CPU·GPU·NPU)이고,
+`Detector("dfine-s", backend="onnxruntime")`로 ONNX Runtime(모든 CPU, 라즈베리파이
+포함)을 쓸 수 있습니다. 두 엔진의 결과는 같습니다.
+
+라벨링부터 학습·추론까지 브라우저로 하려면 `python platform/run.py`. 가중치 캐시는
+`~/.easydetect/`, 사내 미러는 `EASYDETECT_ASSETS_URL` 환경변수로 지정합니다.
 
 ## Credits
 
