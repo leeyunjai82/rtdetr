@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- **Changed: `predict` and `track` default to `conf=0.5`** (was 0.25), and so
+  does the CLI. D-FINE gives an unsure box 0.3–0.5 where YOLO gives it under
+  0.25: on COCO val2017, dfine-m's boxes shown at 0.25 were 32% right, at 0.5
+  70%, still finding 67% of the objects. `conf=0.25` brings back the old
+  output. NMS stays at `iou=0.7` and `contain` stays off — both measured in
+  docs/performance.md ("Confidence and overlap defaults").
+
 ## 0.2.3
 
 - **`contain=0.8` merges the pieces of one object.** A half hidden object can

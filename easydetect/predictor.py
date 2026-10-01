@@ -128,6 +128,12 @@ def read_names(model_path: Path) -> dict[int, str]:
 #: Default for ``iou``: above this IoU, two boxes are one object.
 IOU = 0.7
 
+#: Default for ``conf``. D-FINE gives an unsure box 0.3-0.5 where YOLO would
+#: give it under 0.25, so YOLO's 0.25 shows mostly mistakes here: dfine-m on
+#: COCO val2017 (NMS 0.7) shows boxes 32% right at 0.25, 70% at 0.5, while
+#: still finding 67% of the objects. See docs/performance.md.
+CONF = 0.5
+
 
 def drop_duplicates(xyxy: np.ndarray, iou: float = IOU) -> np.ndarray:
     """Indices of the boxes to keep, from boxes sorted best first.
@@ -277,7 +283,7 @@ class Predictor:
         boxes: np.ndarray,
         scores: np.ndarray,
         orig_shape: tuple[int, int],
-        conf: float = 0.25,
+        conf: float = CONF,
         max_det: int = 300,
         classes: list[int] | None = None,
         iou: float | None = IOU,
@@ -322,7 +328,7 @@ class Predictor:
     def __call__(
         self,
         img: np.ndarray,
-        conf: float = 0.25,
+        conf: float = CONF,
         max_det: int = 300,
         classes: list[int] | None = None,
         iou: float | None = IOU,

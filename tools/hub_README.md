@@ -29,7 +29,7 @@ pip install easydetect          # OpenVINO and ONNX Runtime, no PyTorch
 from easydetect import Detector
 
 model = Detector("dfine-s")                 # downloads dfine-s/ from this repo once
-results = model("photo.jpg", conf=0.25)
+results = model("photo.jpg", conf=0.5)
 results[0].save("result.jpg")
 
 for r in model.predict(0, stream=True, show=True):   # webcam; q or Esc quits

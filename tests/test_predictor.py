@@ -201,3 +201,15 @@ def test_the_whole_path_merges_pieces_only_when_asked():
     assert sorted(merged[:, 5].tolist()) == [0, 56]         # one person, one chair
     chair = merged[merged[:, 5] == 56][0]
     assert chair[:4].round().tolist() == [285, 455, 373, 640]   # the whole of it
+
+
+def test_the_defaults_are_the_measured_ones():
+    """conf 0.5, NMS 0.7, contain off: docs/performance.md, 'Confidence and overlap defaults'."""
+    import inspect
+
+    from easydetect import Detector
+
+    for method in (Detector.predict, Detector.track):
+        params = inspect.signature(method).parameters
+        assert params["conf"].default == 0.5 and params["iou"].default == 0.7
+        assert params["contain"].default is None

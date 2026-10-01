@@ -131,6 +131,45 @@ without it, and the device still does not appear. If Ubuntu's `libze1` is too
 old for the driver, take `libze1_*.deb` from
 [oneapi-src/level-zero releases](https://github.com/oneapi-src/level-zero/releases).
 
+## Confidence and overlap defaults
+
+What `predict` shows by default — `conf=0.5`, NMS at `iou=0.7`, `contain`
+off — comes from one pass of `dfine-m` over COCO val2017 (5,000 pictures,
+36,334 boxes), every filter applied to the same raw boxes. A shown box is
+right when it matches an unclaimed truth box of its class at IoU 0.5;
+precision is the share of shown boxes that are right, recall the share of
+truth boxes found.
+
+| conf | precision | recall | boxes shown |
+| --- | --- | --- | --- |
+| 0.25 | 32% | 81% | 91,170 |
+| 0.30 | 41% | 79% | 70,279 |
+| 0.40 | 57% | 73% | 47,032 |
+| **0.50** | **70%** | **67%** | 34,880 |
+| 0.60 | 80% | 60% | 27,281 |
+
+(NMS at 0.7.) D-FINE gives an unsure box 0.3–0.5, where YOLO would give it
+under 0.25, so YOLO's customary 0.25 here shows two wrong boxes for every
+right one; 0.5 is where precision and recall meet. COCO leaves many real
+objects unlabelled, so on a real picture precision runs somewhat higher.
+
+| NMS `iou` | mAP50-95 | precision / recall at conf 0.5 |
+| --- | --- | --- |
+| none | 0.5152 | 68.7% / 67.6% |
+| 0.5 | 0.5028 | 71.2% / 66.4% |
+| 0.6 | 0.5079 | 70.5% / 66.8% |
+| **0.7** | 0.5107 | 69.9% / 67.1% |
+| 0.8 | 0.5118 | 69.5% / 67.2% |
+
+Three in four boxes NMS removes are wrong ones, so it stays on; a lower
+threshold buys under a point of precision for more lost mAP and more risk to
+real overlapping objects, so it stays at 0.7, Ultralytics' value too.
+`contain=0.8` costs 1.7 points of mAP (0.4936) and, at any recall, shows
+more wrong boxes than simply raising `conf` would — COCO is full of real
+objects inside others of their class — so it stays off, for scenes like the
+half hidden chair below. `val` and the mAP a run reports use no threshold and
+no filter.
+
 ## Duplicate boxes
 
 D-FINE has no NMS step: one-to-one matching during training teaches it to give

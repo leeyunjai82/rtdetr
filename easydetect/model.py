@@ -114,7 +114,7 @@ class Detector:
     def predict(
         self,
         source: Any = None,
-        conf: float = 0.25,
+        conf: float = 0.5,
         imgsz: int | None = None,
         device: str | None = None,
         max_det: int = 300,
@@ -134,12 +134,14 @@ class Detector:
         """Run detection on any supported source.
 
         Returns a ``list[Results]``, or a generator when ``stream=True`` (the
-        only sane option for a long video or a live camera). ``iou`` drops a
-        box covering a higher-scoring one by more than that IoU — the same
-        object found twice, sometimes under two classes; ``None`` keeps all.
-        ``contain=0.8`` also merges a box with 80% of its area inside another
-        of its class — the visible pieces of a half hidden object reported
-        beside the whole of it — into one box. Off by default.
+        only sane option for a long video or a live camera). ``conf=0.5``
+        is where D-FINE's boxes are mostly right (70% on COCO, against 32% at
+        YOLO's usual 0.25). ``iou`` drops a box covering a higher-scoring one
+        by more than that IoU — the same object found twice, sometimes under
+        two classes; ``None`` keeps all. ``contain=0.8`` also merges a box
+        with 80% of its area inside another of its class — the visible pieces
+        of a half hidden object beside the whole of it — into one box; off by
+        default, as on COCO it removes more real objects than it fixes.
         """
         if source is None:
             raise ValueError("predict() needs a source (image, folder, video, url, camera index)")
@@ -171,7 +173,7 @@ class Detector:
     def track(
         self,
         source: Any = None,
-        conf: float = 0.25,
+        conf: float = 0.5,
         iou: float | None = 0.7,
         contain: float | None = None,
         match_iou: float = 0.3,
@@ -209,7 +211,7 @@ class Detector:
     def _run(
         self,
         source: Any,
-        conf: float = 0.25,
+        conf: float = 0.5,
         imgsz: int | None = None,
         device: str | None = None,
         max_det: int = 300,
