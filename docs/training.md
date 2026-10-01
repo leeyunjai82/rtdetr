@@ -20,7 +20,7 @@ model = Detector("dfine-s")
 best = model.train(
     data="data.yaml", epochs=100, imgsz=640, batch=8,
     device=0, workers=4, project="runs", name="train",
-    resume=False, patience=50, lr0=1e-4, seed=0,
+    resume=False, patience=50, lr0=None, seed=0,
 )
 # runs/train/weights/best.pt  (last.pt too — resume=True picks the run back up)
 ```
@@ -32,6 +32,23 @@ of the weights that is what gets validated and saved. The loss is D-FINE's —
 varifocal classification, L1 + GIoU boxes, fine-grained localisation and
 decoupled distillation, over every decoder layer and the denoising queries.
 mAP50-95 after every epoch, early stop on `patience`.
+
+## Batch size and learning rate
+
+`lr0=None` (the default) sets the learning rate from the batch size:
+`1e-4 × √(batch / 4)` — 1e-4 at 4, 1.4e-4 at 8, 2e-4 at 16, 2.8e-4 at 32.
+A bigger batch takes fewer optimizer steps an epoch, and Adam moves a weight by
+about the learning rate each step, so at one fixed rate a batch of 32 ends the
+same epochs having learned roughly an eighth as much: a fine-tune that reached
+0.76 mAP50-95 at batch 4 stayed under 0.5 at batch 32 with the rate unchanged.
+The square root is the usual rule for Adam, and at 32 it lands beside the
+2–2.5e-4 D-FINE's own configs use at their batch of 32. `run.json` records
+the rate and where it came from; `lr0=2e-4` sets it outright.
+
+Other optimizer settings pass through `train()` as they are:
+`lr_backbone_mult` (the backbone's rate as a fraction of `lr0`; by default
+D-FINE's per-size ratio), `weight_decay=1e-4`, `warmup_epochs=1`, plus
+`seed` and `amp`.
 
 `device=0` uses the first CUDA GPU, `device="cpu"` forces CPU, and leaving it
 out picks a GPU when there is one. CPU training is slow but real — at 320 px,

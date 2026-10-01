@@ -1,7 +1,8 @@
 # Apache-2.0
 """Training loop (PyTorch). Kept deliberately small and readable.
 
-AdamW with a lower LR on the backbone, linear warmup into a cosine decay, AMP
+AdamW with a lower LR on the backbone, the LR set from the batch size unless
+given, linear warmup into a cosine decay, AMP
 on CUDA, ``last.pt``/``best.pt`` after every epoch, early stop on ``patience``,
 and ``resume=True`` to pick a killed run back up where it stopped.
 """
@@ -29,6 +30,24 @@ def seed_everything(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+#: The learning rate a batch of 4 fine-tunes well at: D-FINE from its COCO
+#: weights reached 0.765 mAP50-95 on a dataset where RT-DETR's own run gave 0.762.
+REF_BATCH, REF_LR = 4, 1e-4
+
+
+def auto_lr(batch: int) -> float:
+    """The learning rate for a batch size: ``1e-4 × √(batch / 4)``.
+
+    A bigger batch means fewer optimizer steps an epoch, and Adam moves each
+    weight by about the learning rate per step whatever the batch, so at one
+    fixed rate a batch of 32 ends the same epochs having learned an eighth as
+    much. The square root is the usual rule for Adam (four times the batch,
+    twice the rate); at 32 it gives 2.8e-4, beside the 2–2.5e-4 D-FINE's own
+    configs train with at their batch of 32.
+    """
+    return REF_LR * math.sqrt(max(int(batch), 1) / REF_BATCH)
 
 
 #: The backbone learns slower than the rest — D-FINE's per-size ratios.
@@ -153,7 +172,7 @@ class Trainer:
         epochs=100,
         imgsz=640,
         batch=8,
-        lr=1e-4,
+        lr=None,
         lr_backbone_mult=None,
         weight_decay=1e-4,
         warmup_epochs=1,
@@ -174,6 +193,8 @@ class Trainer:
         seed_everything(seed)
         self.augment = augment
         self.seed, self.freeze, self.origin = seed, freeze, origin
+        self.lr_auto = lr is None
+        lr = auto_lr(batch) if lr is None else float(lr)
         self.lr, self.lr_backbone_mult, self.weight_decay = lr, lr_backbone_mult, weight_decay
         self.net = net
         self.frozen = freeze_modules(net, freeze)
@@ -288,6 +309,8 @@ class Trainer:
             "optimizer": {
                 "name": "AdamW",
                 "lr": self.lr,
+                "lr_from": (f"batch {self.batch}: {REF_LR:g} × √({self.batch}/{REF_BATCH})"
+                            if self.lr_auto else "set"),
                 "lr_backbone": self.lr * self.lr_backbone_mult,
                 "weight_decay": self.weight_decay,
                 "schedule": "linear warmup, then cosine decay to 1%",

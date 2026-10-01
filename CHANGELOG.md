@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.2
+
+- **The learning rate follows the batch size.** `lr0=None`, now the default,
+  means `1e-4 × √(batch / 4)`: unchanged at batch 4, 1.4e-4 at the default 8,
+  2.8e-4 at 32. With one fixed rate a bigger batch took fewer steps and
+  learned less in the same epochs (0.76 mAP50-95 at batch 4, under 0.5 at 32).
+  **Changed:** a run at the default batch 8 now trains at 1.4e-4 instead of
+  1e-4; `lr0=1e-4` keeps the old rate. `run.json` says which rate was used and
+  why.
+
 ## 0.2.1
 
 - **The browser app moved** to its own repository,

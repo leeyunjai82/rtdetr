@@ -217,6 +217,9 @@ def test_training_reports_every_epoch_to_a_callback_and_a_csv(dataset, tmp_path,
     assert setup["variant"] == "n" and setup["start"] == {"kind": "scratch"}
     assert setup["freeze"] == "backbone" and 0 < setup["trainable_params"] < setup["params"]
     assert setup["optimizer"]["name"] == "AdamW" and setup["amp"] is False
+    # no lr0: the rate came from the batch of 2, and the record says so
+    assert setup["optimizer"]["lr"] == pytest.approx(1e-4 * (2 / 4) ** 0.5)
+    assert setup["optimizer"]["lr_from"].startswith("batch 2:")
     train = setup["data"]["train"]
     assert train["images"] > 0 and sum(train["per_class"]) == train["boxes"] > 0
     assert setup["versions"]["torch"] and setup["device"] == "cpu" and setup["gpu"] is None
@@ -306,3 +309,27 @@ def test_pretrained_false_never_reaches_for_the_mirror(dataset, tmp_path, monkey
         data=str(dataset), project=str(tmp_path), epochs=1, imgsz=64, batch=2, workers=0,
         device="cpu", val=False, amp=False,
     ).exists()
+
+
+def test_the_learning_rate_follows_the_batch_unless_it_is_given():
+    from easydetect.trainer import auto_lr
+
+    assert auto_lr(4) == pytest.approx(1e-4)
+    assert auto_lr(16) == pytest.approx(2e-4)
+    assert auto_lr(32) == pytest.approx(2.83e-4, rel=1e-3)
+    assert auto_lr(0) == auto_lr(1)
+
+
+@needs_torch
+def test_a_learning_rate_that_is_given_is_used_as_it_is(dataset, tmp_path, monkeypatch):
+    import json
+
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
+    model = Detector("dfine-n", verbose=False, pretrained=False)
+    best = model.train(data=str(dataset), project=str(tmp_path), epochs=1, imgsz=64, batch=2,
+                       workers=0, device="cpu", val=False, amp=False, lr0=3e-4,
+                       warmup_epochs=0, weight_decay=0.0, lr_backbone_mult=0.25)
+    opt = json.loads((best.parent.parent / "run.json").read_text())["optimizer"]
+    assert opt["lr"] == pytest.approx(3e-4) and opt["lr_from"] == "set"
+    assert opt["lr_backbone"] == pytest.approx(0.75e-4)
+    assert opt["warmup_epochs"] == 0 and opt["weight_decay"] == 0.0

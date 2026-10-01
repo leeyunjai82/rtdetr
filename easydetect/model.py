@@ -349,7 +349,7 @@ class Detector:
         name: str = "train",
         resume: bool = False,
         patience: int = 50,
-        lr0: float = 1e-4,
+        lr0: float | None = None,
         seed: int = 0,
         val: bool = True,
         amp: bool = True,
@@ -362,7 +362,9 @@ class Detector:
         """Train on a data.yaml dataset. Returns the path of ``best.pt``.
 
         ``freeze="backbone"`` trains about twice as fast on CPU and helps when
-        the dataset is small. ``augment=True`` trains on zoomed-out, cropped
+        the dataset is small. ``lr0=None`` sets the learning rate from the
+        batch size, ``1e-4 × √(batch / 4)``, so a bigger batch is not a run
+        that learned less; a number sets it outright. ``augment=True`` trains on zoomed-out, cropped
         and colour-jittered pictures (D-FINE's recipe) and on plain ones for
         the last tenth of the epochs; ``False`` keeps only the flip.
         ``on_epoch_end`` is called with a dict of the epoch's numbers — the
