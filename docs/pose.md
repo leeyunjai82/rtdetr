@@ -1,5 +1,9 @@
 # Keypoints: `task="pose"`
 
+> **Not usable yet in 0.4.1:** the keypoint model is still training, and its
+> weights arrive on the mirror with 0.5.0. Until then `task="pose"` stops
+> with an error that says so, unless you train one with `tools/train_pose.py`.
+
 ```python
 from easydetect import Detector
 

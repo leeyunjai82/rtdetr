@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
 
-- **Keypoints: `Detector(..., task="pose")`.** Every person box gets COCO's 17
+- **Keypoints: `Detector(..., task="pose")` — code only, weights in 0.5.0.**
+  The keypoint model is still training; until its weights are on the mirror,
+  `task="pose"` stops with an error that says so. Every person box gets COCO's 17
   body keypoints (`r.keypoints`: `.xy`, `.conf`), drawn as a skeleton by
   `r.plot()` and listed by name in `r.summary()`. The detector finds the
   people; easydetect's own top-down network (HGNetv2-B0 from the detector's
