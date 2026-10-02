@@ -502,8 +502,22 @@ class Detector:
         half: bool = False,
         out_dir: str | Path | None = None,
         verbose: bool | None = None,
+        layers: int | None = None,
+        queries: int | None = None,
+        int8: bool = False,
+        data: Any = None,
+        calib: int = 300,
     ) -> Path:
-        """Export to OpenVINO IR (default) or ONNX. Returns the file written."""
+        """Export to OpenVINO IR (default) or ONNX. Returns the file written.
+
+        ``int8=True`` (OpenVINO only) quantizes the IR to 8 bits, calibrated
+        on ``calib`` pictures from ``data`` — a data.yaml (its train split), a
+        folder or a list of files — and writes ``<name>_int8.xml``.
+
+        ``layers`` (decoder layers to run, of 3-6 by size) and ``queries`` (of
+        300) export a faster, slightly less accurate model; dfine-n at 320 on
+        a 4-core CPU: 19.9 ms, 13.2 ms with ``queries=100``.
+        """
         format = format.lower()
         if format not in ("openvino", "onnx"):
             raise ValueError("supported formats: 'openvino', 'onnx'")
@@ -515,10 +529,18 @@ class Detector:
         imgsz = imgsz or (self.ckpt or {}).get("imgsz", 640)
         stem = self.ckpt_path.stem if self.ckpt_path else f"easydetect-{self.variant}"
         verbose = self.verbose if verbose is None else verbose
+        if int8:
+            if format != "openvino":
+                raise ValueError("int8 is an OpenVINO export: format='openvino'")
+            return export_openvino(
+                self.net, self.names, imgsz=imgsz, out_dir=out_dir, fname=f"{stem}_int8",
+                verbose=verbose, layers=layers, queries=queries,
+                int8=_calibration_images(data, calib),
+            )
         exporter = export_openvino if format == "openvino" else export_onnx
         return exporter(
             self.net, self.names, imgsz=imgsz, out_dir=out_dir, fname=stem,
-            half=half, verbose=verbose,
+            half=half, verbose=verbose, layers=layers, queries=queries,
         )
 
     # -------------------------------------------------------------------- misc
@@ -531,6 +553,29 @@ class Detector:
 
     def __repr__(self) -> str:
         return f"Detector({self.model_name!r}, device={self.device!r})"
+
+
+def _calibration_images(data: Any, count: int) -> list[Path]:
+    """Up to ``count`` pictures spread over a data.yaml's train split, a folder or a list."""
+    from .data.dataset import list_images, load_data_yaml
+
+    if data is None:
+        raise ValueError("int8=True needs pictures to calibrate on: data='data.yaml' or a folder")
+    if isinstance(data, (list, tuple)):
+        files = [Path(f) for f in data]
+    else:
+        path = Path(data).expanduser()
+        if path.suffix in (".yaml", ".yml"):
+            cfg = load_data_yaml(path)
+            files = list_images(cfg["root"], cfg["train"], cfg["yaml_dir"])
+        elif path.is_dir():
+            files = list_images(path, ".")
+        else:
+            raise ValueError(f"{data}: give a data.yaml, a folder of pictures or a list")
+    if not files:
+        raise ValueError(f"no pictures found in {data}")
+    step = max(len(files) // max(int(count), 1), 1)
+    return files[::step][:count]
 
 
 class _Stream:

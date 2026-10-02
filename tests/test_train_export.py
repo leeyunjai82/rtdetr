@@ -333,3 +333,50 @@ def test_a_learning_rate_that_is_given_is_used_as_it_is(dataset, tmp_path, monke
     assert opt["lr"] == pytest.approx(3e-4) and opt["lr_from"] == "set"
     assert opt["lr_backbone"] == pytest.approx(0.75e-4)
     assert opt["warmup_epochs"] == 0 and opt["weight_decay"] == 0.0
+
+
+def test_a_lighter_decoder_exports_and_predicts(tmp_path, image):
+    """layers / queries: fewer decoder layers and candidate boxes, same outputs otherwise."""
+    import onnxruntime as ort
+
+    from easydetect.exporter import export_onnx
+    from easydetect.nn import DFINENet
+
+    net = DFINENet("n", 2, pretrained_backbone=False)
+    names = {0: "a", 1: "b"}
+    full = export_onnx(net, names, imgsz=256, out_dir=tmp_path, fname="full", verbose=False)
+    light = export_onnx(net, names, imgsz=256, out_dir=tmp_path, fname="light", verbose=False,
+                        layers=1, queries=50)
+    shapes = {}            # at 256 px dfine-n has 16x16 + 8x8 places to start a box: over 300
+    for path in (full, light):
+        session = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        outs = session.run(None, {"images": np.zeros((1, 3, 256, 256), np.float32)})
+        shapes[path.stem] = [o.shape for o in outs]
+    assert shapes["full"] == [(1, 300, 4), (1, 300, 2)]
+    assert shapes["light"] == [(1, 50, 4), (1, 50, 2)]
+    assert net.decoder.num_queries == 300            # the caller's network is untouched
+
+    with pytest.raises(ValueError, match="layers must be 1..3"):
+        DFINENet("n", 2, pretrained_backbone=False).trim(layers=4)
+    with pytest.raises(RuntimeError, match="before deploy"):
+        DFINENet("n", 2, pretrained_backbone=False).deploy().trim(queries=10)
+
+
+@needs_ov
+def test_an_int8_export_calibrates_on_the_dataset_and_predicts(trained, dataset, tmp_path, image):
+    pytest.importorskip("nncf")
+    model, _ = trained
+    xml = model.export(format="openvino", imgsz=64, out_dir=tmp_path, int8=True,
+                       data=str(dataset), calib=4, verbose=False)
+    assert xml.name.endswith("_int8.xml") and xml.with_suffix(".bin").exists()
+    import openvino as ov
+
+    ops = {op.get_type_name() for op in ov.Core().read_model(str(xml)).get_ops()}
+    assert "FakeQuantize" in ops                        # 8-bit, not a float IR renamed
+    results = Detector(str(xml), device="CPU", verbose=False)(image, conf=0.0, max_det=2)
+    assert results[0].names == {0: "box"} and results[0].boxes.xyxy.shape == (2, 4)
+
+    with pytest.raises(ValueError, match="calibrate"):
+        model.export(format="openvino", imgsz=64, out_dir=tmp_path, int8=True)
+    with pytest.raises(ValueError, match="OpenVINO export"):
+        model.export(format="onnx", imgsz=64, out_dir=tmp_path, int8=True, data=str(dataset))

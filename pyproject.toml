@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "easydetect"
-version = "0.3.0"
+version = "0.3.1"
 description = "Easy real-time object detection you can ship: D-FINE with PyTorch training, OpenVINO inference on CPU/GPU/NPU, and a browser app to label and train. Apache-2.0 throughout."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,6 +45,7 @@ train = [
     "torchvision>=0.16",
     "scipy>=1.9",
     "onnx>=1.14",
+    "nncf>=2.10",   # INT8 export
 ]
 dev = [
     "pytest>=7.0",

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1
+
+- **Lighter exports.** `export(queries=100)` starts the decoder from fewer
+  candidate boxes and `export(layers=1)` stops it after fewer layers (each is
+  trained to answer on its own); dfine-n at 320 on a 4-core CPU: 19.9 ms →
+  13.2 ms. `export(format="openvino", int8=True, data="data.yaml")` writes an
+  8-bit IR calibrated on 300 training pictures (NNCF, now in `[train]`):
+  dfine-s at 640, 106 ms in float32 → 45 ms, on CPUs without bfloat16.
+- `tools/eval_exports.py` scores such variants side by side — mAP, precision
+  and recall at the default conf, speed — on COCO or your own val split.
+
 ## 0.3.0
 
 - **Changed: `predict` and `track` default to `conf=0.5`** (was 0.25), and so

@@ -85,6 +85,33 @@ are comparing against a reference or debugging a threshold, use `f32`.
 4. **Skip frames.** `predict(0, vid_stride=2, ...)` runs every other frame.
 5. **FP16 is about size, not CPU speed.** `half=True` halves the weight file and
    helps on GPU; on a CPU it makes little difference.
+6. **Fewer queries or decoder layers.** The decoder refines 300 candidate
+   boxes through 3-6 layers (by size); each layer is trained to answer on its
+   own, so an export can stop early or start from fewer candidates:
+   `model.export(format="openvino", queries=100)` or `layers=1`. A scene with
+   a handful of objects rarely needs 300. On the 4-core Xeon, float32:
+
+   | | as trained | `queries=100` | `layers=1` |
+   | --- | --- | --- | --- |
+   | dfine-n at 320 | 19.9 ms | 13.2 ms | 13.1 ms |
+   | dfine-s at 640 | 109.8 ms | 96.5 ms | 90.1 ms |
+
+   What it costs in accuracy depends on the scene; measure on yours (below).
+7. **INT8.** `model.export(format="openvino", int8=True, data="data.yaml")`
+   calibrates on 300 of the training pictures and writes `best_int8.xml`.
+   Where the CPU has bfloat16 (Xeon with AMX) OpenVINO already uses it and
+   INT8 adds little; elsewhere — most laptops — it replaces float32: dfine-s
+   at 640 went from 106 ms to 45 ms, dfine-n at 320 from 17 ms to 12 ms.
+   Check the accuracy on your own validation pictures before shipping it.
+
+`tools/eval_exports.py` exports each variant from one checkpoint (a COCO
+name or your `best.pt`) and scores them on the same val pictures — mAP,
+precision and recall at the default conf 0.5, and speed:
+
+```bash
+python tools/eval_exports.py --data data.yaml --model runs/train/weights/best.pt
+python tools/eval_exports.py --data ~/datasets/coco/data.yaml --model dfine-n --imgsz 320
+```
 
 ## Small inputs (320)
 

@@ -31,8 +31,12 @@ def _write_labels(out_dir: Path, fname: str, names) -> dict[int, str]:
     return table
 
 
-def export_onnx(net, names, imgsz=640, out_dir=".", fname="easydetect", half=False, verbose=True):
-    """Write ``<out_dir>/<fname>.onnx`` (plus labels). Returns the .onnx path."""
+def export_onnx(net, names, imgsz=640, out_dir=".", fname="easydetect", half=False, verbose=True,
+                layers=None, queries=None):
+    """Write ``<out_dir>/<fname>.onnx`` (plus labels). Returns the .onnx path.
+
+    ``layers`` / ``queries`` export a lighter decoder: see ``DFINENet.trim``.
+    """
     import torch
 
     from .nn import DeployWrapper
@@ -44,6 +48,8 @@ def export_onnx(net, names, imgsz=640, out_dir=".", fname="easydetect", half=Fal
     # the deploy form fuses the re-parameterised blocks and drops the training
     # heads; a copy, so the caller's network can keep training
     deployed = copy.deepcopy(net).cpu()
+    if layers is not None or queries is not None:
+        deployed.trim(layers=layers, queries=queries)
     deployed = deployed.deploy() if hasattr(deployed, "deploy") else deployed.eval()
     wrapper = DeployWrapper(deployed).eval()
     dummy = torch.zeros(1, 3, imgsz, imgsz)
@@ -87,18 +93,49 @@ def _embed_names(onnx_path: Path, table: dict[int, str]) -> None:
 
 
 def export_openvino(net, names, imgsz=640, out_dir=".", fname="easydetect", half=False,
-                    verbose=True):
-    """Write ``<out_dir>/<fname>.xml`` (+ .bin, + labels). Returns the .xml path."""
+                    verbose=True, layers=None, queries=None, int8=None):
+    """Write ``<out_dir>/<fname>.xml`` (+ .bin, + labels). Returns the .xml path.
+
+    ``int8`` is a list of image paths to calibrate an 8-bit model on (NNCF's
+    post-training quantization; a few hundred pictures like the ones it will
+    see). It runs about as fast as bfloat16 where the CPU has that, and over
+    twice as fast as float32 where it does not — most laptop CPUs.
+    """
     import openvino as ov
 
     out_dir = Path(out_dir)
     onnx_path = export_onnx(
-        net, names, imgsz=imgsz, out_dir=out_dir, fname=fname, verbose=False
+        net, names, imgsz=imgsz, out_dir=out_dir, fname=fname, verbose=False,
+        layers=layers, queries=queries,
     )
     xml_path = out_dir / f"{fname}.xml"
 
     model = ov.convert_model(str(onnx_path))
-    ov.save_model(model, str(xml_path), compress_to_fp16=half)
+    if int8:
+        model = _quantize(model, int8, imgsz)
+    ov.save_model(model, str(xml_path), compress_to_fp16=half and not int8)
     if verbose:
-        print(f"[easydetect] exported: {xml_path} ({'FP16' if half else 'FP32'})")
+        kind = "INT8" if int8 else "FP16" if half else "FP32"
+        print(f"[easydetect] exported: {xml_path} ({kind})")
     return xml_path
+
+
+def _quantize(model, images, imgsz):
+    """8-bit weights and activations, calibrated on ``images`` (paths)."""
+    import cv2
+    import nncf
+
+    from .predictor import preprocess_image
+
+    images = [str(p) for p in images]
+    if not images:
+        raise ValueError("int8 needs pictures to calibrate on: give data=")
+
+    def transform(path):
+        img = cv2.imread(path)
+        if img is None:
+            raise ValueError(f"cannot read {path}")
+        return preprocess_image(img, imgsz)
+
+    return nncf.quantize(model, nncf.Dataset(images, transform), subset_size=len(images),
+                         model_type=nncf.ModelType.TRANSFORMER)

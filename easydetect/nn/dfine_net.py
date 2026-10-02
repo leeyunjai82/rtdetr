@@ -85,6 +85,30 @@ class DFINENet(nn.Module):
     def forward(self, x, targets=None):
         return self.decoder(self.encoder(self.backbone(x)), targets)
 
+    def trim(self, layers: int | None = None, queries: int | None = None) -> DFINENet:
+        """Run fewer decoder layers or queries (in place, before :meth:`deploy`).
+
+        Every decoder layer is trained to answer on its own (each has its own
+        score and box heads and its own loss), so stopping after ``layers`` of
+        them gives a working detector that skips the rest. ``queries`` is how
+        many candidate boxes the encoder hands the decoder (300 as trained);
+        a scene with a handful of objects needs far fewer. Both cost accuracy
+        and buy speed — measure on your data (docs/performance.md).
+        """
+        dec = self.decoder
+        if hasattr(dec.decoder, "project"):          # convert_to_deploy() has run
+            raise RuntimeError("trim() before deploy(): a deployed network has dropped its layers")
+        if layers is not None:
+            if not 1 <= int(layers) <= dec.num_layers:
+                raise ValueError(
+                    f"layers must be 1..{dec.num_layers} for D-FINE-{self.variant.upper()}")
+            dec.eval_idx = dec.decoder.eval_idx = int(layers) - 1
+        if queries is not None:
+            if not 1 <= int(queries) <= dec.num_queries:
+                raise ValueError(f"queries must be 1..{dec.num_queries}")
+            dec.num_queries = int(queries)
+        return self
+
     def deploy(self) -> DFINENet:
         """Fuse re-parameterisable blocks and drop training-only heads (in place)."""
         self.eval()
