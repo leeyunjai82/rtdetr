@@ -30,6 +30,7 @@ ROTATE, ROTATE_P = 60.0, 0.6  # degrees either way, how often
 HALF_BODY_P, HALF_BODY_MIN = 0.3, 8  # only with this many keypoints labelled
 ERASE_P, ERASE_MAX = 0.5, 0.4  # a blanked patch up to this share of each side
 UPPER = set(range(11))  # face, shoulders, arms
+KEPT = ("image_id", "bbox", "keypoints", "num_keypoints", "area", "iscrowd")
 
 DESCRIPTION = [
     f"crop scale ×{SCALE[0]:g}–{SCALE[1]:g}, rotation ±{ROTATE:g}° (p={ROTATE_P})",
@@ -51,7 +52,9 @@ def load_coco(root: Path, split: str) -> tuple[dict, dict]:
               for im in data["images"]}
     people = defaultdict(list)
     for ann in data["annotations"]:
-        people[ann["image_id"]].append(ann)
+        # only what training and scoring read: the outlines alone would be most
+        # of the memory, and every DataLoader worker holds its own copy
+        people[ann["image_id"]].append({k: ann[k] for k in KEPT if k in ann})
     return images, dict(people)
 
 

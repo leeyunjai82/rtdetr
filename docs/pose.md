@@ -79,6 +79,22 @@ boxes included — with
 python tools/train_pose.py --coco ~/datasets/coco --eval runs/pose/s/pose-s.onnx --detector dfine-m
 ```
 
+### Without a GPU
+
+`.github/workflows/train-pose.yml` trains on GitHub's 4-core CPU runners
+(free for a public repository). A job may run six hours and an epoch there
+should take about an hour, so the run is a chain of up to 14 jobs, one after the
+other: each downloads COCO, continues the previous job's `last.pt` (the
+`pose-run` artifact), trains until the next epoch would not fit in 4.8 hours
+(`--hours`), and hands the run on. The finishing job exports the ONNX file
+and scores the pipeline behind dfine-s and dfine-m (`eval.txt`). Its default
+is a shorter recipe for the CPU: 40 epochs at batch 64, and the stem and first
+two backbone stages kept as the detector trained them (`--freeze 2`: their
+backward pass is skipped, which makes a CPU step about 1.5× as fast; with
+`channels_last`, 2× in all). Start it from the Actions tab (or `gh workflow
+run train-pose.yml`); a run cut short continues from its artifact with
+`resume_run=<run id>`. Nothing is uploaded to the mirror by it.
+
 `--size m` trains a larger one on HGNetv2-B2 (from dfine-m's backbone).
 `--limit 2000 --epochs 3` is a quick check that everything runs.
 

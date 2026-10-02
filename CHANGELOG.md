@@ -11,6 +11,8 @@
   keypoints only by `tools/train_pose.py`, which also scores the whole
   pipeline (`--eval`); docs/pose.md.
 - `KeypointAP`, COCO's OKS AP, for scoring keypoints without pycocotools.
+- `.github/workflows/train-pose.yml` trains the keypoint model on GitHub's CPU
+  runners, as a chain of five-hour jobs that hand the run on.
 
 ## 0.4.0
 

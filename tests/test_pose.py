@@ -224,3 +224,24 @@ def test_a_training_step_lowers_the_loss_and_the_export_matches(toy, tmp_path, t
     # the whole pipeline scores: detector boxes, then keypoints in each
     scores = tool.evaluate_pipeline(str(toy), onnx_path, str(tiny_ir), "CPU", limit=2)
     assert set(scores) == {"ap", "ap50", "ap75"} and 0.0 <= scores["ap"] <= 1.0
+
+
+@needs_torch
+def test_frozen_stages_keep_their_weights_and_statistics():
+    import torch
+
+    from easydetect.nn.posenet import PoseNet
+
+    net = PoseNet("s")
+    net.freeze(2)
+    net.train()
+    stem_bn = next(m for m in net.backbone.stem.modules() if isinstance(m, torch.nn.BatchNorm2d))
+    before = stem_bn.running_mean.clone()
+    frozen_w = next(net.backbone.stages[1].parameters()).clone()
+    opt = torch.optim.SGD([p for p in net.parameters() if p.requires_grad], lr=0.1)
+    x, y = net(torch.rand(2, 3, *INPUT) * 255)
+    (x.sum() + y.sum()).backward()
+    opt.step()
+    assert not stem_bn.training and torch.equal(stem_bn.running_mean, before)
+    assert torch.equal(next(net.backbone.stages[1].parameters()), frozen_w)
+    assert net.backbone.stages[2].training and net.lateral4.training

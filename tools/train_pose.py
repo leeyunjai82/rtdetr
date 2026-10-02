@@ -199,12 +199,18 @@ def train(args) -> None:
     steps_per_epoch = len(loader)
     total = steps_per_epoch * args.epochs
 
-    net = build(args.size, args.init if not args.resume else "none").to(device)
+    last = out / "last.pt"
+    resuming = bool(args.resume) and last.exists()
+    net = build(args.size, "none" if resuming else args.init)
+    if args.freeze:
+        net.freeze(args.freeze)
+    if device.type == "cpu":  # oneDNN's convolutions run faster on NHWC
+        net = net.to(memory_format=torch.channels_last)
+    net = net.to(device)
     opt = torch.optim.AdamW(param_groups(net, args.weight_decay), lr=args.lr)
     ema = ModelEMA(net, decay=0.9998, warmups=2000)
     start, best = 0, -1.0
-    last = out / "last.pt"
-    if args.resume and last.exists():
+    if resuming:
         state = torch.load(last, map_location="cpu", weights_only=False)
         net.load_state_dict(state["net"])
         ema.module.load_state_dict(state["model"])
@@ -216,7 +222,7 @@ def train(args) -> None:
         (out / "run.json").write_text(json.dumps({
             "task": "pose", "size": args.size, "init": args.init, "epochs": args.epochs,
             "batch": args.batch, "lr": args.lr, "weight_decay": args.weight_decay,
-            "warmup_steps": args.warmup, "train_people": len(train_ds),
+            "warmup_steps": args.warmup, "freeze": args.freeze, "train_people": len(train_ds),
             "val_people": len(val_ds), "augment": DESCRIPTION,
             "keypoints": list(KEYPOINT_NAMES), "device": str(device)}, indent=2))
     ema.module.to(device)
@@ -225,7 +231,13 @@ def train(args) -> None:
           f"{steps_per_epoch} steps an epoch on {device}{' (bf16)' if amp else ''}")
 
     csv_path = out / "results.csv"
+    began, longest = time.time(), 0.0
     for epoch in range(start, args.epochs):
+        if args.hours and longest and \
+                time.time() - began + 1.1 * longest > args.hours * 3600:
+            print(f"stopping before epoch {epoch + 1}: it would not end within "
+                  f"{args.hours} h. Continue with --resume {out}", flush=True)
+            return
         net.train()
         started, seen, running = time.time(), 0, 0.0
         for k, (crops, xy, weight, _) in enumerate(loader):
@@ -233,6 +245,8 @@ def train(args) -> None:
             for g in opt.param_groups:
                 g["lr"] = lr_at(step, total, args.warmup, args.lr)
             crops, xy, weight = (t.to(device, non_blocking=True) for t in (crops, xy, weight))
+            if device.type == "cpu":
+                crops = crops.contiguous(memory_format=torch.channels_last)
             with torch.autocast(device.type, dtype=torch.bfloat16, enabled=amp):
                 x, y = net(crops)
             loss = simcc_loss(x, y, xy, weight)
@@ -268,9 +282,11 @@ def train(args) -> None:
         torch.save({"net": net.state_dict(), "model": ema.module.state_dict(),
                     "ema_updates": ema.updates, "optimizer": opt.state_dict(),
                     "epoch": epoch, "best": best, "size": args.size}, last)
+        longest = max(longest, time.time() - started)
     if (out / "best.pt").exists():
         print(f"best OKS AP {best:.4f}")
         export(out / "best.pt")
+        (out / "finished").write_text(f"{best:.4f}\n")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -286,6 +302,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--warmup", type=int, default=1000, help="steps")
     p.add_argument("--workers", type=int, default=12)
     p.add_argument("--val-every", type=int, default=10)
+    p.add_argument("--freeze", type=int, default=0,
+                   help="keep the stem and this many backbone stages as they start")
+    p.add_argument("--hours", type=float,
+                   help="stop after the last epoch that ends within this time (resume later)")
     p.add_argument("--device")
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--seed", type=int, default=0)

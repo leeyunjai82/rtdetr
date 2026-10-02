@@ -98,6 +98,26 @@ class PoseNet(nn.Module):
         tokens = self.norm(tokens)
         return self.x_head(tokens), self.y_head(tokens)
 
+    def freeze(self, stages: int) -> None:
+        """Stop training the stem and the first ``stages`` backbone stages: their
+        low-level features come from the detector already, and on a CPU skipping
+        their backward pass makes a step about half again as fast."""
+        self.frozen = stages
+        for module in self._frozen():
+            for p in module.parameters():
+                p.requires_grad_(False)
+        self.train(self.training)
+
+    def _frozen(self) -> list[nn.Module]:
+        n = getattr(self, "frozen", 0)
+        return [self.backbone.stem, *self.backbone.stages[:n]] if n else []
+
+    def train(self, mode: bool = True):
+        super().train(mode)
+        for module in self._frozen():
+            module.eval()  # frozen means the batch-norm statistics too
+        return self
+
     def load_detector_backbone(self, state_dict: dict) -> int:
         """Start from a D-FINE checkpoint's backbone (COCO-trained, so it already
         knows people); returns how many tensors were taken."""
