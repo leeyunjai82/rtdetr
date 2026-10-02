@@ -5,6 +5,7 @@
     easydetect train   model=dfine-s data=data.yaml epochs=100 imgsz=640
     easydetect val     model=best.pt data=data.yaml
     easydetect export  model=best.pt format=openvino half=true
+  easydetect serve   model=best.onnx host=0.0.0.0 port=8000
     easydetect track   model=best.pt source=video.mp4
 """
 
@@ -13,7 +14,7 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-MODES = ("predict", "track", "train", "val", "export")
+MODES = ("predict", "track", "train", "val", "export", "serve")
 
 HELP = """easydetect — real-time object detection (D-FINE), Apache-2.0
 
@@ -25,6 +26,7 @@ Modes:
   train     train on a data.yaml dataset (images/ + labels/*.txt)
   val       COCO-style mAP50 / mAP50-95 on the val split
   export    write an OpenVINO IR (or ONNX) next to the checkpoint
+  serve     answer POST /predict with detections as JSON (an HTTP server)
 
 Common keys:
   model=dfine-n|s|m|l|x|best.pt|model.xml   source=bus.jpg|dir|video.mp4|0|url
@@ -37,6 +39,7 @@ Examples:
   easydetect train   model=dfine-s data=data.yaml epochs=100
   easydetect val     model=best.pt data=data.yaml
   easydetect export  model=best.pt format=openvino half=true
+  easydetect serve   model=best.onnx host=0.0.0.0 port=8000
 """
 
 
@@ -99,6 +102,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"unknown mode {mode!r}. Modes: {', '.join(MODES)}\n", file=sys.stderr)
         print(HELP, file=sys.stderr)
         return 2
+
+    if mode == "serve":
+        from .serve import serve
+
+        unknown = set(overrides) - {"model", "host", "port", "device", "task", "backend"}
+        if unknown:
+            print(f"serve takes model, host, port, device, task, backend — not "
+                  f"{', '.join(sorted(unknown))}", file=sys.stderr)
+            return 2
+        serve(model=str(overrides.get("model", "dfine-s")),
+              host=str(overrides.get("host", "127.0.0.1")), port=int(overrides.get("port", 8000)),
+              device=str(overrides.get("device", "AUTO")), task=overrides.get("task", "detect"),
+              backend=overrides.get("backend"))
+        return 0
 
     from .model import Detector
 

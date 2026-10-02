@@ -13,6 +13,12 @@
 - `KeypointAP`, COCO's OKS AP, for scoring keypoints without pycocotools.
 - `.github/workflows/train-pose.yml` trains the keypoint model on GitHub's CPU
   runners, as a chain of five-hour jobs that hand the run on.
+- **`easydetect serve`**: an HTTP server around a model — `POST /predict`
+  with a picture (raw or a form's `image`) answers with `r.summary()` as JSON,
+  or the drawn picture with `draw=1`; `GET /health`. Standard library only, so
+  it runs wherever the model does; 127.0.0.1 unless `host=0.0.0.0`.
+  docs/deploy.md: the server, the `.onnx` contract (with a NumPy decoder that
+  matches easydetect's to 1e-5 px), and notes on TensorRT, RKNN, TFLite.
 - **Training options `multiscale=True`, `mosaic=0.5`, `mixup=0.3`** (off by
   default): a random size per batch within ±25% of `imgsz`, 2×2 mosaics of four
   pictures, and two pictures laid over each other. `recipe.yml` measures them

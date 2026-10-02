@@ -190,6 +190,7 @@ easydetect export  model=best.pt format=openvino half=true
 * [easydetect lab](https://github.com/themakerrobot/easydetect-lab) — the browser app: labelling, jobs, sharing
 * [Weights](https://github.com/themakerrobot/easydetect/blob/main/docs/weights.md) — the mirror, building it, offline use
 * [Performance](https://github.com/themakerrobot/easydetect/blob/main/docs/performance.md) — measuring speed and improving it
+* [Deploying](https://github.com/themakerrobot/easydetect/blob/main/docs/deploy.md) — an HTTP server, the `.onnx` contract, other runtimes
 * [Design](https://github.com/themakerrobot/easydetect/blob/main/docs/design.md) — architecture and provenance
 * [Development](https://github.com/themakerrobot/easydetect/blob/main/docs/contributing.md) — tests, releases
 
