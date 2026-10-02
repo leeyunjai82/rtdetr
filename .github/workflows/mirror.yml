@@ -1,8 +1,9 @@
 name: mirror
 
 # Builds the pretrained D-FINE weights (.pt + OpenVINO IR + ONNX + labels) from the
-# official Apache-2.0 COCO release and uploads them to the Hugging Face repo
-# the package downloads from. Needs the repository secret HF_TOKEN (write).
+# official Apache-2.0 COCO release, and the MobileSAM segmenter (Apache-2.0) that
+# task="segment" uses, and uploads them to the Hugging Face repo the package
+# downloads from. Needs the repository secret HF_TOKEN (write).
 
 on:
   workflow_dispatch:
@@ -12,6 +13,10 @@ on:
         default: "n s m l x"
       readme_only:
         description: "Only refresh the repo's README"
+        type: boolean
+        default: false
+      segmenter_only:
+        description: "Only (re)build the MobileSAM segmenter (mobile_sam/)"
         type: boolean
         default: false
 
@@ -31,8 +36,14 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[train]" "huggingface_hub>=0.25"
       - name: Build the weights
-        if: ${{ !inputs.readme_only }}
+        if: ${{ !inputs.readme_only && !inputs.segmenter_only }}
         run: python tools/build_mirror.py --out mirror --sizes ${{ inputs.sizes }}
+      - name: Build the segmenter
+        if: ${{ !inputs.readme_only }}
+        run: |
+          pip install timm
+          python tools/convert_sam.py --out mirror
+          cp tools/hub_README.md mirror/README.md
       - name: README only
         if: ${{ inputs.readme_only }}
         run: mkdir -p mirror && cp tools/hub_README.md mirror/README.md
@@ -40,10 +51,22 @@ jobs:
         if: ${{ !inputs.readme_only }}
         run: |
           python - <<'PY'
-          import glob, urllib.request
-          from easydetect import Detector
+          import glob, os, shutil, tempfile, urllib.request
+          import numpy as np
+          from easydetect import Detector, downloads
           urllib.request.urlretrieve(
               "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/basketball1.png", "b.png")
+          # the segmenter: masks for the people a detector finds, inside their boxes
+          os.environ["EASYDETECT_HOME"] = tempfile.mkdtemp()
+          shutil.copytree("mirror/mobile_sam", downloads.cache_dir() / "mobile_sam")
+          for backend in ("openvino", "onnxruntime"):
+              r = Detector("dfine-s", backend=backend, task="segment", verbose=False)("b.png")[0]
+              print("segment", backend, r.masks, r.masks.area)
+              assert len(r.masks) == len(r.boxes) > 0
+              for box, mask in zip(r.boxes.xyxy.astype(int), r.masks.data):
+                  x1, y1, x2, y2 = box
+                  inside = mask[y1:y2 + 1, x1:x2 + 1].sum()
+                  assert inside >= 0.95 * mask.sum() > 0.1 * (x2 - x1) * (y2 - y1), (box, mask.sum())
           for xml in sorted(glob.glob("mirror/*/*.xml")):
               found = {}
               for path, backend in ((xml, "openvino"), (xml[:-4] + ".onnx", "onnxruntime")):
@@ -80,7 +103,8 @@ jobs:
           from easydetect import Detector
           size = "${{ inputs.sizes }}".split()[0]
           for backend in ("openvino", "onnxruntime"):
-              r = Detector(f"dfine-{size}", backend=backend, verbose=False)("b.png", conf=0.5)[0]
-              print(f"dfine-{size} from the hub on {backend}:", r)
-              assert len(r.boxes)
+              r = Detector(f"dfine-{size}", backend=backend, verbose=False,
+                           task="segment")("b.png", conf=0.5)[0]
+              print(f"dfine-{size} + segmenter from the hub on {backend}:", r, r.masks)
+              assert len(r.boxes) and len(r.masks) == len(r.boxes)
           PY

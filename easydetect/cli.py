@@ -29,7 +29,8 @@ Modes:
 Common keys:
   model=dfine-n|s|m|l|x|best.pt|model.xml   source=bus.jpg|dir|video.mp4|0|url
   data=data.yaml  epochs=100  imgsz=640  batch=8  conf=0.5  iou=0.7|none  device=0|cpu|AUTO
-  contain=0.8  project=runs  name=predict  save=true  show=false  format=openvino  half=true
+  contain=0.8  task=segment  project=runs  name=predict  save=true  show=false
+  format=openvino  half=true  int8=true  layers=1  queries=100
 
 Examples:
   easydetect predict model=dfine-s source=bus.jpg conf=0.5
@@ -106,7 +107,8 @@ def main(argv: list[str] | None = None) -> int:
     verbose = _take(overrides, "verbose", True)
 
     if mode in ("predict", "track"):
-        model = Detector(model_name, device=device or "AUTO", verbose=verbose)
+        task = _take(overrides, "task", "detect")
+        model = Detector(model_name, device=device or "AUTO", verbose=verbose, task=task)
         source = _take(overrides, "source")
         if source is None:
             print(

@@ -5,7 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from .data.dataset import DetDataset
+from .data.dataset import DetDataset, worker_context
 from .utils.ops import cxcywh2xyxy
 
 
@@ -106,7 +106,8 @@ def validate_torch(net, data_yaml, imgsz=640, batch=8, conf=0.01, device=None, w
     """Evaluate a torch DFINENet on the val split. Returns metrics dict."""
     device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     ds = DetDataset(data_yaml, "val", imgsz, augment=False)
-    dl = DataLoader(ds, batch_size=batch, num_workers=workers, collate_fn=DetDataset.collate)
+    dl = DataLoader(ds, batch_size=batch, num_workers=workers, collate_fn=DetDataset.collate,
+                    multiprocessing_context=worker_context() if workers > 0 else None)
     net = net.to(device).eval()
     ev = Evaluator(net.num_classes)
     for imgs, targets in dl:

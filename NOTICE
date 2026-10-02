@@ -21,18 +21,18 @@ licensed under the Apache License, Version 2.0:
 * DETR (https://github.com/facebookresearch/detr), Copyright (c) Facebook, Inc.
   and its affiliates — box utilities.
 
-The packaging, API, trainer, validator, exporter, predictor, CLI and the web
-platform are this project's own.
+The packaging, API, trainer, validator, exporter, predictor and CLI are this
+project's own. The browser app is a separate repository, easydetect lab
+(https://github.com/themakerrobot/easydetect-lab), with its own notices.
 
-The web platform's look comes from two files it ships unchanged:
+task="segment" runs a model this package does not include but downloads on
+first use, built by tools/convert_sam.py:
 
-* themaker-ui (https://github.com/themakerrobot/themaker-ui) v1.0.0, Copyright
-  (c) 2026 themakerrobot, MIT License — platform/static/css/themaker-ui.css;
-  the license text is platform/static/css/THEMAKER-UI-LICENSE.
-
-* Pretendard (https://github.com/orioncactus/pretendard), Copyright (c) 2021
-  Kil Hyung-jin, SIL Open Font License 1.1 — platform/static/assets/fonts/;
-  the notice is at the top of pretendard.css.
+* MobileSAM (https://github.com/ChaoningZhang/MobileSAM), Copyright (c) the
+  MobileSAM authors, Apache License 2.0 — its weights, exported unchanged to
+  ONNX (mobile_sam/ on the weights mirror, with its LICENSE beside them).
+  MobileSAM builds on Segment Anything (https://github.com/facebookresearch/
+  segment-anything), Copyright (c) Meta Platforms, Inc., Apache License 2.0.
 
 No code or weights from AGPL-licensed projects are included. Only D-FINE's
 COCO-trained checkpoints are used; checkpoints pretrained on Objects365 are not.

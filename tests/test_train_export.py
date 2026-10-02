@@ -380,3 +380,23 @@ def test_an_int8_export_calibrates_on_the_dataset_and_predicts(trained, dataset,
         model.export(format="openvino", imgsz=64, out_dir=tmp_path, int8=True)
     with pytest.raises(ValueError, match="OpenVINO export"):
         model.export(format="onnx", imgsz=64, out_dir=tmp_path, int8=True, data=str(dataset))
+
+
+def test_loader_workers_never_fork_this_process(dataset):
+    """A fork copies only one thread: after an OpenVINO model has run (its pool
+    lives on), forked workers crashed the process — the lab serves predictions
+    and trains in one process. Workers start from a forkserver instead."""
+    import multiprocessing
+
+    import torch
+
+    from easydetect.data.dataset import DetDataset
+    from easydetect.trainer import Trainer
+
+    class Stub:
+        _loader = Trainer._loader
+        batch, workers, device = 2, 2, torch.device("cpu")
+
+    loader = Stub()._loader(DetDataset(str(dataset), "train", 64, augment=False))
+    expected = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+    assert loader.multiprocessing_context.get_start_method() == expected

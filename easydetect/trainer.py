@@ -21,7 +21,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from .data import augment as aug
-from .data.dataset import DetDataset, load_data_yaml
+from .data.dataset import DetDataset, load_data_yaml, worker_context
 from .utils.loss import DetectionLoss
 
 
@@ -400,6 +400,7 @@ class Trainer:
             # every core would fight over the CPU that feeds the GPU
             persistent_workers=self.workers > 0,
             worker_init_fn=_one_thread_per_worker if self.workers > 0 else None,
+            multiprocessing_context=worker_context() if self.workers > 0 else None,
         )
 
     def train(self, val_fn=None):

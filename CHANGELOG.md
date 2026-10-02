@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0
+
+- **Masks: `Detector(..., task="segment")`.** Every box gets a mask
+  (`r.masks.data`, `.xy` outlines, `.area`), drawn by `r.plot()` and listed
+  by `r.summary()`. The detector finds the boxes and MobileSAM (Apache-2.0)
+  outlines what is inside each, so a model trained on boxes alone gets masks
+  — no mask labels. Downloads once (44 MB); about 150 ms a picture plus 25 ms
+  a box on a 4-core CPU. On drawn shapes the masks matched the true ones at
+  IoU 0.99 on both runtimes. `tools/convert_sam.py` builds the files from a
+  pinned commit and hash-checked weights; the mirror workflow builds, checks
+  and uploads them.
+- **Fixed: training after predicting in one process could crash.** DataLoader
+  workers were forked, and a fork of a process whose OpenVINO thread pool is
+  alive can inherit locks held by threads that no longer exist — easydetect
+  lab, which serves predictions and trains in one server, was exposed. Workers
+  now start from a forkserver (spawn on Windows, as before).
+
 ## 0.3.1
 
 - **Lighter exports.** `export(queries=100)` starts the decoder from fewer

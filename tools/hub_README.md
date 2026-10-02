@@ -117,9 +117,15 @@ dfine-s/   …
 dfine-m/   …
 dfine-l/   …
 dfine-x/   …
+mobile_sam/  encoder.onnx  decoder.onnx  LICENSE    the segmenter (task="segment")
 models/
   <name>/   best.xml  best.bin  labels.txt  README.md
 ```
+
+`mobile_sam/` is MobileSAM (Apache-2.0,
+[ChaoningZhang/MobileSAM](https://github.com/ChaoningZhang/MobileSAM)) exported
+to ONNX by `tools/convert_sam.py`: given the boxes a detector found, it outlines
+what is inside each.
 
 Keep these names: the package builds its download URLs from them
 (`<repo>/resolve/main/<name>/<name>.xml`). To host a copy elsewhere, mirror the

@@ -104,6 +104,37 @@ class Boxes:
         return f"Boxes(shape={self.data.shape}, orig_shape={self.orig_shape})"
 
 
+class Masks:
+    """One mask per box (``task="segment"``): ``data`` is ``(N, H, W)`` bool."""
+
+    def __init__(self, data: np.ndarray) -> None:
+        self.data = np.asarray(data, bool)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    @property
+    def xy(self) -> list[np.ndarray]:
+        """Each mask's outline as ``(K, 2)`` pixel points (its largest part)."""
+        import cv2
+
+        outlines = []
+        for mask in self.data:
+            contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL,
+                                           cv2.CHAIN_APPROX_SIMPLE)
+            biggest = max(contours, key=cv2.contourArea) if contours else np.zeros((0, 1, 2))
+            outlines.append(biggest.reshape(-1, 2).astype(np.float32))
+        return outlines
+
+    @property
+    def area(self) -> np.ndarray:
+        """Pixels inside each mask."""
+        return self.data.reshape(len(self.data), -1).sum(1)
+
+    def __repr__(self) -> str:
+        return f"Masks(shape={self.data.shape})"
+
+
 class Results:
     """One image's predictions, plus the pixels they came from."""
 
@@ -114,6 +145,7 @@ class Results:
         names: dict[int, str] | None = None,
         boxes: np.ndarray | None = None,
         speed: dict[str, float] | None = None,
+        masks: np.ndarray | None = None,
     ) -> None:
         self.orig_img = orig_img
         self.orig_shape = orig_img.shape[:2]
@@ -123,6 +155,7 @@ class Results:
             boxes if boxes is not None else np.zeros((0, 6), np.float32), self.orig_shape
         )
         self.speed = speed or {"preprocess": 0.0, "inference": 0.0, "postprocess": 0.0}
+        self.masks = Masks(masks) if masks is not None else None
 
     def __len__(self) -> int:
         return len(self.boxes)
@@ -135,11 +168,14 @@ class Results:
     def plot(
         self, conf: bool = True, labels: bool = True, line_width: int | None = None
     ) -> np.ndarray:
-        """Return a copy of the image with boxes drawn (BGR ndarray)."""
-        from .plotting import draw_boxes
+        """Return a copy of the image with boxes (and masks) drawn (BGR ndarray)."""
+        from .plotting import draw_boxes, draw_masks
 
+        image = self.orig_img
+        if self.masks is not None and len(self.masks):
+            image = draw_masks(image, self.masks.data, self.boxes.cls)
         return draw_boxes(
-            self.orig_img,
+            image,
             self.boxes,
             self.names,
             conf=conf,
@@ -193,6 +229,9 @@ class Results:
             }
             if self.boxes.is_track:
                 row["track_id"] = int(self.boxes.id[i])
+            if self.masks is not None:
+                row["mask"] = {"area": int(self.masks.area[i]),
+                               "polygon": self.masks.xy[i].round(1).tolist()}
             rows.append(row)
         return rows
 

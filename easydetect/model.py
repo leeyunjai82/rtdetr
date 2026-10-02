@@ -64,6 +64,7 @@ class Detector:
         precision: str | None = None,
         pretrained: bool = True,
         backend: str | None = None,
+        task: str = "detect",
     ) -> None:
         """``pretrained=False`` starts training from an ImageNet backbone
         instead of the mirror's COCO weights — for domains COCO says nothing
@@ -72,14 +73,22 @@ class Detector:
         ``backend`` picks the runtime: ``"openvino"`` (CPU, Intel GPU, NPU;
         reads ``.xml`` and ``.onnx``) or ``"onnxruntime"`` (CPU; ``.onnx``
         only, the lighter install). Left out, OpenVINO is used when it is
-        installed and ONNX Runtime otherwise."""
+        installed and ONNX Runtime otherwise.
+
+        ``task="segment"`` also outlines what is inside every box
+        (``r.masks``), with MobileSAM prompted by the box — any class, no mask
+        labels needed; it downloads once and adds about 150 ms a picture plus
+        25 ms a box on a 4-core CPU."""
         self.model_name = str(model)
         self.device = device
         self.precision = precision
         self.backend = backend
         self.pretrained = pretrained
         self.verbose = verbose
-        self.task = "detect"
+        if task not in ("detect", "segment"):
+            raise ValueError("task must be 'detect' or 'segment'")
+        self.task = task
+        self.segmenter = None  # BoxSegmenter for task="segment" (lazy)
         self.names: dict[int, str] = {}
         self.net = None  # torch DFINENet (lazy)
         self.ckpt: dict | None = None
@@ -197,6 +206,15 @@ class Detector:
                         **self._track_kwargs(kwargs))
         return _Stream(gen, "track") if stream else list(gen)
 
+    def _ensure_segmenter(self, device: str | None = None):
+        if self.segmenter is None:
+            from .segment import default_segmenter
+
+            # the same runtime and device the detector runs on
+            backend = self.predictor.backend if self.predictor is not None else self.backend
+            self.segmenter = default_segmenter(device=device or self.device, backend=backend)
+        return self.segmenter
+
     def _track_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         allowed = {
             "imgsz", "device", "max_det", "classes", "save", "show",
@@ -242,12 +260,20 @@ class Detector:
                                        iou=iou, contain=contain)
                 if tracker is not None:
                     det = tracker.update(det)
+                masks = None
+                if self.task == "segment":
+                    import time
+
+                    started = time.perf_counter()
+                    masks, _ = self._ensure_segmenter(device)(frame.img, det[:, :4])
+                    speed["segment"] = (time.perf_counter() - started) * 1e3
                 result = Results(
                     frame.img,
                     path=frame.path,
                     names=self.names or predictor.names,
                     boxes=det,
                     speed=speed,
+                    masks=masks,
                 )
                 if verbose:
                     total = sum(speed.values())

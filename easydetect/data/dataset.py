@@ -95,6 +95,22 @@ def list_images(root: Path, spec, yaml_dir: Path | None = None):
 _label_path = label_path  # older name, kept for callers
 
 
+def worker_context():
+    """How DataLoader workers start: from a clean process, never a fork of this one.
+
+    A fork copies only the calling thread, so a process that has run an
+    OpenVINO model (whose thread pool lives on) or any other threaded library
+    can hand its workers locks held by threads that no longer exist — the
+    lab, which serves predictions and trains in one process, crashed that
+    way. ``forkserver`` forks each worker from a small server process that
+    never ran any of it; where it does not exist (Windows), spawn is the
+    default already.
+    """
+    import multiprocessing
+
+    return "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else None
+
+
 class DetDataset(Dataset):
     def __init__(self, data_yaml, split="train", imgsz=640, augment=True):
         cfg = load_data_yaml(data_yaml)

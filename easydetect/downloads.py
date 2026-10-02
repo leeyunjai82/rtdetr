@@ -154,6 +154,18 @@ def download_checkpoint(name: str) -> Path:
         ) from exc
 
 
+def download_segmenter() -> tuple[Path, Path]:
+    """Fetch MobileSAM's ``encoder.onnx`` and ``decoder.onnx`` (task="segment")."""
+    try:
+        return _asset("mobile_sam", "encoder.onnx"), _asset("mobile_sam", "decoder.onnx")
+    except DownloadError as exc:
+        raise ModelNotFoundError(
+            f"the segmenter (mobile_sam/) is not on the mirror yet ({exc}). Build it with "
+            f"tools/convert_sam.py and point $EASYDETECT_ASSETS_URL at it, or put its two files "
+            f"in {cache_dir() / 'mobile_sam'}"
+        ) from exc
+
+
 def _unknown_name_message(name: str) -> str:
     return (
         f"unknown model '{name}'. Known names: {', '.join(MODEL_NAMES)}. "

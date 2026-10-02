@@ -89,6 +89,24 @@ The log line reads the way you expect:
 image 1/1 bus.jpg: 640x640 4 persons, 1 bus, 12.3ms
 ```
 
+### Masks: `task="segment"`
+
+```python
+model = Detector("dfine-s", task="segment")
+r = model("photo.jpg")[0]
+r.masks.data        # (N, H, W) bool, one per box, in the same order
+r.masks.xy          # each mask's outline, (K, 2) pixel points
+r.masks.area        # pixels inside each
+r.save("result.jpg")   # boxes with their masks tinted in
+```
+
+The detector finds the boxes; MobileSAM (Apache-2.0) then outlines what is in
+each one, prompted by the box. It knows nothing of classes, so a model trained
+on your own boxes gets masks with no mask labels at all. It downloads once
+(44 MB) and costs about 150 ms a picture plus 25 ms a box on a 4-core CPU —
+fine for photos and recordings; on a live CPU webcam, segment every few
+frames. `predict`, `track` and the CLI (`task=segment`) all take it.
+
 ### Results
 
 | Attribute | What you get |
@@ -98,6 +116,7 @@ image 1/1 bus.jpg: 640x640 4 persons, 1 bus, 12.3ms
 | `r.boxes.xyxyn` / `r.boxes.xywhn` | the same, normalized 0..1 |
 | `r.boxes.conf` / `r.boxes.cls` | `(N,)` scores and class indices |
 | `r.boxes.id` | track ids after `model.track(...)`, else `None` |
+| `r.masks` | with `task="segment"`: `.data` `(N, H, W)` bool, `.xy` outlines, `.area`; else `None` |
 | `r.names` | `{0: "person", ...}` |
 | `r.plot()` | annotated BGR ndarray |
 | `r.save()` / `r.show()` | write / display it |

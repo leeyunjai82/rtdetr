@@ -72,6 +72,14 @@ def draw_boxes(
     return out
 
 
+def draw_masks(img: np.ndarray, masks: np.ndarray, classes, alpha: float = 0.45) -> np.ndarray:
+    """Tint each mask with its class colour (a copy of ``img``)."""
+    out = img.astype(np.float32, copy=True)
+    for mask, cls in zip(masks, classes, strict=True):
+        out[mask] = out[mask] * (1 - alpha) + np.array(color_for(int(cls)), np.float32) * alpha
+    return out.astype(np.uint8)
+
+
 def _label_position(x1, y1, y2, tw, th, shape, placed):
     """Where to put one label: inside the frame, and clear of its neighbours.
 
