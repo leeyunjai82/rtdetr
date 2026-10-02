@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -382,21 +383,97 @@ def test_an_int8_export_calibrates_on_the_dataset_and_predicts(trained, dataset,
         model.export(format="onnx", imgsz=64, out_dir=tmp_path, int8=True, data=str(dataset))
 
 
-def test_loader_workers_never_fork_this_process(dataset):
+def test_loader_workers_are_not_forked_from_a_process_that_ran_openvino(dataset, monkeypatch):
     """A fork copies only one thread: after an OpenVINO model has run (its pool
     lives on), forked workers crashed the process — the lab serves predictions
-    and trains in one process. Workers start from a forkserver instead."""
+    and trains in one process. Such a process starts them from a forkserver;
+    any other forks, as a script without a __main__ guard needs."""
     import multiprocessing
 
     import torch
 
-    from easydetect.data.dataset import DetDataset
+    from easydetect.data.dataset import DetDataset, worker_context
     from easydetect.trainer import Trainer
 
     class Stub:
         _loader = Trainer._loader
         batch, workers, device = 2, 2, torch.device("cpu")
 
+    has_forkserver = "forkserver" in multiprocessing.get_all_start_methods()
+    monkeypatch.setitem(sys.modules, "openvino", object())
     loader = Stub()._loader(DetDataset(str(dataset), "train", 64, augment=False))
-    expected = "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else "spawn"
+    expected = "forkserver" if has_forkserver else multiprocessing.get_start_method()
     assert loader.multiprocessing_context.get_start_method() == expected
+
+    monkeypatch.delitem(sys.modules, "openvino")
+    assert worker_context() is None  # the platform's own default
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX start methods")
+@pytest.mark.parametrize("how", ["piped", "unguarded file"])
+def test_scripts_that_cannot_be_rerun_still_get_working_workers(dataset, tmp_path, how):
+    """A forkserver worker re-runs the main script: one piped in has no file,
+    one without a __main__ guard would train again in every worker. Neither
+    loads OpenVINO here, so their workers are forked and work."""
+    import signal
+
+    # Earlier tests leave PyTorch's DataLoader SIGCHLD handler in this process,
+    # and inside pytest (only there: a script that predicts with OpenVINO,
+    # trains, and polls a subprocess every 0.2 s runs clean) the child's exit
+    # signal then crashes the interpreter. The handler is not what is tested.
+    previous = signal.signal(signal.SIGCHLD, signal.SIG_DFL)
+    try:
+        _run_script(dataset, tmp_path, how)
+    finally:
+        signal.signal(signal.SIGCHLD, previous)
+
+
+def _run_script(dataset, tmp_path, how):
+    import subprocess
+
+    script = (
+        "from easydetect.data.dataset import DetDataset, worker_context\n"
+        "from torch.utils.data import DataLoader\n"
+        f"ds = DetDataset({str(dataset)!r}, 'train', 64, augment=False)\n"
+        "dl = DataLoader(ds, batch_size=1, num_workers=2, collate_fn=DetDataset.collate,\n"
+        "                multiprocessing_context=worker_context())\n"
+        "print(worker_context(), sum(1 for _ in dl))\n"
+    )
+    if how == "piped":
+        done = subprocess.run([sys.executable, "-"], input=script, capture_output=True,
+                              text=True, timeout=300)
+    else:
+        path = tmp_path / "train_it.py"
+        path.write_text(script)
+        done = subprocess.run([sys.executable, str(path)], capture_output=True, text=True,
+                              timeout=300)
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert done.stdout.split() == ["None", "2"]
+
+
+@needs_torch
+def test_multiscale_mosaic_and_mixup_train_and_are_recorded(dataset, tmp_path, monkeypatch):
+    monkeypatch.setattr("easydetect.nn.hgnetv2.HGNetv2.load_imagenet", lambda self, name, url: None)
+    import torch.nn.functional as F
+
+    sizes = []
+    real = F.interpolate
+
+    def spy(x, *args, **kwargs):
+        sizes.append(kwargs.get("size"))
+        return real(x, *args, **kwargs)
+
+    monkeypatch.setattr(F, "interpolate", spy)
+    monkeypatch.setattr("easydetect.trainer.random.choice", lambda seq: seq[0])  # the smallest
+    model = Detector("dfine-n", verbose=False, pretrained=False)
+    best = model.train(
+        data=str(dataset), project=str(tmp_path), epochs=2, imgsz=64, batch=2, workers=0,
+        device="cpu", val=False, amp=False, multiscale=True, mosaic=1.0, mixup=1.0,
+    )
+    import json
+
+    setup = json.loads((best.parent.parent / "run.json").read_text())
+    assert any("mosaic" in line for line in setup["augment"])
+    assert any("mixup" in line for line in setup["augment"])
+    assert any("random size, 32–64" in line for line in setup["augment"])
+    assert (32, 32) in sizes  # the batches went through at the drawn size

@@ -10,6 +10,7 @@ Labels: <images-dir with 'images' replaced by 'labels'>/<stem>.txt
         each line: cls cx cy w h  (normalized)
 """
 
+import random
 from pathlib import Path
 
 import cv2
@@ -96,30 +97,44 @@ _label_path = label_path  # older name, kept for callers
 
 
 def worker_context():
-    """How DataLoader workers start: from a clean process, never a fork of this one.
+    """How DataLoader workers start: forked, unless this process has run OpenVINO.
 
-    A fork copies only the calling thread, so a process that has run an
-    OpenVINO model (whose thread pool lives on) or any other threaded library
-    can hand its workers locks held by threads that no longer exist — the
-    lab, which serves predictions and trains in one process, crashed that
-    way. ``forkserver`` forks each worker from a small server process that
-    never ran any of it; where it does not exist (Windows), spawn is the
-    default already.
+    A fork copies only the calling thread, so a process whose OpenVINO thread
+    pool is alive (it lives on after a prediction) can hand its workers locks
+    held by threads that no longer exist — the lab, which serves predictions
+    and trains in one process, crashed that way. Such a process starts its
+    workers from a ``forkserver``, a small process that never ran any of it.
+
+    Not every process, though: a forkserver worker first runs the main script
+    again, so a script without ``if __name__ == "__main__":`` would train once
+    per worker, and one piped in (``python - < train.py``) has no file to run
+    — their workers die on start. A plain training script never loads
+    OpenVINO, and is forked as before. Windows has neither: spawn, always.
     """
     import multiprocessing
+    import sys
 
-    return "forkserver" if "forkserver" in multiprocessing.get_all_start_methods() else None
+    methods = multiprocessing.get_all_start_methods()
+    if "forkserver" not in methods or "openvino" not in sys.modules:
+        return None  # the platform's default: fork on Linux, spawn on Windows and macOS
+    main = sys.modules.get("__main__")
+    named = getattr(getattr(main, "__spec__", None), "name", None)  # python -m: re-imported
+    if not named and str(getattr(main, "__file__", "")).startswith("<"):
+        return None  # piped in: nothing a worker could run again
+    return "forkserver"
 
 
 class DetDataset(Dataset):
-    def __init__(self, data_yaml, split="train", imgsz=640, augment=True):
+    def __init__(self, data_yaml, split="train", imgsz=640, augment=True,
+                 mosaic=0.0, mixup=0.0):
         cfg = load_data_yaml(data_yaml)
         self.names, self.nc = cfg["names"], cfg["nc"]
         self.imgsz = imgsz
         self.augment = augment and split == "train"
-        # zoom-out, crop and colour jitter; the trainer turns them off for the
-        # last epochs (the flip stays)
+        # zoom-out, crop and colour jitter (and mosaic, mixup); the trainer
+        # turns them off for the last epochs (the flip stays)
         self.strong = True
+        self.mosaic, self.mixup = float(mosaic), float(mixup)
         if cfg[split] is None:
             raise ValueError(
                 f"{data_yaml} has no '{split}:' entry. Add one — it may point at the "
@@ -143,16 +158,29 @@ class DetDataset(Dataset):
                 rows.append(row)
         return np.asarray(rows, np.float32) if rows else np.zeros((0, 5), np.float32)
 
-    def __getitem__(self, i):
+    def _raw(self, i):
         f = self.files[i]
         img = cv2.imread(str(f))
         if img is None:
             raise FileNotFoundError(f)
-        labels = self._load_labels(f)  # cls, cx, cy, w, h (normalized)
+        return img, self._load_labels(f)  # cls, cx, cy, w, h (normalized)
 
+    def _augmented(self, i):
+        """One training picture at imgsz x imgsz: a mosaic of four now and then."""
+        if self.strong and self.mosaic and random.random() < self.mosaic:
+            others = random.choices(range(len(self.files)), k=3)
+            return aug.mosaic([self._raw(j) for j in (i, *others)], self.imgsz)
+        img, labels = self._raw(i)
+        return aug.apply(img, labels, strong=self.strong, size=self.imgsz)
+
+    def __getitem__(self, i):
         if self.augment:   # rendered straight at imgsz x imgsz
-            img, labels = aug.apply(img, labels, strong=self.strong, size=self.imgsz)
+            img, labels = self._augmented(i)
+            if self.strong and self.mixup and random.random() < self.mixup:
+                img, labels = aug.mixup((img, labels),
+                                        self._augmented(random.randrange(len(self.files))))
         else:
+            img, labels = self._raw(i)
             img = cv2.resize(img, (self.imgsz, self.imgsz))  # plain resize, as D-FINE trains
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
         tensor = torch.from_numpy(img.transpose(2, 0, 1)).contiguous()

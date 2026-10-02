@@ -165,6 +165,9 @@ def _one_thread_per_worker(_worker_id: int) -> None:
 
 
 class Trainer:
+    # the recipe's extras, off unless asked for
+    multiscale, mosaic, mixup = False, 0.0, 0.0
+
     def __init__(
         self,
         net,
@@ -186,12 +189,16 @@ class Trainer:
         seed=0,
         freeze=None,
         augment=True,
+        multiscale=False,
+        mosaic=0.0,
+        mixup=0.0,
         on_epoch_end=None,
         on_progress=None,
         origin=None,
     ):
         seed_everything(seed)
         self.augment = augment
+        self.multiscale, self.mosaic, self.mixup = bool(multiscale), float(mosaic), float(mixup)
         self.seed, self.freeze, self.origin = seed, freeze, origin
         self.lr_auto = lr is None
         lr = auto_lr(batch) if lr is None else float(lr)
@@ -377,9 +384,22 @@ class Trainer:
         """What the pictures go through, for run.json and the model card."""
         *strong, flip = aug.DESCRIPTION
         lines = list(strong) if self.augment else []
+        if lines and self.mosaic:
+            lines.append(f"mosaic of four pictures (p={self.mosaic:g})")
+        if lines and self.mixup:
+            lines.append(f"mixup of two (p={self.mixup:g})")
+        if lines and self.multiscale:
+            sizes = self.train_sizes()
+            lines.append(f"each batch at a random size, {sizes[0]}–{sizes[-1]} px")
         if lines and self.clean_from < self.epochs:
-            lines.append(f"those three off for the last {self.epochs - self.clean_from} epoch(s)")
+            lines.append(f"those off for the last {self.epochs - self.clean_from} epoch(s)")
         return lines + [flip, f"resize to {self.imgsz}×{self.imgsz}"]
+
+    def train_sizes(self) -> list[int]:
+        """Multi-scale training sizes: ±25% of imgsz in steps of 32, as D-FINE's
+        batch collation draws them."""
+        low, high = int(self.imgsz * 0.75) // 32 * 32, int(self.imgsz * 1.25) // 32 * 32
+        return list(range(max(low, 32), max(high, 32) + 1, 32))
 
     @property
     def clean_from(self) -> int:
@@ -404,7 +424,8 @@ class Trainer:
         )
 
     def train(self, val_fn=None):
-        ds = DetDataset(self.data_yaml, "train", self.imgsz, augment=True)
+        ds = DetDataset(self.data_yaml, "train", self.imgsz, augment=True,
+                        mosaic=self.mosaic, mixup=self.mixup)
         ds.strong = self.augment and self.start_epoch < self.clean_from
         dl = self._loader(ds)
         net = self.net.to(self.device)
@@ -440,6 +461,11 @@ class Trainer:
             for step, (imgs, targets) in enumerate(dl):
                 self._set_lr(epoch, step, len(dl))
                 imgs = imgs.to(self.device, non_blocking=True)
+                if self.multiscale and ds.strong:  # boxes are normalised: only pixels change
+                    side = random.choice(self.train_sizes())
+                    if side != imgs.shape[-1]:
+                        imgs = torch.nn.functional.interpolate(
+                            imgs, size=(side, side), mode="bilinear", align_corners=False)
                 targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
 
                 with torch.amp.autocast(self.device.type, enabled=self.amp):

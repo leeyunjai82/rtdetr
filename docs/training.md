@@ -124,6 +124,27 @@ model.train(data="data.yaml", epochs=50, augment=False)   # flip only
 
 `run.json` lists what a run used. Validation pictures are never augmented.
 
+Three more, off unless asked for, and off for the last tenth with the rest:
+
+```python
+model.train(data="data.yaml", multiscale=True, mosaic=0.5, mixup=0.3)
+```
+
+- `multiscale=True` trains each batch at a random size within ±25% of
+  `imgsz`, in steps of 32 (as D-FINE's own batch collation does), so the model
+  does not tie an object's size to one input size.
+- `mosaic=0.5` makes half the pictures a 2×2 mosaic of four, meeting at a
+  random point: more objects a step, many of them small, in unusual company.
+- `mixup=0.3` lays a second picture over 30% of them, at 40–60% opacity, with
+  both pictures' boxes: finding an object through clutter that is not part of
+  it.
+
+Whether they help depends on the data and the length of the run; on a short
+fine-tune from COCO weights they can cost more than they give. They stay off by
+default until measured: `.github/workflows/recipe.yml` trains the same model on
+the same fixed slice of Pascal VOC 2007 (`tools/voc2yolo.py`) once per recipe
+and seed and tabulates the best mAP50-95 of each.
+
 ## Early stopping
 
 `patience=50` stops a run once mAP has not improved for that many epochs and

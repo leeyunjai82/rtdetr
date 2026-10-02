@@ -77,6 +77,7 @@ def test_the_last_tenth_trains_on_plain_pictures():
     class Stub:                                   # only clean_from and _augment_lines are used
         clean_from = Trainer.clean_from
         _augment_lines = Trainer._augment_lines
+        multiscale, mosaic, mixup = Trainer.multiscale, Trainer.mosaic, Trainer.mixup
 
     stub = Stub()
     for epochs, clean in ((20, 18), (50, 45), (100, 90), (5, 4), (3, 3), (1, 1)):
@@ -100,3 +101,22 @@ def test_rendered_at_training_size_the_boxes_still_cover_their_objects(no_colour
             y1, y2 = int(np.ceil((cy - bh / 2) * 96)) + 1, int((cy + bh / 2) * 96) - 1
             if x2 - x1 >= 2 and y2 - y1 >= 2:
                 assert out[y1:y2, x1:x2].mean() > 230, "a box that no longer sits on its object"
+
+
+def test_a_mosaic_keeps_every_box_on_its_object(no_colour):
+    random.seed(1)
+    for _ in range(50):
+        canvas, labels = aug.mosaic([_scene() for _ in range(4)], 160)
+        assert canvas.shape == (160, 160, 3) and len(labels) <= 8
+        assert (labels[:, 1:] >= 0).all() and (labels[:, 1:] <= 1 + 1e-6).all()
+        for _, cx, cy, w, h in labels:
+            if w * 160 >= 4 and h * 160 >= 4:  # big enough to sample its middle
+                assert canvas[int(cy * 160), int(cx * 160)].mean() > 128
+
+
+def test_mixup_lays_two_pictures_over_each_other():
+    a = (np.full((64, 64, 3), 200, np.uint8), np.array([[0, 0.5, 0.5, 0.2, 0.2]], np.float32))
+    b = (np.zeros((64, 64, 3), np.uint8), np.array([[1, 0.2, 0.2, 0.1, 0.1]], np.float32))
+    img, labels = aug.mixup(a, b)
+    assert 200 * 0.4 - 1 <= img.mean() <= 200 * 0.6 + 1
+    assert labels[:, 0].tolist() == [0, 1]

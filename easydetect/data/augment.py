@@ -159,11 +159,13 @@ def render(img: np.ndarray, view: np.ndarray, size: tuple[int, int],
 
 
 def apply(img: np.ndarray, labels: np.ndarray, strong: bool = True,
-          size: int | None = None, min_side: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+          size: int | tuple[int, int] | None = None,
+          min_side: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
     """Augment one picture and its ``cls cx cy w h`` (normalised) labels.
 
     ``size`` renders the result square at that many pixels (what training
-    wants, and the cheap way); ``None`` keeps the view's own pixel size.
+    wants, and the cheap way), or at ``(width, height)``; ``None`` keeps the
+    view's own pixel size.
     ``strong=False`` keeps only the flip — what the last epochs train on, as
     in D-FINE, so the model settles on pictures framed like the ones it will
     see. ``min_side`` drops boxes thinner than that many output pixels.
@@ -185,7 +187,12 @@ def apply(img: np.ndarray, labels: np.ndarray, strong: bool = True,
     flip = random.random() < 0.5
 
     vw, vh = view[2] - view[0], view[3] - view[1]
-    out_size = (size, size) if size else (max(1, round(float(vw))), max(1, round(float(vh))))
+    if isinstance(size, int):
+        out_size = (size, size)
+    elif size:
+        out_size = (int(size[0]), int(size[1]))
+    else:
+        out_size = (max(1, round(float(vw))), max(1, round(float(vh))))
     img = render(img, view, out_size, flip)
     if strong:
         img = photometric(img)
@@ -205,3 +212,45 @@ def apply(img: np.ndarray, labels: np.ndarray, strong: bool = True,
     out[:, 3] = rel[:, 2] - rel[:, 0]
     out[:, 4] = rel[:, 3] - rel[:, 1]
     return img, out
+
+
+MOSAIC_SPLIT = (0.3, 0.7)  # where the four tiles meet, as a share of each side
+MIXUP_RATIO = (0.4, 0.6)  # how much of the first picture shows through
+
+
+def mosaic(pictures: list[tuple[np.ndarray, np.ndarray]], size: int,
+           min_side: float = 1.0) -> tuple[np.ndarray, np.ndarray]:
+    """Four pictures as the four tiles of one, meeting at a random point.
+
+    Each tile is its picture augmented as usual and rendered straight at the
+    tile's size, so objects come out smaller and in unusual company — more
+    objects a step, and many at sizes a single photo rarely shows. Labels are
+    ``cls cx cy w h`` normalised, in and out.
+    """
+    cx = round(size * random.uniform(*MOSAIC_SPLIT))
+    cy = round(size * random.uniform(*MOSAIC_SPLIT))
+    tiles = ((0, 0, cx, cy), (cx, 0, size, cy), (0, cy, cx, size), (cx, cy, size, size))
+    canvas = np.empty((size, size, 3), np.uint8)
+    out = []
+    for (img, labels), (x0, y0, x1, y1) in zip(pictures, tiles, strict=True):
+        tile, tile_labels = apply(img, labels, strong=True, size=(x1 - x0, y1 - y0),
+                                  min_side=min_side)
+        canvas[y0:y1, x0:x1] = tile
+        if len(tile_labels):
+            tile_labels = tile_labels.copy()
+            tile_labels[:, [1, 3]] *= (x1 - x0) / size
+            tile_labels[:, [2, 4]] *= (y1 - y0) / size
+            tile_labels[:, 1] += x0 / size
+            tile_labels[:, 2] += y0 / size
+            out.append(tile_labels)
+    labels = np.concatenate(out) if out else np.zeros((0, 5), np.float32)
+    return canvas, labels.astype(np.float32)
+
+
+def mixup(a: tuple[np.ndarray, np.ndarray],
+          b: tuple[np.ndarray, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Two same-sized pictures laid over each other, with both sets of boxes:
+    the model learns to find an object through clutter that is not part of it."""
+    ratio = random.uniform(*MIXUP_RATIO)
+    img = cv2.addWeighted(a[0], ratio, b[0], 1.0 - ratio, 0.0)
+    return img, np.concatenate([a[1], b[1]]).astype(np.float32)

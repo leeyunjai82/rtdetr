@@ -13,6 +13,16 @@
 - `KeypointAP`, COCO's OKS AP, for scoring keypoints without pycocotools.
 - `.github/workflows/train-pose.yml` trains the keypoint model on GitHub's CPU
   runners, as a chain of five-hour jobs that hand the run on.
+- **Training options `multiscale=True`, `mosaic=0.5`, `mixup=0.3`** (off by
+  default): a random size per batch within ±25% of `imgsz`, 2×2 mosaics of four
+  pictures, and two pictures laid over each other. `recipe.yml` measures them
+  on a fixed slice of Pascal VOC 2007 (`tools/voc2yolo.py`).
+- **Fixed: training scripts without `if __name__ == "__main__":` (and scripts
+  piped in) failed in 0.4.0** — "DataLoader worker exited unexpectedly". 0.4.0
+  started every DataLoader worker from a forkserver, which first runs the main
+  script again. Workers are forked again, as up to 0.3, unless OpenVINO is
+  loaded in the process (its threads are what made forking unsafe: the lab,
+  which predicts and trains in one process).
 
 ## 0.4.0
 
