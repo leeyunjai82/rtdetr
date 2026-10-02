@@ -107,6 +107,20 @@ on your own boxes gets masks with no mask labels at all. It downloads once
 fine for photos and recordings; on a live CPU webcam, segment every few
 frames. `predict`, `track` and the CLI (`task=segment`) all take it.
 
+### Keypoints: `task="pose"`
+
+```python
+model = Detector("dfine-s", task="pose")
+r = model("people.jpg")[0]
+r.keypoints.xy      # (N, 17, 2) COCO body keypoints, one row per box
+r.keypoints.conf    # (N, 17) 0-1; zero for boxes that are not people
+```
+
+Each person box is cut out and easydetect's own keypoint network (trained on
+COCO keypoints) places the 17 keypoints; about 7 ms a person on a 4-core
+CPU. How it works, how it was trained and how to train it again:
+[pose.md](pose.md).
+
 ### Results
 
 | Attribute | What you get |
@@ -117,6 +131,7 @@ frames. `predict`, `track` and the CLI (`task=segment`) all take it.
 | `r.boxes.conf` / `r.boxes.cls` | `(N,)` scores and class indices |
 | `r.boxes.id` | track ids after `model.track(...)`, else `None` |
 | `r.masks` | with `task="segment"`: `.data` `(N, H, W)` bool, `.xy` outlines, `.area`; else `None` |
+| `r.keypoints` | with `task="pose"`: `.data` `(N, 17, 3)`, `.xy`, `.conf`; else `None` |
 | `r.names` | `{0: "person", ...}` |
 | `r.plot()` | annotated BGR ndarray |
 | `r.save()` / `r.show()` | write / display it |

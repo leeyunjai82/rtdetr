@@ -29,7 +29,7 @@ Modes:
 Common keys:
   model=dfine-n|s|m|l|x|best.pt|model.xml   source=bus.jpg|dir|video.mp4|0|url
   data=data.yaml  epochs=100  imgsz=640  batch=8  conf=0.5  iou=0.7|none  device=0|cpu|AUTO
-  contain=0.8  task=segment  project=runs  name=predict  save=true  show=false
+  contain=0.8  task=segment|pose  project=runs  name=predict  save=true  show=false
   format=openvino  half=true  int8=true  layers=1  queries=100
 
 Examples:

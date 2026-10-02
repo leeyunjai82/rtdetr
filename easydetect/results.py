@@ -135,6 +135,29 @@ class Masks:
         return f"Masks(shape={self.data.shape})"
 
 
+class Keypoints:
+    """17 COCO body keypoints per box (``task="pose"``): ``data`` is ``(N, 17, 3)``
+    — x, y in pixels and a confidence in 0-1. Boxes that are not people have
+    all-zero rows; ``easydetect.pose.KEYPOINT_NAMES`` names the 17."""
+
+    def __init__(self, data: np.ndarray) -> None:
+        self.data = np.asarray(data, np.float32)
+
+    def __len__(self) -> int:
+        return len(self.data)
+
+    @property
+    def xy(self) -> np.ndarray:
+        return self.data[..., :2]
+
+    @property
+    def conf(self) -> np.ndarray:
+        return self.data[..., 2]
+
+    def __repr__(self) -> str:
+        return f"Keypoints(shape={self.data.shape})"
+
+
 class Results:
     """One image's predictions, plus the pixels they came from."""
 
@@ -146,6 +169,7 @@ class Results:
         boxes: np.ndarray | None = None,
         speed: dict[str, float] | None = None,
         masks: np.ndarray | None = None,
+        keypoints: np.ndarray | None = None,
     ) -> None:
         self.orig_img = orig_img
         self.orig_shape = orig_img.shape[:2]
@@ -156,6 +180,7 @@ class Results:
         )
         self.speed = speed or {"preprocess": 0.0, "inference": 0.0, "postprocess": 0.0}
         self.masks = Masks(masks) if masks is not None else None
+        self.keypoints = Keypoints(keypoints) if keypoints is not None else None
 
     def __len__(self) -> int:
         return len(self.boxes)
@@ -168,13 +193,13 @@ class Results:
     def plot(
         self, conf: bool = True, labels: bool = True, line_width: int | None = None
     ) -> np.ndarray:
-        """Return a copy of the image with boxes (and masks) drawn (BGR ndarray)."""
-        from .plotting import draw_boxes, draw_masks
+        """Return a copy of the image with boxes (and masks, keypoints) drawn (BGR ndarray)."""
+        from .plotting import draw_boxes, draw_keypoints, draw_masks
 
         image = self.orig_img
         if self.masks is not None and len(self.masks):
             image = draw_masks(image, self.masks.data, self.boxes.cls)
-        return draw_boxes(
+        image = draw_boxes(
             image,
             self.boxes,
             self.names,
@@ -182,6 +207,9 @@ class Results:
             labels=labels,
             line_width=line_width,
         )
+        if self.keypoints is not None and len(self.keypoints):
+            image = draw_keypoints(image, self.keypoints.data, line_width=line_width)
+        return image
 
     def save(self, filename: str | Path | None = None) -> Path:
         """Write the annotated image; returns the path written."""
@@ -232,6 +260,14 @@ class Results:
             if self.masks is not None:
                 row["mask"] = {"area": int(self.masks.area[i]),
                                "polygon": self.masks.xy[i].round(1).tolist()}
+            if self.keypoints is not None and self.keypoints.conf[i].any():
+                from .pose import KEYPOINT_NAMES
+
+                row["keypoints"] = {
+                    name: {"x": round(float(x), 1), "y": round(float(y), 1),
+                           "confidence": round(float(c), 3)}
+                    for name, (x, y, c) in zip(KEYPOINT_NAMES, self.keypoints.data[i],
+                                               strict=True)}
             rows.append(row)
         return rows
 

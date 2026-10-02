@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Keypoints: `Detector(..., task="pose")`.** Every person box gets COCO's 17
+  body keypoints (`r.keypoints`: `.xy`, `.conf`), drawn as a skeleton by
+  `r.plot()` and listed by name in `r.summary()`. The detector finds the
+  people; easydetect's own top-down network (HGNetv2-B0 from the detector's
+  COCO backbone, a SimCC-style head, 3.7 M parameters) places the keypoints
+  in each crop — about 7 ms a person on a 4-core CPU. Trained on COCO
+  keypoints only by `tools/train_pose.py`, which also scores the whole
+  pipeline (`--eval`); docs/pose.md.
+- `KeypointAP`, COCO's OKS AP, for scoring keypoints without pycocotools.
+
 ## 0.4.0
 
 - **Masks: `Detector(..., task="segment")`.** Every box gets a mask

@@ -34,5 +34,11 @@ first use, built by tools/convert_sam.py:
   MobileSAM builds on Segment Anything (https://github.com/facebookresearch/
   segment-anything), Copyright (c) Meta Platforms, Inc., Apache License 2.0.
 
+task="pose" downloads easydetect's own keypoint network (easydetect/nn/
+posenet.py, written from the SimCC paper: Li et al., ECCV 2022), trained by
+tools/train_pose.py on the COCO 2017 person keypoint annotations, (c) the COCO
+Consortium, Creative Commons Attribution 4.0 (https://cocodataset.org), and
+started from the D-FINE COCO backbone above.
+
 No code or weights from AGPL-licensed projects are included. Only D-FINE's
 COCO-trained checkpoints are used; checkpoints pretrained on Objects365 are not.

@@ -118,6 +118,7 @@ dfine-m/   …
 dfine-l/   …
 dfine-x/   …
 mobile_sam/  encoder.onnx  decoder.onnx  LICENSE    the segmenter (task="segment")
+pose/        pose-s.onnx                           the keypoint model (task="pose")
 models/
   <name>/   best.xml  best.bin  labels.txt  README.md
 ```
@@ -126,6 +127,10 @@ models/
 [ChaoningZhang/MobileSAM](https://github.com/ChaoningZhang/MobileSAM)) exported
 to ONNX by `tools/convert_sam.py`: given the boxes a detector found, it outlines
 what is inside each.
+
+`pose/` is easydetect's own keypoint network (Apache-2.0), trained by
+`tools/train_pose.py` on COCO 2017 person keypoints (CC BY 4.0) from the
+dfine-s backbone: given a person box, it places COCO's 17 body keypoints.
 
 Keep these names: the package builds its download URLs from them
 (`<repo>/resolve/main/<name>/<name>.xml`). To host a copy elsewhere, mirror the

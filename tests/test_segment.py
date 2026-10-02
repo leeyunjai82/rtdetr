@@ -66,7 +66,7 @@ def test_segment_puts_one_mask_on_every_box(tiny_ir):
 
 def test_the_task_is_checked():
     with pytest.raises(ValueError, match="task must be"):
-        Detector("dfine-s", task="pose")
+        Detector("dfine-s", task="dance")
 
 
 def test_the_segmenter_sizes_the_picture_like_mobile_sam():

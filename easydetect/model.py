@@ -22,10 +22,15 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from . import downloads
 from .errors import ModelNotFoundError
 from .metrics import DetMetrics
 from .results import Results
+
+#: What a Detector can add to its boxes: nothing, a mask each, or a person's keypoints.
+TASKS = ("detect", "segment", "pose")
 
 _TORCH_HINT = (
     "this needs the training extra: pip install 'easydetect[train]' "
@@ -78,17 +83,23 @@ class Detector:
         ``task="segment"`` also outlines what is inside every box
         (``r.masks``), with MobileSAM prompted by the box — any class, no mask
         labels needed; it downloads once and adds about 150 ms a picture plus
-        25 ms a box on a 4-core CPU."""
+        25 ms a box on a 4-core CPU.
+
+        ``task="pose"`` places 17 body keypoints on every person
+        (``r.keypoints``) with easydetect's own keypoint model, trained on COCO
+        — on boxes named "person", or on every box when the model has no such
+        class."""
         self.model_name = str(model)
         self.device = device
         self.precision = precision
         self.backend = backend
         self.pretrained = pretrained
         self.verbose = verbose
-        if task not in ("detect", "segment"):
-            raise ValueError("task must be 'detect' or 'segment'")
+        if task not in TASKS:
+            raise ValueError(f"task must be one of {', '.join(TASKS)}")
         self.task = task
         self.segmenter = None  # BoxSegmenter for task="segment" (lazy)
+        self.pose = None  # KeypointEstimator for task="pose" (lazy)
         self.names: dict[int, str] = {}
         self.net = None  # torch DFINENet (lazy)
         self.ckpt: dict | None = None
@@ -215,6 +226,26 @@ class Detector:
             self.segmenter = default_segmenter(device=device or self.device, backend=backend)
         return self.segmenter
 
+    def _ensure_pose(self, device: str | None = None):
+        if self.pose is None:
+            from .pose import default_estimator
+
+            backend = self.predictor.backend if self.predictor is not None else self.backend
+            self.pose = default_estimator(device=device or self.device, backend=backend)
+        return self.pose
+
+    def _keypoints(self, img, det, names, device):
+        """``(N, 17, 3)`` x, y, confidence for each box; zeros for boxes that are
+        not people."""
+        from .pose import KEYPOINT_NAMES, person_rows
+
+        out = np.zeros((len(det), len(KEYPOINT_NAMES), 3), np.float32)
+        rows = person_rows(names, det[:, -1]) if len(det) else np.zeros(0, bool)
+        if rows.any():
+            xy, conf = self._ensure_pose(device)(img, det[rows, :4])
+            out[rows] = np.concatenate([xy, conf[..., None]], -1)
+        return out
+
     def _track_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         allowed = {
             "imgsz", "device", "max_det", "classes", "save", "show",
@@ -267,13 +298,22 @@ class Detector:
                     started = time.perf_counter()
                     masks, _ = self._ensure_segmenter(device)(frame.img, det[:, :4])
                     speed["segment"] = (time.perf_counter() - started) * 1e3
+                names = self.names or predictor.names
+                keypoints = None
+                if self.task == "pose":
+                    import time
+
+                    started = time.perf_counter()
+                    keypoints = self._keypoints(frame.img, det, names, device)
+                    speed["pose"] = (time.perf_counter() - started) * 1e3
                 result = Results(
                     frame.img,
                     path=frame.path,
-                    names=self.names or predictor.names,
+                    names=names,
                     boxes=det,
                     speed=speed,
                     masks=masks,
+                    keypoints=keypoints,
                 )
                 if verbose:
                     total = sum(speed.values())

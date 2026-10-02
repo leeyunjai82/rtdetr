@@ -166,6 +166,17 @@ def download_segmenter() -> tuple[Path, Path]:
         ) from exc
 
 
+def download_pose(size: str = "s") -> Path:
+    """Fetch easydetect's keypoint model, ``pose/pose-<size>.onnx`` (task="pose")."""
+    try:
+        return _asset("pose", f"pose-{size}.onnx")
+    except DownloadError as exc:
+        raise ModelNotFoundError(
+            f"the keypoint model (pose/pose-{size}.onnx) is not on the mirror yet ({exc}). "
+            f"Train one with tools/train_pose.py and put its .onnx in {cache_dir() / 'pose'}"
+        ) from exc
+
+
 def _unknown_name_message(name: str) -> str:
     return (
         f"unknown model '{name}'. Known names: {', '.join(MODEL_NAMES)}. "

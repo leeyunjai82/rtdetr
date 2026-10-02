@@ -1,0 +1,226 @@
+# Apache-2.0
+"""task="pose": the crop geometry, the decoding, the OKS score, the dataset, the
+network's training step and export, and the plumbing into Detector."""
+
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from easydetect import Detector
+from easydetect.pose import (
+    FLIP,
+    INPUT,
+    KEYPOINT_NAMES,
+    KeypointAP,
+    apply,
+    box_to_crop,
+    crop_matrix,
+    decode,
+    invert,
+    oks,
+    person_rows,
+)
+from easydetect.results import Results
+
+from . import pose_toy
+from .conftest import draw, needs_torch
+
+
+def test_a_box_becomes_a_padded_crop_of_the_network_shape():
+    center, size = box_to_crop(np.array([[100, 50, 160, 250]]))
+    np.testing.assert_allclose(center, [[130, 150]])
+    assert size[0, 0] / size[0, 1] == pytest.approx(INPUT[1] / INPUT[0])
+    assert size[0, 1] == pytest.approx(200 * 1.25)  # tall box: the height decides
+    wide = box_to_crop(np.array([[0, 0, 300, 30]]))[1][0]
+    assert wide[0] == pytest.approx(300 * 1.25)
+
+
+@pytest.mark.parametrize("rotation", [0.0, 30.0, -75.0])
+def test_the_crop_map_goes_there_and_back(rotation):
+    m = crop_matrix(np.array([130.0, 150.0]), np.array([187.5, 250.0]), rotation)
+    np.testing.assert_allclose(apply(m, np.array([130.0, 150.0])), [INPUT[1] / 2, INPUT[0] / 2])
+    pts = np.random.default_rng(0).uniform(0, 300, (17, 2))
+    np.testing.assert_allclose(apply(invert(m), apply(m, pts)), pts, atol=1e-9)
+
+
+def test_decoding_reads_the_peak_and_how_sure_it_is():
+    h, w = INPUT
+    x = np.full((1, 2, w * 2), -10.0, np.float32)
+    y = np.full((1, 2, h * 2), -10.0, np.float32)
+    x[0, 0, 100], y[0, 0, 300] = 10.0, 10.0  # sharp
+    x[0, 1] = 0.0
+    y[0, 1] = 0.0  # flat: anywhere at all
+    xy, conf = decode(x, y)
+    np.testing.assert_allclose(xy[0, 0], [50.0, 150.0])
+    assert conf[0, 0] == 1.0 and conf[0, 1] < 0.05
+
+
+def test_flip_pairs_are_left_and_right():
+    for i, j in enumerate(FLIP):
+        assert FLIP[j] == i
+        a, b = KEYPOINT_NAMES[i], KEYPOINT_NAMES[j]
+        assert a == b or a.replace("left", "right") == b or a.replace("right", "left") == b
+
+
+def test_oks_and_ap_follow_the_coco_definition():
+    gt = np.concatenate([pose_toy.TEMPLATE * [60, 200] + [100, 50], np.full((17, 1), 2.0)], 1)
+    assert oks(gt[:, :2], gt, 6000) == pytest.approx(1.0)
+    assert 0.0 < oks(gt[:, :2] + 8, gt, 6000) < oks(gt[:, :2] + 2, gt, 6000) < 1.0
+
+    perfect = KeypointAP()
+    perfect.add(gt[None, :, :2], np.array([0.9]), gt[None], np.array([6000.0]))
+    assert perfect.compute() == {"ap": 1.0, "ap50": 1.0, "ap75": 1.0}
+
+    sloppy = KeypointAP()
+    sloppy.add(gt[None, :, :2] + 6, np.array([0.9]), gt[None], np.array([6000.0]))
+    result = sloppy.compute()
+    assert result["ap50"] == 1.0 and result["ap"] < 1.0
+
+    # a missed person halves recall; a person with no labelled keypoints is ignored
+    unlabelled = gt.copy()
+    unlabelled[:, 2] = 0
+    half = KeypointAP()
+    half.add(gt[None, :, :2], np.array([0.9]), np.stack([gt, gt + [300, 0, 0]]),
+             np.array([6000.0, 6000.0]))
+    assert half.compute()["ap"] == pytest.approx(0.5, abs=0.01)
+    ignored = KeypointAP()
+    ignored.add(gt[None, :, :2], np.array([0.9]), np.stack([gt, unlabelled + [300, 0, 0]]),
+                np.array([6000.0, 6000.0]))
+    assert ignored.compute()["ap"] == 1.0
+
+
+def test_people_are_the_boxes_named_person():
+    cls = np.array([0, 2, 0], np.float32)
+    assert person_rows({0: "person", 2: "car"}, cls).tolist() == [True, False, True]
+    assert person_rows({0: "worker"}, cls).all()  # no "person": every box
+
+
+def test_a_result_draws_and_lists_keypoints():
+    img = np.full((240, 320, 3), 60, np.uint8)
+    kp = np.zeros((2, 17, 3), np.float32)
+    kp[0, :, :2] = pose_toy.TEMPLATE * [60, 200] + [100, 20]
+    kp[0, :, 2] = 0.9
+    boxes = np.array([[100, 20, 160, 220, 0.9, 0], [200, 50, 300, 120, 0.8, 1]], np.float32)
+    r = Results(img, names={0: "person", 1: "dog"}, boxes=boxes, keypoints=kp)
+    drawn = r.plot()
+    nose = kp[0, 0, :2].astype(int)
+    assert (drawn[nose[1], nose[0]] != img[nose[1], nose[0]]).any()
+    person, dog = r.summary()
+    assert set(person["keypoints"]) == set(KEYPOINT_NAMES) and "keypoints" not in dog
+    assert person["keypoints"]["nose"]["confidence"] == pytest.approx(0.9)
+    assert Results(img, boxes=boxes).keypoints is None
+
+
+class _FakeEstimator:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, img, xyxy):
+        self.calls.append(np.asarray(xyxy).copy())
+        n = len(xyxy)
+        centers = (np.asarray(xyxy)[:, :2] + np.asarray(xyxy)[:, 2:]) / 2
+        return np.repeat(centers[:, None], 17, 1).astype(np.float32), np.full((n, 17), 0.8,
+                                                                            np.float32)
+
+
+def test_pose_puts_keypoints_on_people_only(tiny_ir):
+    model = Detector(str(tiny_ir), task="pose", verbose=False)
+    model.pose = _FakeEstimator()
+    r = model(draw(), conf=0.0, max_det=4)[0]
+    assert len(r.keypoints) == len(r.boxes) == 4 and "pose" in r.speed
+    people = person_rows(r.names, r.boxes.cls)
+    assert (r.keypoints.conf[people] == 0.8).all() and (r.keypoints.conf[~people] == 0).all()
+    if people.any():
+        np.testing.assert_allclose(model.pose.calls[0], r.boxes.xyxy[people])
+
+
+def test_the_command_line_takes_task_pose(tiny_ir, tmp_path, monkeypatch):
+    import cv2
+
+    from easydetect import cli, pose
+
+    made = []
+    monkeypatch.setattr(pose, "default_estimator",
+                        lambda **kw: made.append(_FakeEstimator()) or made[-1])
+    picture = tmp_path / "p.jpg"
+    cv2.imwrite(str(picture), draw())
+    code = cli.main(["predict", f"model={tiny_ir}", "task=pose", f"source={picture}",
+                     "conf=0.0", "save=false", f"project={tmp_path}"])
+    assert code == 0
+
+
+@pytest.fixture(scope="module")
+def toy(tmp_path_factory):
+    return pose_toy.make(tmp_path_factory.mktemp("pose"), train=12, val=4)
+
+
+def test_a_crop_carries_its_keypoints(toy):
+    from easydetect.data.keypoints import KeypointDataset
+
+    ds = KeypointDataset(toy, "train", augment=False)
+    crop, xy, weight, i = ds[0]
+    assert crop.shape == (3, *INPUT) and xy.shape == (17, 2) and weight.all()
+    kpts = np.asarray(ds.items[0][1]["keypoints"]).reshape(17, 3)
+    np.testing.assert_allclose(apply(invert(ds.matrix(0)), xy), kpts[:, :2], atol=1e-3)
+    # the drawn joint is where the keypoint says (a white-ish dot on the figure)
+    x, y = xy[9].round().astype(int)
+    assert crop[:, y - 1:y + 2, x - 1:x + 2].max() > 150
+
+    aug = KeypointDataset(toy, "train", augment=True)
+    for k in range(10):
+        c, p, wt, _ = aug[k % len(aug)]
+        assert c.shape == (3, *INPUT)
+        inside = (p[:, 0] >= 0) & (p[:, 0] < INPUT[1]) & (p[:, 1] >= 0) & (p[:, 1] < INPUT[0])
+        assert not (wt.astype(bool) & ~inside).any()
+
+
+@needs_torch
+def test_a_training_step_lowers_the_loss_and_the_export_matches(toy, tmp_path, tiny_ir):
+    import torch
+
+    from easydetect.data.keypoints import KeypointDataset
+    from easydetect.nn.posenet import PoseNet, simcc_loss
+
+    torch.manual_seed(0)
+    ds = KeypointDataset(toy, "train", augment=False)
+    batch = [ds[i] for i in range(4)]
+    crops = torch.from_numpy(np.stack([b[0] for b in batch]))
+    xy = torch.from_numpy(np.stack([b[1] for b in batch]))
+    weight = torch.from_numpy(np.stack([b[2] for b in batch]))
+    net = PoseNet("s")
+    opt = torch.optim.AdamW(net.parameters(), lr=1e-3)
+    losses = []
+    for _ in range(8):
+        loss = simcc_loss(*net(crops), xy, weight)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        losses.append(loss.item())
+    assert losses[-1] < losses[0]
+
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "train_pose", Path(__file__).resolve().parent.parent / "tools" / "train_pose.py")
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    ckpt = tmp_path / "best.pt"
+    torch.save({"kind": "pose", "size": "s", "model": net.eval().state_dict()}, ckpt)
+    onnx_path = tool.export(ckpt)
+    assert onnx_path.name == "pose-s.onnx"
+
+    from easydetect.pose import KeypointEstimator
+
+    img = np.zeros((240, 320, 3), np.uint8)
+    for backend in ("onnxruntime", "openvino"):
+        est = KeypointEstimator(onnx_path, backend=backend)
+        kp, conf = est(img, np.array([[10, 10, 100, 200], [150, 20, 300, 230]], np.float32))
+        assert kp.shape == (2, 17, 2) and conf.shape == (2, 17)
+        empty = est(img, np.zeros((0, 4), np.float32))
+        assert empty[0].shape == (0, 17, 2)
+
+    # the whole pipeline scores: detector boxes, then keypoints in each
+    scores = tool.evaluate_pipeline(str(toy), onnx_path, str(tiny_ir), "CPU", limit=2)
+    assert set(scores) == {"ap", "ap50", "ap75"} and 0.0 <= scores["ap"] <= 1.0
