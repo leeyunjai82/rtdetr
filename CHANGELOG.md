@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- docs/training.md: the measured recipe comparison — on a 40-epoch VOC
+  fine-tune, multi-scale, mosaic and mixup did not beat the default (mixup a
+  tie, all three together −0.05 mAP50-95), so they stay off.
+
 ## 0.4.1
 
 - **Keypoints: `Detector(..., task="pose")` — code only, weights in 0.5.0.**

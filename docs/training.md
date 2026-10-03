@@ -139,11 +139,25 @@ model.train(data="data.yaml", multiscale=True, mosaic=0.5, mixup=0.3)
   both pictures' boxes: finding an object through clutter that is not part of
   it.
 
-Whether they help depends on the data and the length of the run; on a short
-fine-tune from COCO weights they can cost more than they give. They stay off by
-default until measured: `.github/workflows/recipe.yml` trains the same model on
-the same fixed slice of Pascal VOC 2007 (`tools/voc2yolo.py`) once per recipe
-and seed and tabulates the best mAP50-95 of each.
+They stay off by default because, measured, they did not help a fine-tune.
+`.github/workflows/recipe.yml` trained `dfine-n` from its COCO weights on the
+same 800 Pascal VOC 2007 pictures (`tools/voc2yolo.py`, 20 classes), 40 epochs
+at 320, two seeds each, scored on 1000 held-out pictures (best mAP50-95):
+
+| recipe | seed 0 | seed 1 | mean | CPU hours |
+| --- | --- | --- | --- | --- |
+| default | 0.5507 | 0.5507 | **0.551** | 1.2 |
+| `mixup=0.3` | 0.5421 | 0.5529 | 0.548 | 1.9 |
+| `multiscale=True` | 0.5456 | 0.5380 | 0.542 | 1.7 |
+| `mosaic=0.5` | 0.5252 | 0.5368 | 0.531 | 1.8 |
+| all three | 0.5022 | 0.5007 | 0.501 | 1.8 |
+
+Seeds differ by up to 0.012, so mixup is a tie; the rest cost accuracy, all
+three together 0.05, and each makes an epoch about half again as slow. They
+are built for long training from scratch (YOLO trains 300 epochs or more), where
+the model has time to learn from harder pictures; on a short fine-tune that
+time is not there. Try them for long runs on a large dataset of your own, and
+compare against a run without.
 
 ## Early stopping
 
