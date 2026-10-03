@@ -1,0 +1,46 @@
+name: diagnose-pose
+
+# Diagnostic branch only: audits the pose run's checkpoint (see
+# .github/diagnose_pose.py). Read-only towards the run: it downloads the
+# pose-run artifact and uploads nothing.
+
+on:
+  push:
+    branches: ["diag/pose-audit"]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: pose-run
+          path: run
+          run-id: 37059755313
+          github-token: ${{ github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Machine
+        run: lscpu | grep -E "Model name|^CPU\(s\)|Flags" | cut -c1-300; nproc; free -g
+      - name: Install
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[train]"
+      - name: COCO val2017 and annotations
+        run: |
+          mkdir -p coco/images && cd coco
+          curl -sSL --retry 5 -o v.zip http://images.cocodataset.org/zips/val2017.zip
+          unzip -q v.zip -d images && rm v.zip
+          curl -sSL --retry 5 -o a.zip http://images.cocodataset.org/annotations/annotations_trainval2017.zip
+          unzip -q a.zip && rm a.zip
+      - name: Diagnose
+        run: python .github/diagnose_pose.py run/s coco
